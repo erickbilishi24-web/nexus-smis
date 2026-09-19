@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "./db";
-import { alumni, assessments, attendances, communications, feeStructures, grades, learners, marks, payments, schoolSettings, staffProfiles, storeItems, storeMovements, subjects, teacherAllocations, timetableEntries, users } from "../drizzle/schema";
+import { alumni, assessments, attendances, communications, expenditures, feeStructures, grades, guardians, learnerGuardians, learners, marks, notifications, payments, permissions, schoolSettings, staffProfiles, storeItems, storeMovements, subjects, teacherAllocations, timetableEntries, userPermissions, users } from "../drizzle/schema";
+import { permissionCatalog } from "./smis";
 
 async function main() {
 const db = await getDb();
@@ -9,6 +10,10 @@ if (!db) throw new Error("DATABASE_UNAVAILABLE");
 const existingUsers = await db.select().from(users).where(eq(users.openId, "demo-owner")).limit(1);
 const owner = existingUsers[0] ?? (await db.insert(users).values({ openId: "demo-owner", name: "Erickology", email: "admin@ebunangwe.school", loginMethod: "demo", role: "admin" }).$returningId())[0];
 const ownerId = owner.id;
+
+for (const [permissionKey, description] of permissionCatalog) {
+  if (!(await db.select().from(permissions).where(eq(permissions.permissionKey, permissionKey)).limit(1)).length) await db.insert(permissions).values({ permissionKey, description });
+}
 
 if (!(await db.select().from(schoolSettings).limit(1)).length) await db.insert(schoolSettings).values({ schoolName: "Ebunangwe Junior School", motto: "See the school day clearly.", currentTerm: "Term 2", academicYear: 2026, includeFeesOnReportCard: 1 });
 
@@ -39,6 +44,11 @@ for (const learner of learnerSeeds) {
   if (!(await db.select().from(learners).where(eq(learners.admissionNumber, learner.admissionNumber)).limit(1)).length) await db.insert(learners).values(learner);
 }
 const learnersNow = await db.select().from(learners);
+if (!(await db.select().from(guardians).limit(1)).length) {
+  const guardianId = (await db.insert(guardians).values({ fullName: "Mary Mwende", phone: "+254 711 000 024", email: "mary.mwende@example.test", communicationPreference: "sms" }).$returningId())[0].id;
+  await db.insert(learnerGuardians).values({ learnerId: learnersNow[0].id, guardianId, relationship: "Mother", isPrimary: 1 });
+}
+if (!(await db.select().from(userPermissions).where(eq(userPermissions.userId, ownerId)).limit(1)).length) await db.insert(userPermissions).values({ userId: ownerId, permissionKey: "ai.access", allowed: 1 });
 const assessmentExisting = await db.select().from(assessments).limit(1);
 const assessment = assessmentExisting[0] ?? (await db.insert(assessments).values({ title: "Term 2 End Term", term: "Term 2", academicYear: 2026, gradeId: grade8.id, status: "open" }).$returningId())[0];
 for (const learner of learnersNow) {
@@ -68,11 +78,13 @@ if (!(await db.select().from(storeItems).limit(1)).length) {
 if (!(await db.select().from(teacherAllocations).limit(1)).length) await db.insert(teacherAllocations).values(subjectsNow.slice(0, 3).map(subject => ({ teacherUserId: ownerId, gradeId: grade8.id, subjectId: subject.id, academicYear: 2026 })));
 if (!(await db.select().from(timetableEntries).limit(1)).length) await db.insert(timetableEntries).values([{ gradeId: grade8.id, subjectId: subjectsNow[0].id, teacherUserId: ownerId, dayOfWeek: 1, period: 1, room: "Room 8B" }, { gradeId: grade8.id, subjectId: subjectsNow[1].id, teacherUserId: ownerId, dayOfWeek: 1, period: 2, room: "Room 8B" }]);
 if (!(await db.select().from(communications).limit(1)).length) await db.insert(communications).values({ audience: "parents", channel: "notice", subject: "Term 2 progress update", body: "CBC marklists are being reviewed this week. Please check in with the class teacher for any questions.", status: "draft", createdByUserId: ownerId });
+if (!(await db.select().from(expenditures).limit(1)).length) await db.insert(expenditures).values({ expenditureDate: new Date(), amount: "8500", category: "Learning materials", description: "Term 2 exercise books and chalk", responsiblePerson: "Erickology", createdByUserId: ownerId });
+if (!(await db.select().from(notifications).limit(1)).length) await db.insert(notifications).values({ audience: "all", title: "Term 2 marklist review", body: "Teachers should complete marklist review before Friday.", status: "published", createdByUserId: ownerId });
 
 console.log("Seeded Kenyan SMIS modules", { ownerId, learners: learnersNow.length, subjects: subjectsNow.length });
 }
 
-main().catch(error => {
+main().then(() => process.exit(0)).catch(error => {
   console.error(error);
   process.exit(1);
 });

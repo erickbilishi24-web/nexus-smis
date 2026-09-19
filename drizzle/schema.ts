@@ -36,6 +36,9 @@ export const schoolSettings = mysqlTable("school_settings", {
   logoPath: varchar("logoPath", { length: 255 }),
   principalSignaturePath: varchar("principalSignaturePath", { length: 255 }),
   classTeacherSignaturePath: varchar("classTeacherSignaturePath", { length: 255 }),
+  address: varchar("address", { length: 255 }),
+  phone: varchar("phone", { length: 40 }),
+  email: varchar("email", { length: 320 }),
 });
 
 export const staffProfiles = mysqlTable("staff_profiles", {
@@ -67,9 +70,28 @@ export const learners = mysqlTable("learners", {
   fullName: varchar("fullName", { length: 160 }).notNull(),
   guardianName: varchar("guardianName", { length: 160 }),
   guardianPhone: varchar("guardianPhone", { length: 40 }),
+  gender: mysqlEnum("gender", ["male", "female", "other"]),
+  dateOfBirth: date("dateOfBirth"),
+  contactAddress: varchar("contactAddress", { length: 255 }),
   gradeId: int("gradeId").notNull(),
   status: mysqlEnum("status", ["active", "archived"]).notNull().default("active"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const guardians = mysqlTable("guardians", {
+  id: int("id").autoincrement().primaryKey(),
+  fullName: varchar("fullName", { length: 160 }).notNull(),
+  phone: varchar("phone", { length: 40 }),
+  email: varchar("email", { length: 320 }),
+  communicationPreference: mysqlEnum("communicationPreference", ["sms", "email", "phone"]).notNull().default("sms"),
+});
+
+export const learnerGuardians = mysqlTable("learner_guardians", {
+  id: int("id").autoincrement().primaryKey(),
+  learnerId: int("learnerId").notNull(),
+  guardianId: int("guardianId").notNull(),
+  relationship: varchar("relationship", { length: 80 }).notNull(),
+  isPrimary: int("isPrimary").notNull().default(0),
 });
 
 export const teacherAllocations = mysqlTable("teacher_allocations", {
@@ -181,6 +203,40 @@ export const auditLogs = mysqlTable("smis_audit_logs", {
   entityType: varchar("entityType", { length: 80 }),
   entityId: varchar("entityId", { length: 80 }),
   metadata: text("metadata"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const permissions = mysqlTable("permissions", {
+  id: int("id").autoincrement().primaryKey(),
+  permissionKey: varchar("permissionKey", { length: 120 }).notNull().unique(),
+  description: varchar("description", { length: 255 }).notNull(),
+});
+
+export const userPermissions = mysqlTable("user_permissions", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  permissionKey: varchar("permissionKey", { length: 120 }).notNull(),
+  allowed: int("allowed").notNull().default(1),
+});
+
+export const expenditures = mysqlTable("expenditures", {
+  id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+  expenditureDate: date("expenditureDate").notNull(),
+  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+  category: varchar("category", { length: 120 }).notNull(),
+  description: varchar("description", { length: 255 }).notNull(),
+  responsiblePerson: varchar("responsiblePerson", { length: 160 }).notNull(),
+  createdByUserId: int("createdByUserId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const notifications = mysqlTable("notifications", {
+  id: int("id").autoincrement().primaryKey(),
+  audience: mysqlEnum("audience", ["parents", "staff", "learners", "all"]).notNull(),
+  title: varchar("title", { length: 160 }).notNull(),
+  body: text("body").notNull(),
+  status: mysqlEnum("status", ["draft", "published", "archived"]).notNull().default("draft"),
+  createdByUserId: int("createdByUserId").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 

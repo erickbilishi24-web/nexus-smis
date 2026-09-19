@@ -6,11 +6,15 @@ import {
   attendances,
   auditLogs,
   communications,
+  expenditures,
+  guardians,
+  learnerGuardians,
   feeStructures,
   grades,
   learners,
   marks,
   payments,
+  permissions,
   schoolSettings,
   staffProfiles,
   storeItems,
@@ -18,6 +22,7 @@ import {
   subjects,
   teacherAllocations,
   timetableEntries,
+  userPermissions,
   users,
 } from "../drizzle/schema";
 
@@ -29,6 +34,30 @@ export const permissionsByRole: Record<string, string[]> = {
   storekeeper: ["dashboard.view", "store.view", "store.edit", "reports.view"],
   other: ["dashboard.view"],
 };
+
+export const permissionCatalog = [
+  ["learners.view", "View learners"], ["learners.add", "Add learners"], ["learners.edit", "Edit learners"], ["learners.deactivate", "Deactivate learners"],
+  ["attendance.view", "View attendance"], ["attendance.edit", "Enter and edit attendance"], ["assessments.view", "View marks"], ["assessments.edit", "Enter and edit marks"],
+  ["reports.view", "View reports"], ["finance.view", "View finance"], ["finance.edit", "Record payments and expenditure"], ["store.view", "View inventory"], ["store.edit", "Manage inventory"],
+  ["timetable.view", "View timetable"], ["timetable.edit", "Edit timetable"], ["communication.edit", "Manage communication"], ["alumni.edit", "Manage alumni"], ["users.edit", "Manage users"], ["settings.edit", "Manage settings"], ["ai.access", "Access NEXUS AI"], ["audit.view", "View audit logs"],
+] as const;
+
+export async function effectivePermissions(userId: number, role: string) {
+  const db = await requireDb();
+  const base = permissionsByRole[role] ?? [];
+  const overrides = await db.select().from(userPermissions).where(eq(userPermissions.userId, userId));
+  const values = new Set(base);
+  for (const override of overrides) {
+    if (override.allowed) values.add(override.permissionKey);
+    else values.delete(override.permissionKey);
+  }
+  return Array.from(values);
+}
+
+export async function userCan(userId: number, role: string, permission: string) {
+  const permissions = await effectivePermissions(userId, role);
+  return permissions.includes("*") || permissions.includes(permission);
+}
 
 export function cbcLevel(score: number) {
   if (score >= 90) return "EE1";
