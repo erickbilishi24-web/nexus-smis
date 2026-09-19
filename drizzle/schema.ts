@@ -7,6 +7,7 @@ import {
   mysqlTable,
   text,
   timestamp,
+  uniqueIndex,
   varchar,
 } from "drizzle-orm/mysql-core";
 
@@ -92,7 +93,7 @@ export const learnerGuardians = mysqlTable("learner_guardians", {
   guardianId: int("guardianId").notNull(),
   relationship: varchar("relationship", { length: 80 }).notNull(),
   isPrimary: int("isPrimary").notNull().default(0),
-});
+}, table => ({ learnerGuardianUnique: uniqueIndex("learner_guardian_unique").on(table.learnerId, table.guardianId) }));
 
 export const teacherAllocations = mysqlTable("teacher_allocations", {
   id: int("id").autoincrement().primaryKey(),
@@ -100,7 +101,7 @@ export const teacherAllocations = mysqlTable("teacher_allocations", {
   gradeId: int("gradeId").notNull(),
   subjectId: int("subjectId").notNull(),
   academicYear: int("academicYear").notNull(),
-});
+}, table => ({ teacherAllocationUnique: uniqueIndex("teacher_allocation_unique").on(table.teacherUserId, table.gradeId, table.subjectId, table.academicYear) }));
 
 export const assessments = mysqlTable("assessments", {
   id: int("id").autoincrement().primaryKey(),
@@ -121,7 +122,7 @@ export const marks = mysqlTable("marks", {
   average: decimal("average", { precision: 5, scale: 2 }).notNull(),
   cbcLevel: mysqlEnum("cbcLevel", ["EE1", "EE2", "ME1", "ME2", "AE1", "AE2", "BE1", "BE2"]).notNull(),
   teacherRemark: varchar("teacherRemark", { length: 255 }),
-});
+}, table => ({ markUnique: uniqueIndex("mark_unique").on(table.assessmentId, table.learnerId, table.subjectId) }));
 
 export const attendances = mysqlTable("attendances", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
@@ -130,7 +131,7 @@ export const attendances = mysqlTable("attendances", {
   attendanceDate: date("attendanceDate").notNull(),
   status: mysqlEnum("status", ["present", "absent", "late", "excused"]).notNull(),
   note: varchar("note", { length: 255 }),
-});
+}, table => ({ attendanceUnique: uniqueIndex("attendance_unique").on(table.learnerId, table.attendanceDate) }));
 
 export const feeStructures = mysqlTable("fee_structures", {
   id: int("id").autoincrement().primaryKey(),
@@ -174,7 +175,7 @@ export const timetableEntries = mysqlTable("timetable_entries", {
   dayOfWeek: int("dayOfWeek").notNull(),
   period: int("period").notNull(),
   room: varchar("room", { length: 80 }),
-});
+}, table => ({ timetableGradeSlotUnique: uniqueIndex("timetable_grade_slot_unique").on(table.gradeId, table.dayOfWeek, table.period), timetableTeacherSlotUnique: uniqueIndex("timetable_teacher_slot_unique").on(table.teacherUserId, table.dayOfWeek, table.period) }));
 
 export const communications = mysqlTable("communications", {
   id: int("id").autoincrement().primaryKey(),

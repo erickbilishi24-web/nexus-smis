@@ -145,6 +145,11 @@ export async function saveAttendance(input: { learnerId: number; status: "presen
   const db = await requireDb();
   const learner = (await db.select().from(learners).where(eq(learners.id, input.learnerId)).limit(1))[0];
   if (!learner) throw new Error("LEARNER_NOT_FOUND");
+  const actor = (await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1))[0];
+  if (actor?.role === "user") {
+    const allocation = (await db.select().from(teacherAllocations).where(eq(teacherAllocations.teacherUserId, userId)).limit(1))[0];
+    if (!allocation || allocation.gradeId !== learner.gradeId) throw new Error("ATTENDANCE_SCOPE_FORBIDDEN");
+  }
   await db.insert(attendances).values({ learnerId: input.learnerId, status: input.status, attendanceDate: new Date(input.attendanceDate), note: input.note ?? null, gradeId: learner.gradeId }).onDuplicateKeyUpdate({ set: { status: input.status, note: input.note ?? null } });
   await writeAudit(userId, "attendance.save", "learner", learner.id, input);
   return { ok: true };
@@ -163,6 +168,14 @@ export async function listMarks(assessmentId?: number) {
 
 export async function saveMark(input: { assessmentId: number; learnerId: number; subjectId: number; midTerm: number; endTerm: number; teacherRemark?: string | null }, userId: number) {
   const db = await requireDb();
+  const assessment = (await db.select().from(assessments).where(eq(assessments.id, input.assessmentId)).limit(1))[0];
+  const learner = (await db.select().from(learners).where(eq(learners.id, input.learnerId)).limit(1))[0];
+  if (!assessment || !learner || assessment.gradeId !== learner.gradeId) throw new Error("MARK_CONTEXT_INVALID");
+  const actor = (await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1))[0];
+  if (actor?.role === "user") {
+    const allocation = (await db.select().from(teacherAllocations).where(and(eq(teacherAllocations.teacherUserId, userId), eq(teacherAllocations.gradeId, learner.gradeId), eq(teacherAllocations.subjectId, input.subjectId))).limit(1))[0];
+    if (!allocation) throw new Error("MARK_SCOPE_FORBIDDEN");
+  }
   const midTerm = assertScore(input.midTerm);
   const endTerm = assertScore(input.endTerm);
   const average = Math.round(((midTerm + endTerm) / 2) * 100) / 100;
