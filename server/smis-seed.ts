@@ -5,17 +5,19 @@ import { alumni, assessments, attendances, communications, expenditures, feeStru
 import { permissionCatalog } from "./smis";
 
 async function main() {
+const seedUsername = process.env.NEXUS_SEED_USERNAME ?? "superadmin";
+const seedPassword = process.env.NEXUS_SEED_PASSWORD;
 const db = await getDb();
 if (!db) throw new Error("DATABASE_UNAVAILABLE");
 
 	const existingUsers = await db.select().from(users).where(eq(users.openId, "demo-owner")).limit(1);
-	const owner = existingUsers[0] ?? (await db.insert(users).values({ openId: "demo-owner", username: "superadmin", name: "Erickology", email: "admin@ebunangwe.school", passwordHash: await bcrypt.hash("ChangeMe!123", 12), loginMethod: "iam", role: "admin", accountStatus: "active", mustChangePassword: 1 }).$returningId())[0];
-	if (!existingUsers[0]) console.log("Development IAM account: superadmin / ChangeMe!123 (change immediately)");
+	if (!existingUsers[0] && !seedPassword) throw new Error("NEXUS_SEED_PASSWORD is required when creating the initial IAM administrator");
+	const owner = existingUsers[0] ?? (await db.insert(users).values({ openId: "demo-owner", username: seedUsername, name: "Erickology", email: "admin@ebunangwe.school", passwordHash: await bcrypt.hash(seedPassword!, 12), loginMethod: "iam", role: "admin", accountStatus: "active", mustChangePassword: 1 }).$returningId())[0];
 	const ownerId = owner.id;
 	const ownerRecord = (await db.select().from(users).where(eq(users.id, ownerId)).limit(1))[0];
 	if (ownerRecord && (!ownerRecord.username || !ownerRecord.passwordHash)) {
-	  await db.update(users).set({ username: "superadmin", passwordHash: await bcrypt.hash("ChangeMe!123", 12), loginMethod: "iam", accountStatus: "active", mustChangePassword: 1 }).where(eq(users.id, ownerId));
-	  console.log("Development IAM account ready: superadmin / ChangeMe!123 (change immediately)");
+	  if (!seedPassword) throw new Error("NEXUS_SEED_PASSWORD is required to provision the initial IAM administrator");
+	  await db.update(users).set({ username: seedUsername, passwordHash: await bcrypt.hash(seedPassword, 12), loginMethod: "iam", accountStatus: "active", mustChangePassword: 1 }).where(eq(users.id, ownerId));
 	}
 
 for (const [permissionKey, description] of permissionCatalog) {

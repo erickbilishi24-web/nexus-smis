@@ -9,6 +9,7 @@ import {
   archiveLearner,
   createCommunication,
   generateTimetable,
+  generateAutomaticTimetable,
   getDashboardSnapshot,
   getFinanceOverview,
   getReportCard,
@@ -24,11 +25,13 @@ import {
   listMarks,
   listStaff,
   listTimetable,
+  listTimetableRequirements,
   recordPayment,
   recordStoreMovement,
   saveAttendance,
   saveMark,
   saveSettings,
+  setTimetableRequirement,
   effectivePermissions,
   userCan,
 } from "./smis";
@@ -115,6 +118,9 @@ export const appRouter = router({
     timetable: router({
       list: permissionProcedure("timetable.view").query(() => listTimetable()),
       generate: permissionProcedure("timetable.edit").input(z.object({ entries: z.array(z.object({ gradeId: z.number().int().positive(), subjectId: z.number().int().positive(), teacherUserId: z.number().int().positive(), dayOfWeek: z.number().int().min(1).max(7), period: z.number().int().positive(), room: z.string().max(80).nullable().optional() })) })).mutation(({ input, ctx }) => generateTimetable(input.entries, currentUserId(ctx.user))),
+      requirements: permissionProcedure("timetable.view").input(z.object({ academicYear: z.number().int().optional() }).optional()).query(({ input }) => listTimetableRequirements(input?.academicYear)),
+      setRequirement: permissionProcedure("timetable.edit").input(z.object({ gradeId: z.number().int().positive(), subjectId: z.number().int().positive(), academicYear: z.number().int().min(2000).max(2100), periodsPerWeek: z.number().int().min(0).max(40) })).mutation(({ input, ctx }) => setTimetableRequirement(input, currentUserId(ctx.user))),
+      generateAutomatic: permissionProcedure("timetable.edit").input(z.object({ academicYear: z.number().int().min(2000).max(2100).optional(), regenerate: z.boolean(), days: z.number().int().min(1).max(7).optional(), periodsPerDay: z.number().int().min(1).max(12).optional() })).mutation(({ input, ctx }) => generateAutomaticTimetable(input, currentUserId(ctx.user))),
     }),
     communication: router({
       list: permissionProcedure("communication.edit").query(() => listCommunications()),

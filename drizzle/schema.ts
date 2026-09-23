@@ -184,6 +184,14 @@ export const timetableEntries = mysqlTable("timetable_entries", {
   room: varchar("room", { length: 80 }),
 }, table => ({ timetableGradeSlotUnique: uniqueIndex("timetable_grade_slot_unique").on(table.gradeId, table.dayOfWeek, table.period), timetableTeacherSlotUnique: uniqueIndex("timetable_teacher_slot_unique").on(table.teacherUserId, table.dayOfWeek, table.period) }));
 
+export const timetableRequirements = mysqlTable("timetable_requirements", {
+  id: int("id").autoincrement().primaryKey(),
+  gradeId: int("gradeId").notNull(),
+  subjectId: int("subjectId").notNull(),
+  academicYear: int("academicYear").notNull(),
+  periodsPerWeek: int("periodsPerWeek").notNull(),
+}, table => ({ timetableRequirementUnique: uniqueIndex("timetable_requirement_unique").on(table.gradeId, table.subjectId, table.academicYear) }));
+
 export const communications = mysqlTable("communications", {
   id: int("id").autoincrement().primaryKey(),
   audience: mysqlEnum("audience", ["parents", "staff", "learners", "all"]).notNull(),

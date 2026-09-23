@@ -22,6 +22,7 @@ import {
   subjects,
   teacherAllocations,
   timetableEntries,
+  timetableRequirements,
   userPermissions,
   users,
 } from "../drizzle/schema";
@@ -251,6 +252,48 @@ export async function generateTimetable(entries: Array<{ dayOfWeek: number; peri
   if (entries.length) await db.insert(timetableEntries).values(entries);
   await writeAudit(userId, "timetable.generate", "timetable", null, { count: entries.length });
   return { placed: entries.length, conflicts: [] };
+}
+
+export async function listTimetableRequirements(academicYear?: number) {
+  const db = await requireDb();
+  const year = academicYear ?? Number((await getSettings()).academicYear);
+  return db.select({ requirement: timetableRequirements, grade: grades, subject: subjects }).from(timetableRequirements).innerJoin(grades, eq(grades.id, timetableRequirements.gradeId)).innerJoin(subjects, eq(subjects.id, timetableRequirements.subjectId)).where(eq(timetableRequirements.academicYear, year)).orderBy(grades.name, subjects.name);
+}
+
+export async function setTimetableRequirement(input: { gradeId: number; subjectId: number; academicYear: number; periodsPerWeek: number }, userId: number) {
+  const db = await requireDb();
+  if (input.periodsPerWeek <= 0) await db.delete(timetableRequirements).where(and(eq(timetableRequirements.gradeId, input.gradeId), eq(timetableRequirements.subjectId, input.subjectId), eq(timetableRequirements.academicYear, input.academicYear)));
+  else await db.insert(timetableRequirements).values(input).onDuplicateKeyUpdate({ set: { periodsPerWeek: input.periodsPerWeek } });
+  await writeAudit(userId, "timetable.requirement.set", "timetable_requirement", `${input.gradeId}:${input.subjectId}:${input.academicYear}`, input);
+}
+
+export async function generateAutomaticTimetable(input: { academicYear?: number; regenerate: boolean; days?: number; periodsPerDay?: number }, userId: number) {
+  const db = await requireDb();
+  const academicYear = input.academicYear ?? Number((await getSettings()).academicYear);
+  const days = input.days ?? 5; const periodsPerDay = input.periodsPerDay ?? 8;
+  if (input.regenerate) await db.delete(timetableEntries);
+  const requirements = await db.select({ requirement: timetableRequirements, grade: grades, subject: subjects }).from(timetableRequirements).innerJoin(grades, eq(grades.id, timetableRequirements.gradeId)).innerJoin(subjects, eq(subjects.id, timetableRequirements.subjectId)).where(eq(timetableRequirements.academicYear, academicYear));
+  const allocations = await db.select().from(teacherAllocations).where(eq(teacherAllocations.academicYear, academicYear));
+  const eligibleByGradeSubject = new Map<string, number[]>();
+  for (const allocation of allocations) { const key = `${allocation.gradeId}:${allocation.subjectId}`; eligibleByGradeSubject.set(key, [...(eligibleByGradeSubject.get(key) ?? []), allocation.teacherUserId]); }
+  const existing = await db.select().from(timetableEntries);
+  const occupied = new Set(existing.map(entry => `${entry.gradeId}:${entry.dayOfWeek}:${entry.period}`)); const teacherBusy = new Set(existing.map(entry => `${entry.teacherUserId}:${entry.dayOfWeek}:${entry.period}`)); const teacherLoad = new Map<number, number>();
+  for (const entry of existing) teacherLoad.set(entry.teacherUserId, (teacherLoad.get(entry.teacherUserId) ?? 0) + 1);
+  const counts = new Map<string, number>(); for (const entry of existing) counts.set(`${entry.gradeId}:${entry.subjectId}`, (counts.get(`${entry.gradeId}:${entry.subjectId}`) ?? 0) + 1);
+  const unplaced: Array<{ grade: string; subject: string; missing: number }> = []; let placed = 0;
+  for (const row of requirements) {
+    const key = `${row.requirement.gradeId}:${row.requirement.subjectId}`; const needed = Math.max(0, row.requirement.periodsPerWeek - (counts.get(key) ?? 0)); const teachers = Array.from(new Set(eligibleByGradeSubject.get(key) ?? [])); let missing = needed;
+    for (let lesson = 0; lesson < needed; lesson += 1) {
+      let best: { teacherId: number; day: number; period: number; load: number } | null = null;
+      for (let day = 1; day <= days; day += 1) for (let period = 1; period <= periodsPerDay; period += 1) { if (occupied.has(`${row.requirement.gradeId}:${day}:${period}`)) continue; for (const teacherId of teachers) { if (teacherBusy.has(`${teacherId}:${day}:${period}`)) continue; const load = teacherLoad.get(teacherId) ?? 0; if (!best || load < best.load) best = { teacherId, day, period, load }; } }
+      if (!best) continue;
+      await db.insert(timetableEntries).values({ gradeId: row.requirement.gradeId, subjectId: row.requirement.subjectId, teacherUserId: best.teacherId, dayOfWeek: best.day, period: best.period, room: null });
+      occupied.add(`${row.requirement.gradeId}:${best.day}:${best.period}`); teacherBusy.add(`${best.teacherId}:${best.day}:${best.period}`); teacherLoad.set(best.teacherId, best.load + 1); placed += 1; missing -= 1;
+    }
+    if (missing > 0) unplaced.push({ grade: row.grade.name, subject: row.subject.name, missing });
+  }
+  await writeAudit(userId, "timetable.generate.automatic", "timetable", null, { academicYear, placed, unplaced, regenerate: input.regenerate });
+  return { placed, unplaced, regenerated: input.regenerate, requirements: requirements.length, slots: days * periodsPerDay };
 }
 
 export async function listCommunications() {
