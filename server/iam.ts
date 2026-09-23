@@ -1,0 +1,85 @@
+import crypto from "node:crypto";
+import bcrypt from "bcryptjs";
+import { and, eq, or } from "drizzle-orm";
+import { getDb } from "./db";
+import { auditLogs, iamSessions, users } from "../drizzle/schema";
+import type { Request, Response } from "express";
+
+export const IAM_COOKIE_NAME = "nexus_iam_session";
+const MAX_FAILED_LOGINS = 5;
+const SESSION_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 30;
+
+type LoginInput = { identifier: string; password: string };
+
+function cookieOptions() {
+  return { httpOnly: true, secure: true, sameSite: "none" as const, path: "/", maxAge: SESSION_MAX_AGE_MS };
+}
+
+function tokenHash(token: string) {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+function getCookie(req: Request) {
+  const value = req.headers.cookie?.split(";").map(part => part.trim()).find(part => part.startsWith(`${IAM_COOKIE_NAME}=`));
+  return value ? decodeURIComponent(value.slice(IAM_COOKIE_NAME.length + 1)) : null;
+}
+
+async function audit(userId: number | null, action: string, metadata: Record<string, unknown>, req: Request) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(auditLogs).values({ userId, action, entityType: "iam", entityId: userId == null ? null : String(userId), metadata: JSON.stringify(metadata) });
+}
+
+export async function authenticateIamRequest(req: Request) {
+  const token = getCookie(req);
+  if (!token) return null;
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select({ session: iamSessions, user: users }).from(iamSessions).innerJoin(users, eq(users.id, iamSessions.userId)).where(and(eq(iamSessions.sessionHash, tokenHash(token)), eq(iamSessions.status, "active"))).limit(1);
+  const row = rows[0];
+  if (!row || row.user.accountStatus !== "active" || row.user.accountLocked) return null;
+  return row.user;
+}
+
+export async function loginWithIam(input: LoginInput, req: Request, res: Response) {
+  const db = await getDb();
+  if (!db) throw new Error("DATABASE_UNAVAILABLE");
+  const identifier = input.identifier.trim().toLowerCase();
+  const row = (await db.select().from(users).where(or(eq(users.username, identifier), eq(users.email, identifier))).limit(1))[0];
+  if (!row || !row.passwordHash) {
+    await audit(null, "IAM_LOGIN_FAILED", { reason: "invalid_credentials" }, req);
+    throw new Error("INVALID_CREDENTIALS");
+  }
+  if (row.accountStatus === "disabled" || row.accountStatus === "pending_activation") throw new Error("ACCOUNT_DISABLED");
+  if (row.accountLocked) throw new Error("ACCOUNT_LOCKED");
+  const valid = await bcrypt.compare(input.password, row.passwordHash);
+  if (!valid) {
+    const failed = row.failedLoginAttempts + 1;
+    await db.update(users).set({ failedLoginAttempts: failed, accountLocked: failed >= MAX_FAILED_LOGINS ? 1 : 0, accountStatus: failed >= MAX_FAILED_LOGINS ? "locked" : row.accountStatus }).where(eq(users.id, row.id));
+    await audit(row.id, failed >= MAX_FAILED_LOGINS ? "IAM_ACCOUNT_LOCKED" : "IAM_LOGIN_FAILED", { attempts: failed }, req);
+    throw new Error(failed >= MAX_FAILED_LOGINS ? "ACCOUNT_LOCKED" : "INVALID_CREDENTIALS");
+  }
+  const token = crypto.randomBytes(48).toString("base64url");
+  await db.update(users).set({ failedLoginAttempts: 0, accountLocked: 0, lastSignedIn: new Date() }).where(eq(users.id, row.id));
+  await db.insert(iamSessions).values({ userId: row.id, sessionHash: tokenHash(token), ipAddress: req.ip, userAgent: req.get("user-agent") ?? null });
+  res.cookie(IAM_COOKIE_NAME, token, cookieOptions());
+  await audit(row.id, "IAM_LOGIN_SUCCESS", {}, req);
+  return row;
+}
+
+export async function logoutIam(req: Request, res: Response) {
+  const token = getCookie(req);
+  const db = await getDb();
+  if (db && token) await db.update(iamSessions).set({ status: "revoked", logoutAt: new Date() }).where(eq(iamSessions.sessionHash, tokenHash(token)));
+  res.clearCookie(IAM_COOKIE_NAME, cookieOptions());
+}
+
+export async function changeIamPassword(userId: number, currentPassword: string, newPassword: string, req: Request) {
+  const db = await getDb();
+  if (!db) throw new Error("DATABASE_UNAVAILABLE");
+  const user = (await db.select().from(users).where(eq(users.id, userId)).limit(1))[0];
+  if (!user?.passwordHash || !(await bcrypt.compare(currentPassword, user.passwordHash))) throw new Error("INVALID_CURRENT_PASSWORD");
+  if (newPassword.length < 10) throw new Error("PASSWORD_TOO_SHORT");
+  await db.update(users).set({ passwordHash: await bcrypt.hash(newPassword, 12), mustChangePassword: 0, passwordChangedAt: new Date() }).where(eq(users.id, userId));
+  await audit(userId, "IAM_PASSWORD_CHANGED", {}, req);
+}

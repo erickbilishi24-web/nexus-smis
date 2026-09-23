@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import bcrypt from "bcryptjs";
 import { getDb } from "./db";
 import { alumni, assessments, attendances, communications, expenditures, feeStructures, grades, guardians, learnerGuardians, learners, marks, notifications, payments, permissions, schoolSettings, staffProfiles, storeItems, storeMovements, subjects, teacherAllocations, timetableEntries, userPermissions, users } from "../drizzle/schema";
 import { permissionCatalog } from "./smis";
@@ -7,9 +8,15 @@ async function main() {
 const db = await getDb();
 if (!db) throw new Error("DATABASE_UNAVAILABLE");
 
-const existingUsers = await db.select().from(users).where(eq(users.openId, "demo-owner")).limit(1);
-const owner = existingUsers[0] ?? (await db.insert(users).values({ openId: "demo-owner", name: "Erickology", email: "admin@ebunangwe.school", loginMethod: "demo", role: "admin" }).$returningId())[0];
-const ownerId = owner.id;
+	const existingUsers = await db.select().from(users).where(eq(users.openId, "demo-owner")).limit(1);
+	const owner = existingUsers[0] ?? (await db.insert(users).values({ openId: "demo-owner", username: "superadmin", name: "Erickology", email: "admin@ebunangwe.school", passwordHash: await bcrypt.hash("ChangeMe!123", 12), loginMethod: "iam", role: "admin", accountStatus: "active", mustChangePassword: 1 }).$returningId())[0];
+	if (!existingUsers[0]) console.log("Development IAM account: superadmin / ChangeMe!123 (change immediately)");
+	const ownerId = owner.id;
+	const ownerRecord = (await db.select().from(users).where(eq(users.id, ownerId)).limit(1))[0];
+	if (ownerRecord && (!ownerRecord.username || !ownerRecord.passwordHash)) {
+	  await db.update(users).set({ username: "superadmin", passwordHash: await bcrypt.hash("ChangeMe!123", 12), loginMethod: "iam", accountStatus: "active", mustChangePassword: 1 }).where(eq(users.id, ownerId));
+	  console.log("Development IAM account ready: superadmin / ChangeMe!123 (change immediately)");
+	}
 
 for (const [permissionKey, description] of permissionCatalog) {
   if (!(await db.select().from(permissions).where(eq(permissions.permissionKey, permissionKey)).limit(1)).length) await db.insert(permissions).values({ permissionKey, description });

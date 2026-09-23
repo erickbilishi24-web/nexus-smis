@@ -15,8 +15,15 @@ import {
 export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
   openId: varchar("openId", { length: 64 }).notNull().unique(),
+  username: varchar("username", { length: 120 }).unique(),
   name: text("name"),
   email: varchar("email", { length: 320 }),
+  passwordHash: varchar("passwordHash", { length: 255 }),
+  accountStatus: mysqlEnum("accountStatus", ["active", "disabled", "locked", "pending_activation"]).notNull().default("active"),
+  failedLoginAttempts: int("failedLoginAttempts").notNull().default(0),
+  accountLocked: int("accountLocked").notNull().default(0),
+  mustChangePassword: int("mustChangePassword").notNull().default(0),
+  passwordChangedAt: timestamp("passwordChangedAt"),
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -205,6 +212,17 @@ export const auditLogs = mysqlTable("smis_audit_logs", {
   entityId: varchar("entityId", { length: 80 }),
   metadata: text("metadata"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const iamSessions = mysqlTable("iam_sessions", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  sessionHash: varchar("sessionHash", { length: 128 }).notNull().unique(),
+  loginAt: timestamp("loginAt").defaultNow().notNull(),
+  logoutAt: timestamp("logoutAt"),
+  ipAddress: varchar("ipAddress", { length: 80 }),
+  userAgent: varchar("userAgent", { length: 500 }),
+  status: mysqlEnum("status", ["active", "revoked", "expired"]).notNull().default("active"),
 });
 
 export const permissions = mysqlTable("permissions", {

@@ -4,6 +4,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
+import { changeIamPassword, loginWithIam, logoutIam } from "./iam";
 import {
   archiveLearner,
   createCommunication,
@@ -55,9 +56,22 @@ export const appRouter = router({
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
+    login: publicProcedure.input(z.object({ identifier: z.string().min(1).max(320), password: z.string().min(1).max(200) })).mutation(async ({ input, ctx }) => {
+      try {
+        return await loginWithIam(input, ctx.req, ctx.res);
+      } catch (error) {
+        const code = error instanceof Error ? error.message : "INVALID_CREDENTIALS";
+        throw new TRPCError({ code: code === "ACCOUNT_LOCKED" || code === "ACCOUNT_DISABLED" ? "FORBIDDEN" : "UNAUTHORIZED", message: code });
+      }
+    }),
     logout: publicProcedure.mutation(({ ctx }) => {
+      void logoutIam(ctx.req, ctx.res);
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      return { success: true } as const;
+    }),
+    changePassword: protectedProcedure.input(z.object({ currentPassword: z.string().min(1), newPassword: z.string().min(10).max(200) })).mutation(async ({ input, ctx }) => {
+      await changeIamPassword(ctx.user.id, input.currentPassword, input.newPassword, ctx.req);
       return { success: true } as const;
     }),
   }),
