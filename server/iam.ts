@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import { and, eq, or } from "drizzle-orm";
 import { getDb } from "./db";
-import { auditLogs, iamSessions, users } from "../drizzle/schema";
+import { auditLogs, iamPasswordResets, iamSessions, users } from "../drizzle/schema";
 import type { Request, Response } from "express";
 
 export const IAM_COOKIE_NAME = "nexus_iam_session";
@@ -82,4 +82,42 @@ export async function changeIamPassword(userId: number, currentPassword: string,
   if (newPassword.length < 10) throw new Error("PASSWORD_TOO_SHORT");
   await db.update(users).set({ passwordHash: await bcrypt.hash(newPassword, 12), mustChangePassword: 0, passwordChangedAt: new Date() }).where(eq(users.id, userId));
   await audit(userId, "IAM_PASSWORD_CHANGED", {}, req);
+}
+
+export async function adminResetIamPassword(targetUserId: number, actorUserId: number, req: Request) {
+  const db = await getDb();
+  if (!db) throw new Error("DATABASE_UNAVAILABLE");
+  const target = (await db.select().from(users).where(eq(users.id, targetUserId)).limit(1))[0];
+  if (!target) throw new Error("USER_NOT_FOUND");
+  const temporaryPassword = `Nexus-${crypto.randomBytes(8).toString("base64url")}`;
+  await db.update(users).set({ passwordHash: await bcrypt.hash(temporaryPassword, 12), mustChangePassword: 1, accountLocked: 0, failedLoginAttempts: 0, accountStatus: "active" }).where(eq(users.id, targetUserId));
+  await db.update(iamSessions).set({ status: "revoked", logoutAt: new Date() }).where(and(eq(iamSessions.userId, targetUserId), eq(iamSessions.status, "active")));
+  await audit(actorUserId, "IAM_ADMIN_PASSWORD_RESET", { targetUserId }, req);
+  return { temporaryPassword };
+}
+
+export async function requestIamPasswordReset(identifier: string, req: Request) {
+  const db = await getDb();
+  if (!db) throw new Error("DATABASE_UNAVAILABLE");
+  const normalized = identifier.trim().toLowerCase();
+  const user = (await db.select().from(users).where(or(eq(users.username, normalized), eq(users.email, normalized))).limit(1))[0];
+  // Always return the same public result so usernames cannot be enumerated.
+  if (!user || user.accountStatus === "disabled") return { accepted: true } as const;
+  const token = crypto.randomBytes(48).toString("base64url");
+  await db.insert(iamPasswordResets).values({ userId: user.id, tokenHash: tokenHash(token), expiresAt: new Date(Date.now() + 30 * 60 * 1000) });
+  await audit(user.id, "IAM_PASSWORD_RESET_REQUESTED", {}, req);
+  // Delivery is intentionally not logged or returned; connect this token to the configured mail/SMS provider.
+  return { accepted: true } as const;
+}
+
+export async function resetIamPassword(token: string, newPassword: string, req: Request) {
+  const db = await getDb();
+  if (!db) throw new Error("DATABASE_UNAVAILABLE");
+  if (newPassword.length < 10) throw new Error("PASSWORD_TOO_SHORT");
+  const reset = (await db.select().from(iamPasswordResets).where(and(eq(iamPasswordResets.tokenHash, tokenHash(token)))).limit(1))[0];
+  if (!reset || reset.usedAt || reset.expiresAt.getTime() < Date.now()) throw new Error("INVALID_OR_EXPIRED_RESET");
+  await db.update(users).set({ passwordHash: await bcrypt.hash(newPassword, 12), mustChangePassword: 0, passwordChangedAt: new Date(), accountLocked: 0, failedLoginAttempts: 0, accountStatus: "active" }).where(eq(users.id, reset.userId));
+  await db.update(iamPasswordResets).set({ usedAt: new Date() }).where(eq(iamPasswordResets.id, reset.id));
+  await db.update(iamSessions).set({ status: "revoked", logoutAt: new Date() }).where(and(eq(iamSessions.userId, reset.userId), eq(iamSessions.status, "active")));
+  await audit(reset.userId, "IAM_PASSWORD_RESET_COMPLETED", {}, req);
 }

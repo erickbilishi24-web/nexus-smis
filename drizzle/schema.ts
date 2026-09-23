@@ -225,6 +225,15 @@ export const iamSessions = mysqlTable("iam_sessions", {
   status: mysqlEnum("status", ["active", "revoked", "expired"]).notNull().default("active"),
 });
 
+export const iamPasswordResets = mysqlTable("iam_password_resets", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  tokenHash: varchar("tokenHash", { length: 128 }).notNull().unique(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  usedAt: timestamp("usedAt"),
+  requestedAt: timestamp("requestedAt").defaultNow().notNull(),
+});
+
 export const permissions = mysqlTable("permissions", {
   id: int("id").autoincrement().primaryKey(),
   permissionKey: varchar("permissionKey", { length: 120 }).notNull().unique(),

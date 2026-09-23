@@ -4,7 +4,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
-import { changeIamPassword, loginWithIam, logoutIam } from "./iam";
+import { adminResetIamPassword, changeIamPassword, loginWithIam, logoutIam, requestIamPasswordReset, resetIamPassword } from "./iam";
 import {
   archiveLearner,
   createCommunication,
@@ -74,6 +74,9 @@ export const appRouter = router({
       await changeIamPassword(ctx.user.id, input.currentPassword, input.newPassword, ctx.req);
       return { success: true } as const;
     }),
+    forgotPassword: publicProcedure.input(z.object({ identifier: z.string().min(1).max(320) })).mutation(({ input, ctx }) => requestIamPasswordReset(input.identifier, ctx.req)),
+    resetPassword: publicProcedure.input(z.object({ token: z.string().min(20).max(200), newPassword: z.string().min(10).max(200) })).mutation(({ input, ctx }) => resetIamPassword(input.token, input.newPassword, ctx.req).then(() => ({ success: true }) as const)),
+    adminResetPassword: permissionProcedure("users.edit").input(z.object({ userId: z.number().int().positive() })).mutation(({ input, ctx }) => adminResetIamPassword(input.userId, ctx.user.id, ctx.req)),
   }),
   smis: router({
     health: publicProcedure.query(() => ({ ok: true, service: "kenyan-smis", persistence: "mysql-drizzle", modules: ["learners", "attendance", "assessments", "reports", "finance", "store", "timetable", "communication", "alumni", "users", "settings", "audit"] })),
