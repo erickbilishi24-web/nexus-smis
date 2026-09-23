@@ -14,6 +14,7 @@ import {
   learners,
   marks,
   payments,
+  reportCards,
   permissions,
   schoolSettings,
   staffProfiles,
@@ -96,7 +97,7 @@ export async function writeAudit(userId: number | null, action: string, entityTy
 export async function getSettings() {
   const db = await requireDb();
   const row = (await db.select().from(schoolSettings).limit(1))[0];
-  return row ?? { id: 0, schoolName: "Ebunangwe Junior School", motto: "Learn. Lead. Serve.", currentTerm: "Term 2", academicYear: 2026, includeFeesOnReportCard: 1, logoPath: null, principalSignaturePath: null, classTeacherSignaturePath: null };
+  return row ?? { id: 0, schoolName: "Ebunangwe Junior School", motto: "Learn. Lead. Serve.", currentTerm: "Term 2", academicYear: 2026, includeFeesOnReportCard: 1, showPercentagesOnReportCard: 0, logoPath: null, principalSignaturePath: null, classTeacherSignaturePath: null };
 }
 
 export async function getDashboardSnapshot() {
@@ -319,6 +320,40 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
   return { placed, unplaced, regenerated: input.regenerate, requirements: requirements.length, slots: days * periodsPerDay };
 }
 
+export async function getIntegratedReportCard(input: { learnerId: number; academicYear?: number; term?: string }, userId: number) {
+  const db = await requireDb();
+  const settings = await getSettings(); const academicYear = input.academicYear ?? settings.academicYear; const term = input.term ?? settings.currentTerm;
+  const learnerRow = (await db.select({ learner: learners, grade: grades }).from(learners).leftJoin(grades, eq(grades.id, learners.gradeId)).where(eq(learners.id, input.learnerId)).limit(1))[0];
+  if (!learnerRow) throw new Error("LEARNER_NOT_FOUND");
+  const actor = (await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1))[0];
+  if (actor?.role === "user") {
+    const allowed = await db.select().from(teacherAllocations).where(and(eq(teacherAllocations.teacherUserId, userId), eq(teacherAllocations.gradeId, learnerRow.learner.gradeId))).limit(1);
+    if (!allowed.length) throw new Error("REPORT_SCOPE_FORBIDDEN");
+  }
+  const markRows = await db.select({ mark: marks, assessment: assessments, subject: subjects }).from(marks).innerJoin(assessments, eq(assessments.id, marks.assessmentId)).innerJoin(subjects, eq(subjects.id, marks.subjectId)).where(eq(marks.learnerId, input.learnerId));
+  const valid = markRows.filter(row => row.assessment.academicYear === academicYear && row.assessment.term === term && row.assessment.gradeId === learnerRow.learner.gradeId).sort((a,b) => b.assessment.id - a.assessment.id);
+  const approved = valid.filter(row => row.assessment.status === "approved"); const source = approved.length ? approved : valid;
+  const seen = new Set<number>(); const marksheet = source.filter(row => { if (seen.has(row.mark.subjectId)) return false; seen.add(row.mark.subjectId); return true; }).map(row => ({ subject: row.subject, average: Number(row.mark.average), cbcLevel: row.mark.cbcLevel, teacherRemark: row.mark.teacherRemark, assessmentStatus: row.assessment.status }));
+  const attendanceRows = await db.select().from(attendances).where(eq(attendances.learnerId, input.learnerId));
+  const present = attendanceRows.filter(row => row.status === "present" || row.status === "late").length; const absent = attendanceRows.filter(row => row.status === "absent").length;
+  const allocationRows = await db.select({ allocation: teacherAllocations, staff: staffProfiles }).from(teacherAllocations).leftJoin(staffProfiles, eq(staffProfiles.userId, teacherAllocations.teacherUserId)).where(eq(teacherAllocations.gradeId, learnerRow.learner.gradeId));
+  const classTeacher = learnerRow.grade?.classTeacherUserId ? (await db.select().from(staffProfiles).where(eq(staffProfiles.userId, learnerRow.grade.classTeacherUserId)).limit(1))[0]?.displayName : null;
+  const fees = settings.includeFeesOnReportCard ? await getFinanceOverview(input.learnerId) : null;
+  const existing = (await db.select().from(reportCards).where(and(eq(reportCards.learnerId, input.learnerId), eq(reportCards.academicYear, academicYear), eq(reportCards.term, term))).limit(1))[0];
+  if (!existing) await db.insert(reportCards).values({ learnerId: input.learnerId, academicYear, term, status: "draft", generatedByUserId: userId }).onDuplicateKeyUpdate({ set: { updatedAt: new Date() } });
+  const record = (await db.select().from(reportCards).where(and(eq(reportCards.learnerId, input.learnerId), eq(reportCards.academicYear, academicYear), eq(reportCards.term, term))).limit(1))[0];
+  const overall = marksheet.length ? (marksheet.filter(row => row.cbcLevel.startsWith("EE")).length >= Math.ceil(marksheet.length / 2) ? "EE" : marksheet.filter(row => row.cbcLevel.startsWith("ME")).length >= Math.ceil(marksheet.length / 2) ? "ME" : marksheet.filter(row => row.cbcLevel.startsWith("BE")).length >= Math.ceil(marksheet.length / 2) ? "BE" : "AE") : null;
+  return { learner: learnerRow.learner, grade: learnerRow.grade, settings, academicYear, term, marksheet, attendance: { openingDays: attendanceRows.length, present, absent, percentage: attendanceRows.length ? Math.round((present / attendanceRows.length) * 100) : 0 }, classTeacher, allocations: allocationRows, finance: fees, report: record, overall };
+}
+
+export async function saveReportCardComments(input: { learnerId: number; academicYear: number; term: string; classTeacherComment?: string | null; headTeacherComment?: string | null }, userId: number) {
+  const db = await requireDb(); await db.insert(reportCards).values({ ...input, status: "draft", generatedByUserId: userId }).onDuplicateKeyUpdate({ set: { classTeacherComment: input.classTeacherComment ?? null, headTeacherComment: input.headTeacherComment ?? null } }); await writeAudit(userId, "report_card.comments.save", "report_card", `${input.learnerId}:${input.academicYear}:${input.term}`, input); return { ok: true };
+}
+
+export async function setReportCardStatus(input: { learnerId: number; academicYear: number; term: string; status: "draft" | "generated" | "reviewed" | "approved" | "published" }, userId: number) {
+  const db = await requireDb(); await db.insert(reportCards).values({ learnerId: input.learnerId, academicYear: input.academicYear, term: input.term, status: input.status, generatedByUserId: userId }).onDuplicateKeyUpdate({ set: { status: input.status } }); await writeAudit(userId, `report_card.status.${input.status}`, "report_card", `${input.learnerId}:${input.academicYear}:${input.term}`, input); return { ok: true, status: input.status };
+}
+
 export async function listCommunications() {
   const db = await requireDb();
   return db.select().from(communications).orderBy(desc(communications.createdAt)).limit(100);
@@ -354,10 +389,10 @@ export async function listAllocations() {
   return db.select({ allocation: teacherAllocations, staff: staffProfiles, grade: grades, subject: subjects }).from(teacherAllocations).leftJoin(staffProfiles, eq(staffProfiles.userId, teacherAllocations.teacherUserId)).leftJoin(grades, eq(grades.id, teacherAllocations.gradeId)).leftJoin(subjects, eq(subjects.id, teacherAllocations.subjectId));
 }
 
-export async function saveSettings(input: { schoolName: string; motto?: string | null; currentTerm: string; academicYear: number; includeFeesOnReportCard: boolean }, userId: number) {
+export async function saveSettings(input: { schoolName: string; motto?: string | null; currentTerm: string; academicYear: number; includeFeesOnReportCard: boolean; showPercentagesOnReportCard?: boolean }, userId: number) {
   const db = await requireDb();
   const current = (await db.select().from(schoolSettings).limit(1))[0];
-  const values = { ...input, includeFeesOnReportCard: input.includeFeesOnReportCard ? 1 : 0 };
+  const values = { ...input, includeFeesOnReportCard: input.includeFeesOnReportCard ? 1 : 0, showPercentagesOnReportCard: input.showPercentagesOnReportCard ? 1 : 0 };
   if (current) await db.update(schoolSettings).set(values).where(eq(schoolSettings.id, current.id));
   else await db.insert(schoolSettings).values(values);
   await writeAudit(userId, "settings.update", "school_settings", current?.id ?? null, values);

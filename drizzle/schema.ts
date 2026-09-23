@@ -41,6 +41,7 @@ export const schoolSettings = mysqlTable("school_settings", {
   currentTerm: varchar("currentTerm", { length: 40 }).notNull(),
   academicYear: int("academicYear").notNull(),
   includeFeesOnReportCard: int("includeFeesOnReportCard").notNull().default(1),
+  showPercentagesOnReportCard: int("showPercentagesOnReportCard").notNull().default(0),
   logoPath: varchar("logoPath", { length: 255 }),
   principalSignaturePath: varchar("principalSignaturePath", { length: 255 }),
   classTeacherSignaturePath: varchar("classTeacherSignaturePath", { length: 255 }),
@@ -276,6 +277,19 @@ export const notifications = mysqlTable("notifications", {
   createdByUserId: int("createdByUserId").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
+
+export const reportCards = mysqlTable("report_cards", {
+  id: int("id").autoincrement().primaryKey(),
+  learnerId: int("learnerId").notNull(),
+  academicYear: int("academicYear").notNull(),
+  term: varchar("term", { length: 40 }).notNull(),
+  status: mysqlEnum("status", ["draft", "generated", "reviewed", "approved", "published"]).notNull().default("draft"),
+  classTeacherComment: text("classTeacherComment"),
+  headTeacherComment: text("headTeacherComment"),
+  generatedByUserId: int("generatedByUserId"),
+  generatedAt: timestamp("generatedAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => ({ reportCardPeriodUnique: uniqueIndex("report_card_period_unique").on(table.learnerId, table.academicYear, table.term) }));
 
 export type Learner = typeof learners.$inferSelect;
 export type Attendance = typeof attendances.$inferSelect;

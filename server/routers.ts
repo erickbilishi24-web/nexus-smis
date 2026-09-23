@@ -12,6 +12,7 @@ import {
   generateAutomaticTimetable,
   getDashboardSnapshot,
   getFinanceOverview,
+  getIntegratedReportCard,
   getReportCard,
   getSettings,
   getStoreOverview,
@@ -31,7 +32,9 @@ import {
   recordStoreMovement,
   saveAttendance,
   saveMark,
+  saveReportCardComments,
   saveSettings,
+  setReportCardStatus,
   updateTeacherCode,
   setTimetableRequirement,
   effectivePermissions,
@@ -145,10 +148,12 @@ export const appRouter = router({
     }),
     settings: router({
       get: publicProcedure.query(() => getSettings()),
-      update: adminProcedure.input(z.object({ schoolName: z.string().min(1).max(200), motto: z.string().max(255).nullable().optional(), currentTerm: z.string().min(1).max(40), academicYear: z.number().int().min(2000).max(2100), includeFeesOnReportCard: z.boolean() })).mutation(({ input, ctx }) => saveSettings(input, currentUserId(ctx.user))),
+      update: adminProcedure.input(z.object({ schoolName: z.string().min(1).max(200), motto: z.string().max(255).nullable().optional(), currentTerm: z.string().min(1).max(40), academicYear: z.number().int().min(2000).max(2100), includeFeesOnReportCard: z.boolean(), showPercentagesOnReportCard: z.boolean().optional() })).mutation(({ input, ctx }) => saveSettings(input, currentUserId(ctx.user))),
     }),
     reports: router({
-      reportCard: protectedProcedure.input(z.object({ learnerId: z.number().int().positive() })).query(({ input }) => getReportCard(input.learnerId)),
+      reportCard: permissionProcedure("reports.view").input(z.object({ learnerId: z.number().int().positive(), academicYear: z.number().int().optional(), term: z.string().max(40).optional() })).query(({ input, ctx }) => getIntegratedReportCard(input, currentUserId(ctx.user))),
+      saveReportCardComments: permissionProcedure("reports.view").input(z.object({ learnerId: z.number().int().positive(), academicYear: z.number().int(), term: z.string().max(40), classTeacherComment: z.string().max(1000).nullable().optional(), headTeacherComment: z.string().max(1000).nullable().optional() })).mutation(({ input, ctx }) => saveReportCardComments(input, currentUserId(ctx.user))),
+      setReportCardStatus: adminProcedure.input(z.object({ learnerId: z.number().int().positive(), academicYear: z.number().int(), term: z.string().max(40), status: z.enum(["draft", "generated", "reviewed", "approved", "published"]) })).mutation(({ input, ctx }) => setReportCardStatus(input, currentUserId(ctx.user))),
     }),
     audit: router({
       list: adminProcedure.query(() => listAuditLogs()),
