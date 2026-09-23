@@ -52,6 +52,7 @@ export const schoolSettings = mysqlTable("school_settings", {
 export const staffProfiles = mysqlTable("staff_profiles", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),
+  teacherCode: int("teacherCode").unique(),
   displayName: varchar("displayName", { length: 160 }).notNull(),
   phone: varchar("phone", { length: 40 }),
   role: mysqlEnum("role", ["super_admin", "admin", "teacher", "finance", "storekeeper", "other"]).notNull().default("other"),

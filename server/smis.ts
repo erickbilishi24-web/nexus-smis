@@ -230,7 +230,30 @@ export async function recordStoreMovement(input: { itemId: number; movementType:
 
 export async function listTimetable() {
   const db = await requireDb();
-  return db.select({ entry: timetableEntries, grade: grades, subject: subjects, teacher: users }).from(timetableEntries).leftJoin(grades, eq(grades.id, timetableEntries.gradeId)).leftJoin(subjects, eq(subjects.id, timetableEntries.subjectId)).leftJoin(users, eq(users.id, timetableEntries.teacherUserId)).orderBy(timetableEntries.dayOfWeek, timetableEntries.period);
+  return db.select({ entry: timetableEntries, grade: grades, subject: subjects, teacher: users, staff: staffProfiles }).from(timetableEntries).leftJoin(grades, eq(grades.id, timetableEntries.gradeId)).leftJoin(subjects, eq(subjects.id, timetableEntries.subjectId)).leftJoin(users, eq(users.id, timetableEntries.teacherUserId)).leftJoin(staffProfiles, eq(staffProfiles.userId, timetableEntries.teacherUserId)).orderBy(timetableEntries.dayOfWeek, timetableEntries.period);
+}
+
+export async function listTeacherCodes() {
+  const db = await requireDb();
+  const rows = await db.select({ profile: staffProfiles, user: users }).from(staffProfiles).leftJoin(users, eq(users.id, staffProfiles.userId)).orderBy(staffProfiles.createdAt, staffProfiles.id);
+  const used = new Set(rows.map(row => row.profile.teacherCode).filter((code): code is number => code !== null));
+  let next = 1;
+  for (const row of rows) { if (row.profile.teacherCode === null) { while (used.has(next)) next += 1; await db.update(staffProfiles).set({ teacherCode: next }).where(eq(staffProfiles.id, row.profile.id)); row.profile.teacherCode = next; used.add(next); next += 1; } }
+  return rows;
+}
+
+export async function updateTeacherCode(input: { staffProfileId: number; teacherCode: number }, userId: number) {
+  const db = await requireDb();
+  const current = (await db.select().from(staffProfiles).where(eq(staffProfiles.id, input.staffProfileId)).limit(1))[0];
+  if (!current) throw new Error("TEACHER_NOT_FOUND");
+  const other = (await db.select().from(staffProfiles).where(eq(staffProfiles.teacherCode, input.teacherCode)).limit(1))[0];
+  if (other && other.id !== input.staffProfileId) {
+    await db.update(staffProfiles).set({ teacherCode: null }).where(eq(staffProfiles.id, input.staffProfileId));
+    await db.update(staffProfiles).set({ teacherCode: current.teacherCode }).where(eq(staffProfiles.id, other.id));
+  }
+  await db.update(staffProfiles).set({ teacherCode: input.teacherCode }).where(eq(staffProfiles.id, input.staffProfileId));
+  await writeAudit(userId, "timetable.teacher_code.update", "staff_profile", input.staffProfileId, input);
+  return { ok: true };
 }
 
 export function timetableConflicts(entries: Array<{ dayOfWeek: number; period: number; gradeId: number; teacherUserId: number; room?: string | null }>) {
