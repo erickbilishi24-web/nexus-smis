@@ -71,6 +71,20 @@
       "when": 1790165294526,
       "tag": "0009_parched_power_pack",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1790245680693,
+      "tag": "0010_mysterious_nitro",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "5",
+      "when": 1790245692869,
+      "tag": "0011_purple_iceman",
+      "breakpoints": true
     }
   ]
 }

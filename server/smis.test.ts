@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertScore, cbcLevel, timetableConflicts } from "./smis";
+import { allocationContextConflict, assertScore, cbcLevel, timetableConflicts } from "./smis";
 
 describe("Kenyan SMIS backend rules", () => {
   it("maps the CBC eight-level scale correctly", () => {
@@ -28,5 +28,13 @@ describe("Kenyan SMIS backend rules", () => {
     expect(conflicts).toContain("grade:1:1:8");
     expect(conflicts).toContain("teacher:1:1:3");
     expect(conflicts).toContain("room:1:1:8B");
+  });
+
+  it("treats active teacher allocations as the authoritative conflict boundary", () => {
+    const activeEnglish = { gradeId: 2, subjectId: 2, allocationType: "learning_area" as const, status: "active" as const, startsOn: null, endsOn: null };
+    expect(allocationContextConflict({ gradeId: 2, subjectId: 2, allocationType: "learning_area", startsOn: "2026-05-01", endsOn: "2026-05-31" }, activeEnglish)).toBe(true);
+    expect(allocationContextConflict({ gradeId: 2, subjectId: 2, allocationType: "learning_area", startsOn: "2027-01-01", endsOn: "2027-01-31" }, { ...activeEnglish, startsOn: "2026-01-01", endsOn: "2026-12-31" })).toBe(false);
+    expect(allocationContextConflict({ gradeId: 2, subjectId: 0, allocationType: "class_teacher" }, { ...activeEnglish, allocationType: "class_teacher" })).toBe(true);
+    expect(allocationContextConflict({ gradeId: 2, subjectId: 2, allocationType: "learning_area" }, { ...activeEnglish, status: "inactive" })).toBe(false);
   });
 });

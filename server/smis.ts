@@ -30,8 +30,8 @@ import {
 
 export const permissionsByRole: Record<string, string[]> = {
   super_admin: ["*"],
-  admin: ["dashboard.view", "learners.view", "attendance.view", "attendance.edit", "assessments.view", "assessments.edit", "reports.view", "finance.view", "finance.edit", "store.view", "store.edit", "timetable.view", "timetable.edit", "communication.edit", "alumni.edit", "users.edit", "settings.edit", "audit.view"],
-  teacher: ["dashboard.view", "learners.view", "attendance.view", "attendance.edit", "assessments.view", "assessments.edit", "reports.view", "timetable.view"],
+  admin: ["dashboard.view", "learners.view", "attendance.view", "attendance.edit", "assessments.view", "assessments.edit", "reports.view", "finance.view", "finance.edit", "store.view", "store.edit", "timetable.view", "timetable.edit", "communication.edit", "alumni.edit", "users.edit", "settings.edit", "audit.view", "allocations.view", "allocations.create", "allocations.edit", "allocations.deactivate", "allocations.replace", "allocations.bulk"],
+  teacher: ["dashboard.view", "learners.view", "attendance.view", "attendance.edit", "assessments.view", "assessments.edit", "reports.view", "timetable.view", "allocations.view"],
   finance: ["dashboard.view", "learners.view", "finance.view", "finance.edit", "reports.view"],
   storekeeper: ["dashboard.view", "store.view", "store.edit", "reports.view"],
   other: ["dashboard.view"],
@@ -41,7 +41,7 @@ export const permissionCatalog = [
   ["learners.view", "View learners"], ["learners.add", "Add learners"], ["learners.edit", "Edit learners"], ["learners.deactivate", "Deactivate learners"],
   ["attendance.view", "View attendance"], ["attendance.edit", "Enter and edit attendance"], ["assessments.view", "View marks"], ["assessments.edit", "Enter and edit marks"],
   ["reports.view", "View reports"], ["finance.view", "View finance"], ["finance.edit", "Record payments and expenditure"], ["store.view", "View inventory"], ["store.edit", "Manage inventory"],
-  ["timetable.view", "View timetable"], ["timetable.edit", "Edit timetable"], ["communication.edit", "Manage communication"], ["alumni.edit", "Manage alumni"], ["users.edit", "Manage users"], ["settings.edit", "Manage settings"], ["ai.access", "Access NEXUS AI"], ["audit.view", "View audit logs"],
+  ["timetable.view", "View timetable"], ["timetable.edit", "Edit timetable"], ["allocations.view", "View teacher allocations"], ["allocations.create", "Create allocations"], ["allocations.edit", "Edit allocations"], ["allocations.deactivate", "Deactivate allocations"], ["allocations.replace", "Replace teachers"], ["allocations.bulk", "Bulk allocation"], ["communication.edit", "Manage communication"], ["alumni.edit", "Manage alumni"], ["users.edit", "Manage users"], ["settings.edit", "Manage settings"], ["ai.access", "Access NEXUS AI"], ["audit.view", "View audit logs"],
 ] as const;
 
 export async function effectivePermissions(userId: number, role: string) {
@@ -137,10 +137,15 @@ export async function listLearners(search?: string) {
   return rows.map(row => ({ ...row.learner, grade: row.grade ? `${row.grade.name}${row.grade.stream ? ` ${row.grade.stream}` : ""}` : "" }));
 }
 
-export async function listAttendance(date?: string) {
+export async function listAttendance(date?: string, userId?: number) {
   const db = await requireDb();
   const rows = await db.select({ attendance: attendances, learner: learners, grade: grades }).from(attendances).innerJoin(learners, eq(learners.id, attendances.learnerId)).leftJoin(grades, eq(grades.id, attendances.gradeId)).where(date ? eq(attendances.attendanceDate, new Date(date)) : undefined).orderBy(desc(attendances.id));
-  return rows.map(row => ({ ...row.attendance, learner: row.learner, grade: row.grade }));
+  if (!userId) return rows.map(row => ({ ...row.attendance, learner: row.learner, grade: row.grade }));
+  const actor = (await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1))[0];
+  if (actor?.role !== "user") return rows.map(row => ({ ...row.attendance, learner: row.learner, grade: row.grade }));
+  const allocations = await db.select().from(teacherAllocations).where(and(eq(teacherAllocations.teacherUserId, userId), eq(teacherAllocations.status, "active")));
+  const allowedGrades = new Set(allocations.map(row => row.gradeId));
+  return rows.filter(row => allowedGrades.has(row.learner.gradeId)).map(row => ({ ...row.attendance, learner: row.learner, grade: row.grade }));
 }
 
 export async function saveAttendance(input: { learnerId: number; status: "present" | "absent" | "late" | "excused"; attendanceDate: string; note?: string | null }, userId: number) {
@@ -162,10 +167,15 @@ export async function listAssessments() {
   return db.select({ assessment: assessments, grade: grades }).from(assessments).leftJoin(grades, eq(grades.id, assessments.gradeId)).orderBy(desc(assessments.id));
 }
 
-export async function listMarks(assessmentId?: number) {
+export async function listMarks(assessmentId?: number, userId?: number) {
   const db = await requireDb();
   const rows = await db.select({ mark: marks, learner: learners, subject: subjects }).from(marks).innerJoin(learners, eq(learners.id, marks.learnerId)).innerJoin(subjects, eq(subjects.id, marks.subjectId)).where(assessmentId ? eq(marks.assessmentId, assessmentId) : undefined).orderBy(learners.fullName);
-  return rows.map(row => ({ ...row.mark, learner: row.learner, subject: row.subject }));
+  if (!userId) return rows.map(row => ({ ...row.mark, learner: row.learner, subject: row.subject }));
+  const actor = (await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1))[0];
+  if (actor?.role !== "user") return rows.map(row => ({ ...row.mark, learner: row.learner, subject: row.subject }));
+  const allocations = await db.select().from(teacherAllocations).where(and(eq(teacherAllocations.teacherUserId, userId), eq(teacherAllocations.status, "active")));
+  const allowed = new Set(allocations.map(row => `${row.gradeId}:${row.subjectId}`));
+  return rows.filter(row => allowed.has(`${row.learner.gradeId}:${row.mark.subjectId}`)).map(row => ({ ...row.mark, learner: row.learner, subject: row.subject }));
 }
 
 export async function saveMark(input: { assessmentId: number; learnerId: number; subjectId: number; midTerm: number; endTerm: number; teacherRemark?: string | null }, userId: number) {
@@ -175,7 +185,7 @@ export async function saveMark(input: { assessmentId: number; learnerId: number;
   if (!assessment || !learner || assessment.gradeId !== learner.gradeId) throw new Error("MARK_CONTEXT_INVALID");
   const actor = (await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1))[0];
   if (actor?.role === "user") {
-    const allocation = (await db.select().from(teacherAllocations).where(and(eq(teacherAllocations.teacherUserId, userId), eq(teacherAllocations.gradeId, learner.gradeId), eq(teacherAllocations.subjectId, input.subjectId))).limit(1))[0];
+    const allocation = (await db.select().from(teacherAllocations).where(and(eq(teacherAllocations.teacherUserId, userId), eq(teacherAllocations.gradeId, learner.gradeId), eq(teacherAllocations.subjectId, input.subjectId), eq(teacherAllocations.status, "active"))).limit(1))[0];
     if (!allocation) throw new Error("MARK_SCOPE_FORBIDDEN");
   }
   const midTerm = assertScore(input.midTerm);
@@ -297,7 +307,7 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
   const days = input.days ?? 5; const periodsPerDay = input.periodsPerDay ?? 8;
   if (input.regenerate) await db.delete(timetableEntries);
   const requirements = await db.select({ requirement: timetableRequirements, grade: grades, subject: subjects }).from(timetableRequirements).innerJoin(grades, eq(grades.id, timetableRequirements.gradeId)).innerJoin(subjects, eq(subjects.id, timetableRequirements.subjectId)).where(eq(timetableRequirements.academicYear, academicYear));
-  const allocations = await db.select().from(teacherAllocations).where(eq(teacherAllocations.academicYear, academicYear));
+  const allocations = await db.select().from(teacherAllocations).where(and(eq(teacherAllocations.academicYear, academicYear), eq(teacherAllocations.status, "active")));
   const eligibleByGradeSubject = new Map<string, number[]>();
   for (const allocation of allocations) { const key = `${allocation.gradeId}:${allocation.subjectId}`; eligibleByGradeSubject.set(key, [...(eligibleByGradeSubject.get(key) ?? []), allocation.teacherUserId]); }
   const existing = await db.select().from(timetableEntries);
@@ -327,7 +337,7 @@ export async function getIntegratedReportCard(input: { learnerId: number; academ
   if (!learnerRow) throw new Error("LEARNER_NOT_FOUND");
   const actor = (await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1))[0];
   if (actor?.role === "user") {
-    const allowed = await db.select().from(teacherAllocations).where(and(eq(teacherAllocations.teacherUserId, userId), eq(teacherAllocations.gradeId, learnerRow.learner.gradeId))).limit(1);
+    const allowed = await db.select().from(teacherAllocations).where(and(eq(teacherAllocations.teacherUserId, userId), eq(teacherAllocations.gradeId, learnerRow.learner.gradeId), eq(teacherAllocations.status, "active"))).limit(1);
     if (!allowed.length) throw new Error("REPORT_SCOPE_FORBIDDEN");
   }
   const markRows = await db.select({ mark: marks, assessment: assessments, subject: subjects }).from(marks).innerJoin(assessments, eq(assessments.id, marks.assessmentId)).innerJoin(subjects, eq(subjects.id, marks.subjectId)).where(eq(marks.learnerId, input.learnerId));
@@ -336,7 +346,7 @@ export async function getIntegratedReportCard(input: { learnerId: number; academ
   const seen = new Set<number>(); const marksheet = source.filter(row => { if (seen.has(row.mark.subjectId)) return false; seen.add(row.mark.subjectId); return true; }).map(row => ({ subject: row.subject, midTerm: Number(row.mark.midTerm), endTerm: Number(row.mark.endTerm), average: Number(row.mark.average), cbcLevel: row.mark.cbcLevel, teacherRemark: row.mark.teacherRemark, assessmentStatus: row.assessment.status }));
   const attendanceRows = await db.select().from(attendances).where(eq(attendances.learnerId, input.learnerId));
   const present = attendanceRows.filter(row => row.status === "present" || row.status === "late").length; const absent = attendanceRows.filter(row => row.status === "absent").length;
-  const allocationRows = await db.select({ allocation: teacherAllocations, staff: staffProfiles }).from(teacherAllocations).leftJoin(staffProfiles, eq(staffProfiles.userId, teacherAllocations.teacherUserId)).where(eq(teacherAllocations.gradeId, learnerRow.learner.gradeId));
+  const allocationRows = await db.select({ allocation: teacherAllocations, staff: staffProfiles }).from(teacherAllocations).leftJoin(staffProfiles, eq(staffProfiles.userId, teacherAllocations.teacherUserId)).where(and(eq(teacherAllocations.gradeId, learnerRow.learner.gradeId), eq(teacherAllocations.status, "active")));
   const classTeacher = learnerRow.grade?.classTeacherUserId ? (await db.select().from(staffProfiles).where(eq(staffProfiles.userId, learnerRow.grade.classTeacherUserId)).limit(1))[0]?.displayName : null;
   const fees = settings.includeFeesOnReportCard ? await getFinanceOverview(input.learnerId) : null;
   const existing = (await db.select().from(reportCards).where(and(eq(reportCards.learnerId, input.learnerId), eq(reportCards.academicYear, academicYear), eq(reportCards.term, term))).limit(1))[0];
@@ -384,9 +394,58 @@ export async function listStaff() {
   return db.select({ profile: staffProfiles, user: users }).from(staffProfiles).leftJoin(users, eq(users.id, staffProfiles.userId)).orderBy(staffProfiles.displayName);
 }
 
-export async function listAllocations() {
+export async function listAcademicCatalog() {
   const db = await requireDb();
-  return db.select({ allocation: teacherAllocations, staff: staffProfiles, grade: grades, subject: subjects }).from(teacherAllocations).leftJoin(staffProfiles, eq(staffProfiles.userId, teacherAllocations.teacherUserId)).leftJoin(grades, eq(grades.id, teacherAllocations.gradeId)).leftJoin(subjects, eq(subjects.id, teacherAllocations.subjectId));
+  const [gradeRows, subjectRows] = await Promise.all([db.select().from(grades).orderBy(grades.name, grades.stream), db.select().from(subjects).orderBy(subjects.name)]);
+  return { grades: gradeRows, subjects: subjectRows };
+}
+
+export async function listAllocations(filters?: { academicYear?: number; term?: string; status?: "active" | "inactive" | "replaced" }, userId?: number) {
+  const db = await requireDb();
+  const actor = userId ? (await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1))[0] : null;
+  const where = filters?.academicYear || filters?.term || filters?.status || actor?.role === "user" ? and(filters?.academicYear ? eq(teacherAllocations.academicYear, filters.academicYear) : undefined, filters?.term ? eq(teacherAllocations.term, filters.term) : undefined, filters?.status ? eq(teacherAllocations.status, filters.status) : undefined, actor?.role === "user" && userId ? eq(teacherAllocations.teacherUserId, userId) : undefined) : undefined;
+  return db.select({ allocation: teacherAllocations, staff: staffProfiles, grade: grades, subject: subjects }).from(teacherAllocations).leftJoin(staffProfiles, eq(staffProfiles.userId, teacherAllocations.teacherUserId)).leftJoin(grades, eq(grades.id, teacherAllocations.gradeId)).leftJoin(subjects, eq(subjects.id, teacherAllocations.subjectId)).where(where).orderBy(desc(teacherAllocations.id));
+}
+
+export type AllocationType = "class_teacher" | "learning_area" | "co_teacher" | "substitute" | "activity";
+export type AllocationStatus = "active" | "inactive" | "replaced";
+
+export function allocationContextConflict(input: { gradeId: number; subjectId: number; allocationType: AllocationType; startsOn?: string | null; endsOn?: string | null }, existing: { gradeId: number; subjectId: number; allocationType: AllocationType; status: AllocationStatus; startsOn: string | Date | null; endsOn: string | Date | null }) {
+  if (existing.status !== "active" || existing.gradeId !== input.gradeId) return false;
+  if (input.allocationType === "class_teacher") return existing.allocationType === "class_teacher";
+  if (existing.allocationType === "class_teacher" || existing.subjectId !== input.subjectId) return false;
+  const start = input.startsOn ?? null; const end = input.endsOn ?? null;
+  const existingStart = existing.startsOn ? String(existing.startsOn).slice(0, 10) : null; const existingEnd = existing.endsOn ? String(existing.endsOn).slice(0, 10) : null;
+  return (!existingStart || !end || existingStart <= end) && (!existingEnd || !start || existingEnd >= start);
+}
+
+export async function saveTeacherAllocation(input: { teacherUserId: number; gradeId: number; subjectId: number; academicYear: number; term: string; allocationType: AllocationType; startsOn?: string | null; endsOn?: string | null }, userId: number) {
+  const db = await requireDb();
+  if (input.term.trim().length < 2) throw new Error("TERM_REQUIRED");
+  if (input.allocationType !== "class_teacher" && input.subjectId <= 0) throw new Error("LEARNING_AREA_REQUIRED");
+  if (input.startsOn && input.endsOn && input.startsOn > input.endsOn) throw new Error("INVALID_DATE_RANGE");
+  const teacher = (await db.select().from(users).where(eq(users.id, input.teacherUserId)).limit(1))[0];
+  const grade = (await db.select().from(grades).where(eq(grades.id, input.gradeId)).limit(1))[0];
+  if (!teacher || !grade) throw new Error("ALLOCATION_CONTEXT_NOT_FOUND");
+  const active = await db.select().from(teacherAllocations).where(and(eq(teacherAllocations.gradeId, input.gradeId), eq(teacherAllocations.academicYear, input.academicYear), eq(teacherAllocations.term, input.term), eq(teacherAllocations.status, "active")));
+  const conflict = active.find(row => allocationContextConflict(input, row));
+  if (conflict && conflict.teacherUserId !== input.teacherUserId) throw new Error(input.allocationType === "class_teacher" ? "CLASS_TEACHER_CONFLICT" : "LEARNING_AREA_CONFLICT");
+  const existing = (await db.select().from(teacherAllocations).where(and(eq(teacherAllocations.teacherUserId, input.teacherUserId), eq(teacherAllocations.gradeId, input.gradeId), eq(teacherAllocations.subjectId, input.subjectId), eq(teacherAllocations.academicYear, input.academicYear), eq(teacherAllocations.term, input.term), eq(teacherAllocations.allocationType, input.allocationType))).limit(1))[0];
+  const values = { ...input, startsOn: input.startsOn ? new Date(input.startsOn) : null, endsOn: input.endsOn ? new Date(input.endsOn) : null, status: "active" as const };
+  if (existing) await db.update(teacherAllocations).set(values).where(eq(teacherAllocations.id, existing.id));
+  else await db.insert(teacherAllocations).values(values);
+  await writeAudit(userId, existing ? "allocation.update" : "allocation.create", "teacher_allocation", existing?.id ?? null, input);
+  return { ok: true, id: existing?.id ?? null };
+}
+
+export async function changeTeacherAllocationStatus(input: { allocationId: number; status: AllocationStatus; replacedByUserId?: number | null }, userId: number) {
+  const db = await requireDb();
+  const current = (await db.select().from(teacherAllocations).where(eq(teacherAllocations.id, input.allocationId)).limit(1))[0];
+  if (!current) throw new Error("ALLOCATION_NOT_FOUND");
+  if (input.status === "replaced" && !input.replacedByUserId) throw new Error("REPLACEMENT_TEACHER_REQUIRED");
+  await db.update(teacherAllocations).set({ status: input.status, replacedByUserId: input.replacedByUserId ?? null }).where(eq(teacherAllocations.id, input.allocationId));
+  await writeAudit(userId, `allocation.${input.status}`, "teacher_allocation", input.allocationId, input);
+  return { ok: true };
 }
 
 export async function saveSettings(input: { schoolName: string; motto?: string | null; currentTerm: string; academicYear: number; includeFeesOnReportCard: boolean; showPercentagesOnReportCard?: boolean }, userId: number) {

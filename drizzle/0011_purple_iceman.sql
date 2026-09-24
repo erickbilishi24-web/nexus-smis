@@ -1,0 +1,2 @@
+ALTER TABLE `teacher_allocations` DROP INDEX `teacher_allocation_unique`;--> statement-breakpoint
+ALTER TABLE `teacher_allocations` ADD CONSTRAINT `teacher_allocation_scope_unique` UNIQUE(`teacherUserId`,`gradeId`,`subjectId`,`academicYear`,`term`,`allocationType`);

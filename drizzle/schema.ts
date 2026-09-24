@@ -110,7 +110,13 @@ export const teacherAllocations = mysqlTable("teacher_allocations", {
   gradeId: int("gradeId").notNull(),
   subjectId: int("subjectId").notNull(),
   academicYear: int("academicYear").notNull(),
-}, table => ({ teacherAllocationUnique: uniqueIndex("teacher_allocation_unique").on(table.teacherUserId, table.gradeId, table.subjectId, table.academicYear) }));
+  term: varchar("term", { length: 40 }).notNull().default("Term 1"),
+  allocationType: mysqlEnum("allocationType", ["class_teacher", "learning_area", "co_teacher", "substitute", "activity"]).notNull().default("learning_area"),
+  status: mysqlEnum("status", ["active", "inactive", "replaced"]).notNull().default("active"),
+  startsOn: date("startsOn"),
+  endsOn: date("endsOn"),
+  replacedByUserId: int("replacedByUserId"),
+}, table => ({ teacherAllocationScopeUnique: uniqueIndex("teacher_allocation_scope_unique").on(table.teacherUserId, table.gradeId, table.subjectId, table.academicYear, table.term, table.allocationType) }));
 
 export const assessments = mysqlTable("assessments", {
   id: int("id").autoincrement().primaryKey(),

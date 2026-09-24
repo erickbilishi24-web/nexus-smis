@@ -18,6 +18,9 @@ import {
   getStoreOverview,
   listAlumni,
   listAllocations,
+  listAcademicCatalog,
+  saveTeacherAllocation,
+  changeTeacherAllocationStatus,
   listAssessments,
   listAttendance,
   listAuditLogs,
@@ -93,12 +96,12 @@ export const appRouter = router({
       list: permissionProcedure("learners.view").input(z.object({ search: z.string().optional() }).optional()).query(({ input }) => listLearners(input?.search)),
     }),
     attendance: router({
-      list: permissionProcedure("attendance.view").input(z.object({ date: z.string().optional() }).optional()).query(({ input }) => listAttendance(input?.date)),
+      list: permissionProcedure("attendance.view").input(z.object({ date: z.string().optional() }).optional()).query(({ input, ctx }) => listAttendance(input?.date, currentUserId(ctx.user))),
       save: permissionProcedure("attendance.edit").input(z.object({ learnerId: z.number().int().positive(), status: z.enum(["present", "absent", "late", "excused"]), attendanceDate: z.string(), note: z.string().max(255).nullable().optional() })).mutation(({ input, ctx }) => saveAttendance(input, currentUserId(ctx.user))),
     }),
     assessments: router({
       list: permissionProcedure("assessments.view").query(() => listAssessments()),
-      marks: permissionProcedure("assessments.view").input(z.object({ assessmentId: z.number().int().positive().optional() }).optional()).query(({ input }) => listMarks(input?.assessmentId)),
+      marks: permissionProcedure("assessments.view").input(z.object({ assessmentId: z.number().int().positive().optional() }).optional()).query(({ input, ctx }) => listMarks(input?.assessmentId, currentUserId(ctx.user))),
       saveMark: permissionProcedure("assessments.edit").input(z.object({ assessmentId: z.number().int().positive(), learnerId: z.number().int().positive(), subjectId: z.number().int().positive(), midTerm: z.number().min(0).max(100), endTerm: z.number().min(0).max(100), teacherRemark: z.string().max(255).nullable().optional() })).mutation(({ input, ctx }) => saveMark(input, currentUserId(ctx.user))),
     }),
     finance: router({
@@ -144,7 +147,10 @@ export const appRouter = router({
       effectivePermissions: protectedProcedure.query(({ ctx }) => effectivePermissions(ctx.user.id, ctx.user.role)),
     }),
     allocations: router({
-      list: protectedProcedure.query(() => listAllocations()),
+      catalog: permissionProcedure("allocations.view").query(() => listAcademicCatalog()),
+      list: permissionProcedure("allocations.view").input(z.object({ academicYear: z.number().int().optional(), term: z.string().max(40).optional(), status: z.enum(["active", "inactive", "replaced"]).optional() }).optional()).query(({ input, ctx }) => listAllocations(input, currentUserId(ctx.user))),
+      create: permissionProcedure("allocations.create").input(z.object({ teacherUserId: z.number().int().positive(), gradeId: z.number().int().positive(), subjectId: z.number().int().min(0), academicYear: z.number().int().min(2000).max(2100), term: z.string().min(2).max(40), allocationType: z.enum(["class_teacher", "learning_area", "co_teacher", "substitute", "activity"]), startsOn: z.string().date().nullable().optional(), endsOn: z.string().date().nullable().optional() })).mutation(({ input, ctx }) => saveTeacherAllocation(input, currentUserId(ctx.user))),
+      changeStatus: permissionProcedure("allocations.deactivate").input(z.object({ allocationId: z.number().int().positive(), status: z.enum(["inactive", "replaced"]), replacedByUserId: z.number().int().positive().nullable().optional() })).mutation(({ input, ctx }) => changeTeacherAllocationStatus(input, currentUserId(ctx.user))),
     }),
     settings: router({
       get: publicProcedure.query(() => getSettings()),
