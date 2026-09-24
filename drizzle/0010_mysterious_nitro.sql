@@ -5,4 +5,4 @@ ALTER TABLE `teacher_allocations` ADD `status` enum('active','inactive','replace
 ALTER TABLE `teacher_allocations` ADD `startsOn` date;--> statement-breakpoint
 ALTER TABLE `teacher_allocations` ADD `endsOn` date;--> statement-breakpoint
 ALTER TABLE `teacher_allocations` ADD `replacedByUserId` int;--> statement-breakpoint
-ALTER TABLE `teacher_allocations` ADD CONSTRAINT `teacher_allocation_unique` UNIQUE(`teacherUserId`,`gradeId`,`subjectId`,`academicYear`,`term`,`allocationType`);
+CREATE UNIQUE INDEX `teacher_allocation_scope_unique` ON `teacher_allocations` (`teacherUserId`,`gradeId`,`subjectId`,`academicYear`,`term`,`allocationType`);
