@@ -36,7 +36,6 @@ const navigation: { label: View; icon: typeof LayoutDashboard; group: string }[]
   { label: "Reports", icon: FileText, group: "Workspace" },
   { label: "Administration", icon: Settings2, group: "Workspace" },
   { label: "Teacher Allocations", icon: UserCog, group: "Workspace" },
-  { label: "Teacher Allocations", icon: UserCog, group: "Workspace" },
   { label: "NEXUS AI", icon: Activity, group: "Workspace" },
 ];
 
