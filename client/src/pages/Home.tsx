@@ -32,10 +32,10 @@ const navigation: { label: View; icon: typeof LayoutDashboard; group: string }[]
   { label: "Academics", icon: GraduationCap, group: "Workspace" },
   { label: "Attendance", icon: UserCheck, group: "Workspace" },
   { label: "Finance", icon: WalletCards, group: "Workspace" },
-  { label: "School Operations", icon: CalendarDays, group: "Workspace" },
+  { label: "School Operations", icon: CalendarDays, group: "School Operations" },
   { label: "Reports", icon: FileText, group: "Workspace" },
   { label: "Administration", icon: Settings2, group: "Workspace" },
-  { label: "Teacher Allocations", icon: UserCog, group: "Workspace" },
+  { label: "Teacher Allocations", icon: UserCog, group: "School Operations" },
   { label: "NEXUS AI", icon: Activity, group: "Workspace" },
 ];
 
