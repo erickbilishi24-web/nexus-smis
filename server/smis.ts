@@ -394,6 +394,17 @@ export async function listStaff() {
   return db.select({ profile: staffProfiles, user: users }).from(staffProfiles).leftJoin(users, eq(users.id, staffProfiles.userId)).orderBy(staffProfiles.displayName);
 }
 
+export type StaffRole = "teacher" | "class_teacher" | "senior_teacher" | "deputy_head" | "head_teacher" | "finance" | "storekeeper" | "other";
+
+export async function updateStaffRole(input: { staffProfileId: number; role: StaffRole }, userId: number) {
+  const db = await requireDb();
+  const current = (await db.select().from(staffProfiles).where(eq(staffProfiles.id, input.staffProfileId)).limit(1))[0];
+  if (!current) throw new Error("STAFF_NOT_FOUND");
+  await db.update(staffProfiles).set({ role: input.role }).where(eq(staffProfiles.id, input.staffProfileId));
+  await writeAudit(userId, "staff.role.update", "staff_profile", input.staffProfileId, { from: current.role, to: input.role });
+  return { ok: true, role: input.role };
+}
+
 export async function listAcademicCatalog() {
   const db = await requireDb();
   const [gradeRows, subjectRows] = await Promise.all([db.select().from(grades).orderBy(grades.name, grades.stream), db.select().from(subjects).orderBy(subjects.name)]);

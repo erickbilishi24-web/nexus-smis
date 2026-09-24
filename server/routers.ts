@@ -28,6 +28,7 @@ import {
   listLearners,
   listMarks,
   listStaff,
+  updateStaffRole,
   listTimetable,
   listTeacherCodes,
   listTimetableRequirements,
@@ -142,6 +143,7 @@ export const appRouter = router({
     }),
     users: router({
       list: permissionProcedure("users.edit").query(() => listStaff()),
+      updateStaffRole: permissionProcedure("users.edit").input(z.object({ staffProfileId: z.number().int().positive(), role: z.enum(["teacher", "class_teacher", "senior_teacher", "deputy_head", "head_teacher", "finance", "storekeeper", "other"]) })).mutation(({ input, ctx }) => updateStaffRole(input, currentUserId(ctx.user))),
       permissions: permissionProcedure("users.edit").input(z.object({ userId: z.number().int().positive().optional() }).optional()).query(({ input, ctx }) => input?.userId ? getPermissionMatrix(input.userId) : getPermissionMatrix(ctx.user.id)),
       setPermission: permissionProcedure("users.edit").input(z.object({ userId: z.number().int().positive(), permissionKey: z.string(), allowed: z.boolean() })).mutation(({ input, ctx }) => setUserPermission(input, currentUserId(ctx.user))),
       effectivePermissions: protectedProcedure.query(({ ctx }) => effectivePermissions(ctx.user.id, ctx.user.role)),

@@ -56,7 +56,7 @@ export const staffProfiles = mysqlTable("staff_profiles", {
   teacherCode: int("teacherCode").unique(),
   displayName: varchar("displayName", { length: 160 }).notNull(),
   phone: varchar("phone", { length: 40 }),
-  role: mysqlEnum("role", ["super_admin", "admin", "teacher", "finance", "storekeeper", "other"]).notNull().default("other"),
+  role: mysqlEnum("role", ["super_admin", "admin", "teacher", "class_teacher", "senior_teacher", "deputy_head", "head_teacher", "finance", "storekeeper", "other"]).notNull().default("other"),
   status: mysqlEnum("status", ["active", "disabled"]).notNull().default("active"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
