@@ -109,3 +109,81 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgb(29 106 87 / 2
 
 @keyframes page-enter { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }
+
+
+@page {
+  size: A4 landscape;
+  margin: 6mm;
+  @bottom-right {
+    content: "Page " counter(page) " of " counter(pages);
+    color: #555;
+    font-size: 7pt;
+  }
+}
+
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+
+  .assessment-workspace,
+  .assessment-workspace * {
+    visibility: visible !important;
+  }
+
+  .assessment-workspace {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    background: #fff;
+    color: #111;
+  }
+
+  .assessment-workspace > *:not(.marklist-print):not(.print-heading) {
+    display: none !important;
+  }
+
+  .assessment-workspace .print-heading {
+    display: block !important;
+    margin-bottom: 4mm;
+    text-align: center;
+  }
+
+  .assessment-workspace .marklist-print {
+    overflow: visible !important;
+    width: 100% !important;
+    border: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .assessment-workspace .marklist-print table {
+    width: 100%;
+    min-width: 0 !important;
+    table-layout: auto;
+    font-size: 6.5pt;
+  }
+
+  .assessment-workspace .marklist-print th,
+  .assessment-workspace .marklist-print td {
+    padding: 2px 3px;
+    white-space: nowrap;
+  }
+
+  .assessment-workspace .marklist-print th:nth-child(3),
+  .assessment-workspace .marklist-print td:nth-child(3) {
+    min-width: 38mm;
+    white-space: normal;
+  }
+
+  .assessment-workspace .marklist-print thead {
+    display: table-header-group;
+  }
+
+  .assessment-workspace .marklist-print tfoot {
+    display: table-footer-group;
+  }
+
+  .assessment-workspace .marklist-print tr {
+    break-inside: avoid;
+  }
+}

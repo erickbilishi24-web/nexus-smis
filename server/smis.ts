@@ -1,4 +1,4 @@
-import { and, desc, eq, like, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, like, or, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db";
 import {
@@ -47,7 +47,11 @@ export const permissionCatalog = [
 
 export async function effectivePermissions(userId: number, role: string) {
   const db = await requireDb();
-  const base = permissionsByRole[role] ?? [];
+  const profile = (await db.select({ role: staffProfiles.role }).from(staffProfiles).where(eq(staffProfiles.userId, userId)).limit(1))[0];
+  const profilePermissionRole = profile?.role === "class_teacher" || profile?.role === "senior_teacher" ? "teacher"
+    : profile?.role === "deputy_head" || profile?.role === "head_teacher" ? "admin"
+    : profile?.role;
+  const base = new Set([...(permissionsByRole[role] ?? []), ...(profilePermissionRole ? permissionsByRole[profilePermissionRole] ?? [] : [])]);
   const overrides = await db.select().from(userPermissions).where(eq(userPermissions.userId, userId));
   const values = new Set(base);
   for (const override of overrides) {
@@ -115,6 +119,11 @@ export async function getDashboardSnapshot() {
   const attendanceToday = attendanceRows.filter(row => String(row.attendanceDate) === new Date().toISOString().slice(0, 10));
   const present = attendanceToday.filter(row => row.status === "present").length;
   const attendanceRate = attendanceToday.length ? Math.round((present / attendanceToday.length) * 1000) / 10 : 0;
+  const learnersById = new Map(learnerRows.map(row => [row.learner.id, row]));
+  const recentAttendance = attendanceToday.slice(0, 8).flatMap(attendance => {
+    const row = learnersById.get(attendance.learnerId);
+    return row ? [{ attendance, learner: row.learner, grade: row.grade }] : [];
+  });
   const collections = paymentRows.reduce((sum, row) => sum + Number(row.amount), 0);
   const stock = new Map<number, { name: string; unit: string; quantity: number; reorderLevel: number }>();
   for (const row of lowStockRows) {
@@ -127,6 +136,7 @@ export async function getDashboardSnapshot() {
     school: settings,
     counts: { learners: learnerRows.length, staff: staffRows.length, assessmentsPending: assessmentRows.length, collections },
     attendance: { today: attendanceToday.length, present, rate: attendanceRate },
+    recentAttendance,
     lowStock: Array.from(stock.values()).filter(item => item.quantity <= item.reorderLevel),
     recentLearners: learnerRows.slice(0, 8).map(row => ({ ...row.learner, grade: row.grade ? `${row.grade.name}${row.grade.stream ? ` ${row.grade.stream}` : ""}` : "" })),
   };
@@ -208,14 +218,59 @@ export async function listAttendance(date?: string, userId?: number) {
   return rows.filter(row => allowedGrades.has(row.learner.gradeId)).map(row => ({ ...row.attendance, learner: row.learner, grade: row.grade }));
 }
 
+export function isAttendanceAdmin(userRole?: string | null, staffRole?: string | null) {
+  return userRole === "admin" || staffRole === "admin" || staffRole === "super_admin" || staffRole === "deputy_head" || staffRole === "head_teacher";
+}
+
+export function canAccessAttendanceGrade(userRole: string | null | undefined, staffRole: string | null | undefined, allocatedGradeIds: number[], gradeId: number) {
+  return isAttendanceAdmin(userRole, staffRole) || allocatedGradeIds.includes(gradeId);
+}
+
+export async function getAttendanceRegister(date: string, userId: number) {
+  const db = await requireDb();
+  const actor = (await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1))[0];
+  const staff = (await db.select({ role: staffProfiles.role }).from(staffProfiles).where(eq(staffProfiles.userId, userId)).limit(1))[0];
+  const isAdmin = isAttendanceAdmin(actor?.role, staff?.role);
+  let allowedGradeIds: number[] | null = null;
+  if (!isAdmin) {
+    const allocations = await db.select({ gradeId: teacherAllocations.gradeId }).from(teacherAllocations).where(and(
+      eq(teacherAllocations.teacherUserId, userId),
+      eq(teacherAllocations.status, "active"),
+    ));
+    allowedGradeIds = Array.from(new Set(allocations.map(row => row.gradeId)));
+    if (!allowedGradeIds.length) return [];
+  }
+  const roster = await db.select({ learner: learners, grade: grades }).from(learners)
+    .leftJoin(grades, eq(grades.id, learners.gradeId))
+    .where(and(eq(learners.status, "active"), allowedGradeIds ? inArray(learners.gradeId, allowedGradeIds) : undefined))
+    .orderBy(grades.name, learners.fullName);
+  if (!roster.length) return [];
+  const saved = await db.select().from(attendances).where(and(
+    eq(attendances.attendanceDate, new Date(date)),
+    inArray(attendances.learnerId, roster.map(row => row.learner.id)),
+  ));
+  const savedByLearner = new Map(saved.map(row => [row.learnerId, row]));
+  return roster.map(row => ({
+    ...row.learner,
+    grade: row.grade ? `${row.grade.name}${row.grade.stream ? ` ${row.grade.stream}` : ""}` : "",
+    attendanceStatus: savedByLearner.get(row.learner.id)?.status ?? null,
+    attendanceNote: savedByLearner.get(row.learner.id)?.note ?? null,
+  }));
+}
+
 export async function saveAttendance(input: { learnerId: number; status: "present" | "absent" | "late" | "excused"; attendanceDate: string; note?: string | null }, userId: number) {
   const db = await requireDb();
   const learner = (await db.select().from(learners).where(eq(learners.id, input.learnerId)).limit(1))[0];
   if (!learner) throw new Error("LEARNER_NOT_FOUND");
   const actor = (await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1))[0];
-  if (actor?.role === "user") {
-    const allocation = (await db.select().from(teacherAllocations).where(eq(teacherAllocations.teacherUserId, userId)).limit(1))[0];
-    if (!allocation || allocation.gradeId !== learner.gradeId) throw new Error("ATTENDANCE_SCOPE_FORBIDDEN");
+  const staff = (await db.select({ role: staffProfiles.role }).from(staffProfiles).where(eq(staffProfiles.userId, userId)).limit(1))[0];
+  const isAdmin = isAttendanceAdmin(actor?.role, staff?.role);
+  if (!isAdmin) {
+    const allocations = await db.select({ gradeId: teacherAllocations.gradeId }).from(teacherAllocations).where(and(
+      eq(teacherAllocations.teacherUserId, userId),
+      eq(teacherAllocations.status, "active"),
+    ));
+    if (!canAccessAttendanceGrade(actor?.role, staff?.role, allocations.map(row => row.gradeId), learner.gradeId)) throw new Error("ATTENDANCE_SCOPE_FORBIDDEN");
   }
   await db.insert(attendances).values({ learnerId: input.learnerId, status: input.status, attendanceDate: new Date(input.attendanceDate), note: input.note ?? null, gradeId: learner.gradeId }).onDuplicateKeyUpdate({ set: { status: input.status, note: input.note ?? null } });
   await writeAudit(userId, "attendance.save", "learner", learner.id, input);
@@ -250,8 +305,10 @@ export async function saveMark(input: { assessmentId: number; learnerId: number;
   }
   const midTerm = assertScore(input.midTerm);
   const endTerm = assertScore(input.endTerm);
-  const average = Math.round(((midTerm + endTerm) / 2) * 100) / 100;
-  const values = { ...input, midTerm: String(midTerm), endTerm: String(endTerm), average: String(average), cbcLevel: cbcLevel(average) as "EE1" | "EE2" | "ME1" | "ME2" | "AE1" | "AE2" | "BE1" | "BE2" };
+  if (assessment.status !== "draft") throw new Error("ASSESSMENT_NOT_DRAFT_USE_WORKFLOW");
+  const score = assessment.assessmentType === "mid_term" ? midTerm : endTerm;
+  const average = score;
+  const values = { ...input, teacherUserId: assessment.teacherUserId, score: String(score), midTerm: assessment.assessmentType === "mid_term" ? String(score) : null, endTerm: assessment.assessmentType === "end_term" ? String(score) : null, average: String(average), cbcLevel: cbcLevel(average) as "EE1" | "EE2" | "ME1" | "ME2" | "AE1" | "AE2" | "BE1" | "BE2", updatedByUserId: userId };
   await db.insert(marks).values(values).onDuplicateKeyUpdate({ set: values });
   await writeAudit(userId, "assessment.save", "mark", `${input.assessmentId}:${input.learnerId}:${input.subjectId}`, { average, cbcLevel: values.cbcLevel });
   return { ...values, average, cbcLevel: values.cbcLevel };
@@ -412,16 +469,17 @@ export async function getIntegratedReportCard(input: { learnerId: number; academ
   const existing = (await db.select().from(reportCards).where(and(eq(reportCards.learnerId, input.learnerId), eq(reportCards.academicYear, academicYear), eq(reportCards.term, term))).limit(1))[0];
   if (!existing) await db.insert(reportCards).values({ learnerId: input.learnerId, academicYear, term, status: "draft", generatedByUserId: userId }).onDuplicateKeyUpdate({ set: { updatedAt: new Date() } });
   const record = (await db.select().from(reportCards).where(and(eq(reportCards.learnerId, input.learnerId), eq(reportCards.academicYear, academicYear), eq(reportCards.term, term))).limit(1))[0];
-  const overall = marksheet.length ? (marksheet.filter(row => row.cbcLevel.startsWith("EE")).length >= Math.ceil(marksheet.length / 2) ? "EE" : marksheet.filter(row => row.cbcLevel.startsWith("ME")).length >= Math.ceil(marksheet.length / 2) ? "ME" : marksheet.filter(row => row.cbcLevel.startsWith("BE")).length >= Math.ceil(marksheet.length / 2) ? "BE" : "AE") : null;
+  const levels = marksheet.map(row => row.cbcLevel).filter((level): level is NonNullable<typeof level> => level !== null);
+  const overall = levels.length ? (levels.filter(level => level.startsWith("EE")).length >= Math.ceil(levels.length / 2) ? "EE" : levels.filter(level => level.startsWith("ME")).length >= Math.ceil(levels.length / 2) ? "ME" : levels.filter(level => level.startsWith("BE")).length >= Math.ceil(levels.length / 2) ? "BE" : "AE") : null;
   return { learner: learnerRow.learner, grade: learnerRow.grade, settings, academicYear, term, marksheet, attendance: { openingDays: attendanceRows.length, present, absent, percentage: attendanceRows.length ? Math.round((present / attendanceRows.length) * 100) : 0 }, classTeacher, allocations: allocationRows, finance: fees, report: record, overall };
 }
 
-export async function saveReportCardComments(input: { learnerId: number; academicYear: number; term: string; classTeacherComment?: string | null; headTeacherComment?: string | null }, userId: number) {
-  const db = await requireDb(); await db.insert(reportCards).values({ ...input, status: "draft", generatedByUserId: userId }).onDuplicateKeyUpdate({ set: { classTeacherComment: input.classTeacherComment ?? null, headTeacherComment: input.headTeacherComment ?? null } }); await writeAudit(userId, "report_card.comments.save", "report_card", `${input.learnerId}:${input.academicYear}:${input.term}`, input); return { ok: true };
+export async function saveReportCardComments(input: { learnerId: number; academicYear: number; term: string; assessmentType?: "mid_term" | "end_term"; classTeacherComment?: string | null; headTeacherComment?: string | null }, userId: number) {
+  const db = await requireDb(); await db.insert(reportCards).values({ ...input, assessmentType: input.assessmentType ?? "end_term", status: "draft", generatedByUserId: userId }).onDuplicateKeyUpdate({ set: { classTeacherComment: input.classTeacherComment ?? null, headTeacherComment: input.headTeacherComment ?? null } }); await writeAudit(userId, "report_card.comments.save", "report_card", `${input.learnerId}:${input.academicYear}:${input.term}:${input.assessmentType ?? "end_term"}`, input); return { ok: true };
 }
 
-export async function setReportCardStatus(input: { learnerId: number; academicYear: number; term: string; status: "draft" | "generated" | "reviewed" | "approved" | "published" }, userId: number) {
-  const db = await requireDb(); await db.insert(reportCards).values({ learnerId: input.learnerId, academicYear: input.academicYear, term: input.term, status: input.status, generatedByUserId: userId }).onDuplicateKeyUpdate({ set: { status: input.status } }); await writeAudit(userId, `report_card.status.${input.status}`, "report_card", `${input.learnerId}:${input.academicYear}:${input.term}`, input); return { ok: true, status: input.status };
+export async function setReportCardStatus(input: { learnerId: number; academicYear: number; term: string; assessmentType?: "mid_term" | "end_term"; status: "draft" | "generated" | "reviewed" | "approved" | "published" }, userId: number) {
+  const db = await requireDb(); await db.insert(reportCards).values({ learnerId: input.learnerId, academicYear: input.academicYear, term: input.term, assessmentType: input.assessmentType ?? "end_term", status: input.status, generatedByUserId: userId }).onDuplicateKeyUpdate({ set: { status: input.status } }); await writeAudit(userId, `report_card.status.${input.status}`, "report_card", `${input.learnerId}:${input.academicYear}:${input.term}:${input.assessmentType ?? "end_term"}`, input); return { ok: true, status: input.status };
 }
 
 export async function listCommunications() {
@@ -589,6 +647,30 @@ export async function listAcademicCatalog() {
   const db = await requireDb();
   const [gradeRows, subjectRows] = await Promise.all([db.select().from(grades).orderBy(grades.name, grades.stream), db.select().from(subjects).orderBy(subjects.name)]);
   return { grades: gradeRows, subjects: subjectRows };
+}
+
+export async function createGradeClass(input: { name: string; stream?: string | null }, userId: number) {
+  const db = await requireDb();
+  const name = input.name.trim();
+  const stream = input.stream?.trim() || null;
+  const duplicate = (await db.select({ id: grades.id }).from(grades).where(stream
+    ? and(eq(grades.name, name), eq(grades.stream, stream))
+    : and(eq(grades.name, name), sql`${grades.stream} IS NULL`)).limit(1))[0];
+  if (duplicate) throw new Error("GRADE_CLASS_ALREADY_EXISTS");
+  await db.insert(grades).values({ name, stream });
+  await writeAudit(userId, "grade.create", "grade", name, { name, stream });
+  return { ok: true };
+}
+
+export async function createLearningArea(input: { name: string; code: string }, userId: number) {
+  const db = await requireDb();
+  const name = input.name.trim();
+  const code = input.code.trim().toUpperCase();
+  const duplicate = (await db.select({ id: subjects.id }).from(subjects).where(eq(subjects.code, code)).limit(1))[0];
+  if (duplicate) throw new Error("LEARNING_AREA_CODE_ALREADY_EXISTS");
+  await db.insert(subjects).values({ name, code });
+  await writeAudit(userId, "learning_area.create", "subject", code, { name, code });
+  return { ok: true };
 }
 
 export async function listAllocations(filters?: { academicYear?: number; term?: string; status?: "active" | "inactive" | "replaced" }, userId?: number) {

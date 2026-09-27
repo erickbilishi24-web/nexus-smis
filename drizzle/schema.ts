@@ -129,19 +129,32 @@ export const assessments = mysqlTable("assessments", {
   term: varchar("term", { length: 40 }).notNull(),
   academicYear: int("academicYear").notNull(),
   gradeId: int("gradeId").notNull(),
-  status: mysqlEnum("status", ["draft", "open", "locked", "approved"]).notNull().default("open"),
-});
+  subjectId: int("subjectId").notNull(),
+  teacherUserId: int("teacherUserId").notNull(),
+  assessmentType: mysqlEnum("assessmentType", ["mid_term", "end_term"]).notNull().default("end_term"),
+  status: mysqlEnum("status", ["draft", "submitted", "approved", "locked"]).notNull().default("draft"),
+  submittedAt: timestamp("submittedAt"),
+  verifiedByUserId: int("verifiedByUserId"),
+  verifiedAt: timestamp("verifiedAt"),
+  lockedAt: timestamp("lockedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => ({ assessmentScopeUnique: uniqueIndex("assessment_scope_unique").on(table.academicYear, table.term, table.assessmentType, table.gradeId, table.subjectId) }));
 
 export const marks = mysqlTable("marks", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
   assessmentId: int("assessmentId").notNull(),
   learnerId: int("learnerId").notNull(),
   subjectId: int("subjectId").notNull(),
-  midTerm: decimal("midTerm", { precision: 5, scale: 2 }).notNull(),
-  endTerm: decimal("endTerm", { precision: 5, scale: 2 }).notNull(),
-  average: decimal("average", { precision: 5, scale: 2 }).notNull(),
-  cbcLevel: mysqlEnum("cbcLevel", ["EE1", "EE2", "ME1", "ME2", "AE1", "AE2", "BE1", "BE2"]).notNull(),
+  teacherUserId: int("teacherUserId").notNull(),
+  score: decimal("score", { precision: 5, scale: 2 }),
+  midTerm: decimal("midTerm", { precision: 5, scale: 2 }),
+  endTerm: decimal("endTerm", { precision: 5, scale: 2 }),
+  average: decimal("average", { precision: 5, scale: 2 }),
+  cbcLevel: mysqlEnum("cbcLevel", ["EE1", "EE2", "ME1", "ME2", "AE1", "AE2", "BE1", "BE2"]),
   teacherRemark: varchar("teacherRemark", { length: 255 }),
+  updatedByUserId: int("updatedByUserId"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, table => ({ markUnique: uniqueIndex("mark_unique").on(table.assessmentId, table.learnerId, table.subjectId) }));
 
 export const attendances = mysqlTable("attendances", {
@@ -294,13 +307,14 @@ export const reportCards = mysqlTable("report_cards", {
   learnerId: int("learnerId").notNull(),
   academicYear: int("academicYear").notNull(),
   term: varchar("term", { length: 40 }).notNull(),
+  assessmentType: mysqlEnum("assessmentType", ["mid_term", "end_term"]).notNull().default("end_term"),
   status: mysqlEnum("status", ["draft", "generated", "reviewed", "approved", "published"]).notNull().default("draft"),
   classTeacherComment: text("classTeacherComment"),
   headTeacherComment: text("headTeacherComment"),
   generatedByUserId: int("generatedByUserId"),
   generatedAt: timestamp("generatedAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-}, table => ({ reportCardPeriodUnique: uniqueIndex("report_card_period_unique").on(table.learnerId, table.academicYear, table.term) }));
+}, table => ({ reportCardPeriodUnique: uniqueIndex("report_card_period_unique").on(table.learnerId, table.academicYear, table.term, table.assessmentType) }));
 
 export type Learner = typeof learners.$inferSelect;
 export type Attendance = typeof attendances.$inferSelect;

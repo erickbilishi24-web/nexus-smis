@@ -4,12 +4,14 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
-import { adminResetIamPassword, changeIamPassword, loginWithIam, logoutIam, requestIamPasswordReset, resetIamPassword } from "./iam";
+import { correctLockedAssessmentMark, ensureAssessment, getAssessmentEntries, getAssessmentReportCard, getClassMarklist, listAssessmentScopes, saveAssessmentMarks, setAssessmentFinalState, submitAssessment } from "./assessment";
+import { adminResetIamPassword, changeIamPassword, loginWithIam, logoutIam, requestIamPasswordReset, resetIamPassword, safeAuthProfile } from "./iam";
 import {
   archiveLearner,
   createCommunication,
   generateTimetable,
   generateAutomaticTimetable,
+  getAttendanceRegister,
   getDashboardSnapshot,
   getFinanceOverview,
   getIntegratedReportCard,
@@ -26,6 +28,8 @@ import {
   listAuditLogs,
   listCommunications,
   listLearners,
+  createGradeClass,
+  createLearningArea,
   createLearner,
   updateLearner,
   setLearnerStatus,
@@ -75,7 +79,7 @@ const permissionProcedure = (permission: string) => protectedProcedure.use(async
 export const appRouter = router({
   system: systemRouter,
   auth: router({
-    me: publicProcedure.query(opts => opts.ctx.user),
+    me: publicProcedure.query(({ ctx }) => safeAuthProfile(ctx.user)),
     login: publicProcedure.input(z.object({ identifier: z.string().min(1).max(320), password: z.string().min(1).max(200) })).mutation(async ({ input, ctx }) => {
       try {
         return await loginWithIam(input, ctx.req, ctx.res);
@@ -100,7 +104,7 @@ export const appRouter = router({
   }),
   smis: router({
     health: publicProcedure.query(() => ({ ok: true, service: "kenyan-smis", persistence: "mysql-drizzle", modules: ["learners", "attendance", "assessments", "reports", "finance", "store", "timetable", "communication", "alumni", "users", "settings", "audit"] })),
-    snapshot: publicProcedure.query(() => getDashboardSnapshot()),
+    snapshot: permissionProcedure("dashboard.view").query(() => getDashboardSnapshot()),
     learners: router({
       list: permissionProcedure("learners.view").input(z.object({ search: z.string().optional() }).optional()).query(({ input }) => listLearners(input?.search)),
       create: permissionProcedure("learners.add").input(z.object({ fullName: z.string().min(1).max(160), admissionNumber: z.string().min(1).max(40), guardianName: z.string().max(160).nullable().optional(), guardianIdNumber: z.string().max(40).nullable().optional(), guardianPhone: z.string().max(40).nullable().optional(), gradeId: z.number().int().positive(), status: z.enum(["active", "inactive"]) })).mutation(({ input, ctx }) => createLearner(input, currentUserId(ctx.user))),
@@ -111,12 +115,23 @@ export const appRouter = router({
     }),
     attendance: router({
       list: permissionProcedure("attendance.view").input(z.object({ date: z.string().optional() }).optional()).query(({ input, ctx }) => listAttendance(input?.date, currentUserId(ctx.user))),
+      register: permissionProcedure("attendance.view").input(z.object({ date: z.string().min(10).max(10) })).query(({ input, ctx }) => getAttendanceRegister(input.date, currentUserId(ctx.user))),
       save: permissionProcedure("attendance.edit").input(z.object({ learnerId: z.number().int().positive(), status: z.enum(["present", "absent", "late", "excused"]), attendanceDate: z.string(), note: z.string().max(255).nullable().optional() })).mutation(({ input, ctx }) => saveAttendance(input, currentUserId(ctx.user))),
     }),
     assessments: router({
+      reviewAccess: protectedProcedure.query(({ ctx }) => userCan(ctx.user.id, ctx.user.role, "settings.edit")),
+      commentAccess: protectedProcedure.query(({ ctx }) => userCan(ctx.user.id, ctx.user.role, "assessments.edit")),
       list: permissionProcedure("assessments.view").query(() => listAssessments()),
       marks: permissionProcedure("assessments.view").input(z.object({ assessmentId: z.number().int().positive().optional() }).optional()).query(({ input, ctx }) => listMarks(input?.assessmentId, currentUserId(ctx.user))),
       saveMark: permissionProcedure("assessments.edit").input(z.object({ assessmentId: z.number().int().positive(), learnerId: z.number().int().positive(), subjectId: z.number().int().positive(), midTerm: z.number().min(0).max(100), endTerm: z.number().min(0).max(100), teacherRemark: z.string().max(255).nullable().optional() })).mutation(({ input, ctx }) => saveMark(input, currentUserId(ctx.user))),
+      scopes: permissionProcedure("assessments.view").query(({ ctx }) => listAssessmentScopes(currentUserId(ctx.user))),
+      open: permissionProcedure("assessments.edit").input(z.object({ academicYear: z.number().int().min(2000).max(2100), term: z.string().min(1).max(40), assessmentType: z.enum(["mid_term", "end_term"]), gradeId: z.number().int().positive(), subjectId: z.number().int().positive() })).mutation(({ input, ctx }) => ensureAssessment(input, currentUserId(ctx.user))),
+      entries: permissionProcedure("assessments.view").input(z.object({ assessmentId: z.number().int().positive() })).query(({ input, ctx }) => getAssessmentEntries(input.assessmentId, currentUserId(ctx.user))),
+      saveRows: permissionProcedure("assessments.edit").input(z.object({ assessmentId: z.number().int().positive(), rows: z.array(z.object({ learnerId: z.number().int().positive(), score: z.number().min(0).max(100).nullable(), teacherRemark: z.string().max(255).nullable().optional() })).max(500) })).mutation(({ input, ctx }) => saveAssessmentMarks(input, currentUserId(ctx.user))),
+      submit: permissionProcedure("assessments.edit").input(z.object({ assessmentId: z.number().int().positive() })).mutation(({ input, ctx }) => submitAssessment(input.assessmentId, currentUserId(ctx.user))),
+      setFinalState: permissionProcedure("settings.edit").input(z.object({ assessmentId: z.number().int().positive(), status: z.enum(["approved", "locked"]) })).mutation(({ input, ctx }) => setAssessmentFinalState(input, currentUserId(ctx.user))),
+      correctLockedMark: permissionProcedure("settings.edit").input(z.object({ assessmentId: z.number().int().positive(), learnerId: z.number().int().positive(), score: z.number().min(0).max(100), reason: z.string().min(10).max(500) })).mutation(({ input, ctx }) => correctLockedAssessmentMark(input, currentUserId(ctx.user))),
+      classMarklist: permissionProcedure("assessments.view").input(z.object({ academicYear: z.number().int().min(2000).max(2100), term: z.string().min(1).max(40), assessmentType: z.enum(["mid_term", "end_term", "average"]), gradeId: z.number().int().positive() })).query(({ input, ctx }) => getClassMarklist(input, currentUserId(ctx.user))),
     }),
     finance: router({
       overview: permissionProcedure("finance.view").input(z.object({ learnerId: z.number().int().positive().optional() }).optional()).query(({ input }) => getFinanceOverview(input?.learnerId)),
@@ -131,7 +146,7 @@ export const appRouter = router({
       addGuardian: permissionProcedure("learners.add").input(z.object({ fullName: z.string().min(1).max(160), phone: z.string().max(40).nullable().optional(), email: z.string().email().nullable().optional(), communicationPreference: z.enum(["sms", "email", "phone"]), learnerId: z.number().int().positive().optional(), relationship: z.string().max(80).optional() })).mutation(({ input, ctx }) => saveGuardian(input, currentUserId(ctx.user))),
     }),
     notifications: router({
-      list: publicProcedure.query(() => listNotifications()),
+      list: permissionProcedure("communication.edit").query(() => listNotifications()),
       create: permissionProcedure("communication.edit").input(z.object({ audience: z.enum(["parents", "staff", "learners", "all"]), title: z.string().min(1).max(160), body: z.string().min(1), status: z.enum(["draft", "published"]) })).mutation(({ input, ctx }) => createNotification(input, currentUserId(ctx.user))),
     }),
     store: router({
@@ -152,8 +167,8 @@ export const appRouter = router({
       create: permissionProcedure("communication.edit").input(z.object({ audience: z.enum(["parents", "staff", "learners", "all"]), channel: z.enum(["sms", "notice", "email"]), subject: z.string().min(1).max(160), body: z.string().min(1) })).mutation(({ input, ctx }) => createCommunication(input, currentUserId(ctx.user))),
     }),
     alumni: router({
-      list: publicProcedure.query(() => listAlumni()),
-      archive: protectedProcedure.input(z.object({ learnerId: z.number().int().positive(), completionYear: z.number().int().min(2000).max(2100), destination: z.string().max(160).nullable().optional() })).mutation(({ input, ctx }) => archiveLearner(input, currentUserId(ctx.user))),
+      list: permissionProcedure("alumni.edit").query(() => listAlumni()),
+      archive: permissionProcedure("alumni.edit").input(z.object({ learnerId: z.number().int().positive(), completionYear: z.number().int().min(2000).max(2100), destination: z.string().max(160).nullable().optional() })).mutation(({ input, ctx }) => archiveLearner(input, currentUserId(ctx.user))),
     }),
     users: router({
       list: permissionProcedure("users.edit").input(z.object({ search: z.string().optional() }).optional()).query(({ input }) => listStaff(input?.search)),
@@ -174,13 +189,15 @@ export const appRouter = router({
       changeStatus: permissionProcedure("allocations.deactivate").input(z.object({ allocationId: z.number().int().positive(), status: z.enum(["inactive", "replaced"]), replacedByUserId: z.number().int().positive().nullable().optional() })).mutation(({ input, ctx }) => changeTeacherAllocationStatus(input, currentUserId(ctx.user))),
     }),
     settings: router({
-      get: publicProcedure.query(() => getSettings()),
+      get: permissionProcedure("dashboard.view").query(() => getSettings()),
+      createGrade: permissionProcedure("settings.edit").input(z.object({ name: z.string().min(1).max(80), stream: z.string().max(80).nullable().optional() })).mutation(({ input, ctx }) => createGradeClass(input, currentUserId(ctx.user))),
+      createSubject: permissionProcedure("settings.edit").input(z.object({ name: z.string().min(1).max(120), code: z.string().min(1).max(30) })).mutation(({ input, ctx }) => createLearningArea(input, currentUserId(ctx.user))),
       update: adminProcedure.input(z.object({ schoolName: z.string().min(1).max(200), motto: z.string().max(255).nullable().optional(), currentTerm: z.string().min(1).max(40), academicYear: z.number().int().min(2000).max(2100), includeFeesOnReportCard: z.boolean(), showPercentagesOnReportCard: z.boolean().optional() })).mutation(({ input, ctx }) => saveSettings(input, currentUserId(ctx.user))),
     }),
     reports: router({
-      reportCard: permissionProcedure("reports.view").input(z.object({ learnerId: z.number().int().positive(), academicYear: z.number().int().optional(), term: z.string().max(40).optional() })).query(({ input, ctx }) => getIntegratedReportCard(input, currentUserId(ctx.user))),
-      saveReportCardComments: permissionProcedure("reports.view").input(z.object({ learnerId: z.number().int().positive(), academicYear: z.number().int(), term: z.string().max(40), classTeacherComment: z.string().max(1000).nullable().optional(), headTeacherComment: z.string().max(1000).nullable().optional() })).mutation(({ input, ctx }) => saveReportCardComments(input, currentUserId(ctx.user))),
-      setReportCardStatus: adminProcedure.input(z.object({ learnerId: z.number().int().positive(), academicYear: z.number().int(), term: z.string().max(40), status: z.enum(["draft", "generated", "reviewed", "approved", "published"]) })).mutation(({ input, ctx }) => setReportCardStatus(input, currentUserId(ctx.user))),
+      reportCard: permissionProcedure("reports.view").input(z.object({ learnerId: z.number().int().positive(), academicYear: z.number().int().min(2000).max(2100), term: z.string().min(1).max(40), assessmentType: z.enum(["mid_term", "end_term"]) })).query(({ input, ctx }) => getAssessmentReportCard(input, currentUserId(ctx.user))),
+      saveReportCardComments: permissionProcedure("assessments.edit").input(z.object({ learnerId: z.number().int().positive(), academicYear: z.number().int(), term: z.string().max(40), assessmentType: z.enum(["mid_term", "end_term"]).default("end_term"), classTeacherComment: z.string().max(1000).nullable().optional(), headTeacherComment: z.string().max(1000).nullable().optional() })).mutation(({ input, ctx }) => saveReportCardComments(input, currentUserId(ctx.user))),
+      setReportCardStatus: adminProcedure.input(z.object({ learnerId: z.number().int().positive(), academicYear: z.number().int(), term: z.string().max(40), assessmentType: z.enum(["mid_term", "end_term"]).default("end_term"), status: z.enum(["draft", "generated", "reviewed", "approved", "published"]) })).mutation(({ input, ctx }) => setReportCardStatus(input, currentUserId(ctx.user))),
     }),
     audit: router({
       list: adminProcedure.query(() => listAuditLogs()),
