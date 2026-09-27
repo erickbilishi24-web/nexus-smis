@@ -162,10 +162,22 @@ export const attendances = mysqlTable("attendances", {
   learnerId: int("learnerId").notNull(),
   gradeId: int("gradeId").notNull(),
   attendanceDate: date("attendanceDate").notNull(),
+  session: mysqlEnum("session", ["morning", "afternoon"]).notNull().default("morning"),
   capturedAt: timestamp("capturedAt").defaultNow().notNull(),
   status: mysqlEnum("status", ["present", "absent", "late", "excused"]).notNull(),
   note: varchar("note", { length: 255 }),
-}, table => ({ attendanceUnique: uniqueIndex("attendance_unique").on(table.learnerId, table.attendanceDate) }));
+}, table => ({ attendanceUnique: uniqueIndex("attendance_unique").on(table.learnerId, table.attendanceDate, table.session) }));
+export const attendanceRegisterApprovals = mysqlTable("attendance_register_approvals", {
+  id: int("id").autoincrement().primaryKey(),
+  attendanceDate: date("attendanceDate").notNull(),
+  gradeId: int("gradeId").notNull(),
+  status: mysqlEnum("status", ["draft", "submitted", "approved", "reopened"]).notNull().default("draft"),
+  submittedByUserId: int("submittedByUserId"),
+  submittedAt: timestamp("submittedAt"),
+  approvedByUserId: int("approvedByUserId"),
+  approvedAt: timestamp("approvedAt"),
+  notes: varchar("notes", { length: 255 }),
+}, table => ({ attendanceRegisterApprovalUnique: uniqueIndex("attendance_register_approval_unique").on(table.attendanceDate, table.gradeId) }));
 
 export const feeStructures = mysqlTable("fee_structures", {
   id: int("id").autoincrement().primaryKey(),

@@ -186,4 +186,48 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgb(29 106 87 / 2
   .assessment-workspace .marklist-print tr {
     break-inside: avoid;
   }
+
+  .attendance-workspace,
+  .attendance-workspace * {
+    visibility: visible !important;
+  }
+
+  .attendance-workspace {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    background: #fff;
+    color: #111;
+  }
+
+  .attendance-workspace > *:not(.attendance-print-heading):not(.attendance-register-paper) {
+    display: none !important;
+  }
+
+  .attendance-workspace .attendance-print-heading {
+    display: block !important;
+    margin-bottom: 4mm;
+  }
+
+  .attendance-workspace .attendance-register-paper {
+    overflow: visible !important;
+    width: 100% !important;
+    border: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .attendance-workspace .attendance-register-paper > *:not(table) {
+    visibility: visible !important;
+  }
+
+  .attendance-workspace .attendance-register-paper table {
+    width: 100%;
+    min-width: 0 !important;
+    font-size: 8pt;
+  }
+
+  .attendance-workspace .attendance-register-paper th,
+  .attendance-workspace .attendance-register-paper td {
+    padding: 2px 3px;
+  }
 }

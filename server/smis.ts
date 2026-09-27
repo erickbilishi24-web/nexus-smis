@@ -1,10 +1,11 @@
-import { and, desc, eq, inArray, like, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, like, lte, or, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db";
 import { attendanceGradeLevel, validateAttendanceBatch, type AttendanceBatchEntry } from "../shared/attendance";
 import {
   alumni,
   assessments,
+  attendanceRegisterApprovals,
   attendances,
   auditLogs,
   communications,
@@ -208,9 +209,22 @@ export async function setLearnerStatus(input: { learnerId: number; status: Learn
   return { ok: true };
 }
 
-export async function listAttendance(date?: string, userId?: number) {
+type AttendanceSession = "morning" | "afternoon";
+type AttendanceSummaryPeriod = "weekly" | "monthly" | "termly" | "yearly";
+
+function dateWindow(period: AttendanceSummaryPeriod, now = new Date()) {
+  const end = new Date(now); end.setHours(23, 59, 59, 999);
+  const start = new Date(end);
+  if (period === "weekly") start.setDate(start.getDate() - 6);
+  if (period === "monthly") start.setDate(1);
+  if (period === "termly") { start.setMonth(start.getMonth() >= 8 ? 8 : start.getMonth() >= 4 ? 4 : 0, 1); }
+  if (period === "yearly") start.setMonth(0, 1);
+  return { start, end };
+}
+
+export async function listAttendance(date?: string, userId?: number, session: AttendanceSession = "morning") {
   const db = await requireDb();
-  const rows = await db.select({ attendance: attendances, learner: learners, grade: grades }).from(attendances).innerJoin(learners, eq(learners.id, attendances.learnerId)).leftJoin(grades, eq(grades.id, attendances.gradeId)).where(date ? eq(attendances.attendanceDate, new Date(date)) : undefined).orderBy(desc(attendances.id));
+  const rows = await db.select({ attendance: attendances, learner: learners, grade: grades }).from(attendances).innerJoin(learners, eq(learners.id, attendances.learnerId)).leftJoin(grades, eq(grades.id, attendances.gradeId)).where(and(date ? eq(attendances.attendanceDate, new Date(date)) : undefined, eq(attendances.session, session))).orderBy(desc(attendances.id));
   if (!userId) return rows.map(row => ({ ...row.attendance, learner: row.learner, grade: row.grade }));
   const actor = (await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1))[0];
   if (actor?.role !== "user") return rows.map(row => ({ ...row.attendance, learner: row.learner, grade: row.grade }));
@@ -237,7 +251,7 @@ async function classTeacherGradeIds(userId: number) {
   ));
   return Array.from(new Set(allocations.map(row => row.gradeId)));
 }
-export async function getAttendanceRegister(date: string, userId: number) {
+export async function getAttendanceRegister(date: string, userId: number, session: AttendanceSession = "morning") {
   const db = await requireDb();
   const actor = (await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1))[0];
   const staff = (await db.select({ role: staffProfiles.role }).from(staffProfiles).where(eq(staffProfiles.userId, userId)).limit(1))[0];
@@ -255,6 +269,7 @@ export async function getAttendanceRegister(date: string, userId: number) {
   if (!roster.length) return [];
   const saved = await db.select().from(attendances).where(and(
     eq(attendances.attendanceDate, new Date(date)),
+    eq(attendances.session, session),
     inArray(attendances.learnerId, roster.map(row => row.learner.id)),
   ));
   const savedByLearner = new Map(saved.map(row => [row.learnerId, row]));
@@ -266,8 +281,59 @@ export async function getAttendanceRegister(date: string, userId: number) {
     capturedAt: savedByLearner.get(row.learner.id)?.capturedAt ?? null,
   }));
 }
-
-export async function saveAttendance(input: { learnerId: number; status: "present" | "absent" | "late" | "excused"; attendanceDate: string; note?: string | null }, userId: number) {
+export async function getAttendanceRegisterApproval(date: string, gradeId: number, userId?: number) {
+  if (userId) await assertAttendanceGradeScope(gradeId, userId);
+  const db = await requireDb();
+  return (await db.select().from(attendanceRegisterApprovals).where(and(eq(attendanceRegisterApprovals.attendanceDate, new Date(date)), eq(attendanceRegisterApprovals.gradeId, gradeId))).limit(1))[0] ?? { status: "draft" as const, attendanceDate: date, gradeId, submittedAt: null, approvedAt: null, submittedByUserId: null, approvedByUserId: null, notes: null };
+}
+async function assertAttendanceGradeScope(gradeId: number, userId: number) {
+  const db = await requireDb();
+  const actor = (await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1))[0];
+  const staff = (await db.select({ role: staffProfiles.role }).from(staffProfiles).where(eq(staffProfiles.userId, userId)).limit(1))[0];
+  const admin = isAttendanceAdmin(actor?.role, staff?.role);
+  const classGrades = admin ? [gradeId] : await classTeacherGradeIds(userId);
+  if (!canCaptureAttendance(actor?.role, staff?.role, classGrades, gradeId)) throw new Error("ATTENDANCE_SCOPE_FORBIDDEN");
+  return { admin, db };
+}
+export async function setAttendanceRegisterStatus(input: { attendanceDate: string; gradeId: number; action: "submit" | "approve" | "reopen" }, userId: number) {
+  const { admin, db } = await assertAttendanceGradeScope(input.gradeId, userId);
+  if ((input.action === "approve" || input.action === "reopen") && !admin) throw new Error("ATTENDANCE_APPROVAL_FORBIDDEN");
+  const current = await getAttendanceRegisterApproval(input.attendanceDate, input.gradeId);
+  const now = new Date();
+  const values = input.action === "submit"
+    ? { status: "submitted" as const, submittedByUserId: userId, submittedAt: now }
+    : input.action === "approve"
+      ? { status: "approved" as const, approvedByUserId: userId, approvedAt: now }
+      : { status: "reopened" as const, approvedByUserId: null, approvedAt: null };
+  if ("id" in current) await db.update(attendanceRegisterApprovals).set(values).where(eq(attendanceRegisterApprovals.id, current.id));
+  else await db.insert(attendanceRegisterApprovals).values({ attendanceDate: new Date(input.attendanceDate), gradeId: input.gradeId, ...values });
+  await writeAudit(userId, `attendance.register.${input.action}`, "attendance_register", `${input.attendanceDate}:${input.gradeId}`, input);
+  return getAttendanceRegisterApproval(input.attendanceDate, input.gradeId);
+}
+export async function getAttendanceSummary(input: { period: AttendanceSummaryPeriod; gradeLevel?: number }, userId: number) {
+  const db = await requireDb();
+  const actor = (await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1))[0];
+  const staff = (await db.select({ role: staffProfiles.role }).from(staffProfiles).where(eq(staffProfiles.userId, userId)).limit(1))[0];
+  const allowed = isAttendanceAdmin(actor?.role, staff?.role) ? null : new Set(await classTeacherGradeIds(userId));
+  if (!allowed && !isAttendanceAdmin(actor?.role, staff?.role)) return { period: input.period, rows: [], totals: { present: 0, absent: 0, late: 0, excused: 0, sessions: 0 } };
+  const window = dateWindow(input.period);
+  const learnerRows = await db.select({ learner: learners, grade: grades }).from(learners).leftJoin(grades, eq(grades.id, learners.gradeId)).where(eq(learners.status, "active"));
+  const rows = await db.select({ attendance: attendances }).from(attendances).where(and(gte(attendances.attendanceDate, window.start), lte(attendances.attendanceDate, window.end)));
+  const grouped = new Map<number, { learnerId: number; learner: string; admissionNumber: string; grade: string; present: number; absent: number; late: number; excused: number; sessions: number }>();
+  for (const row of learnerRows) {
+    if (allowed && !allowed.has(row.learner.gradeId)) continue;
+    const level = attendanceGradeLevel(row.grade?.name ?? "");
+    if (input.gradeLevel && level !== input.gradeLevel) continue;
+    grouped.set(row.learner.id, { learnerId: row.learner.id, learner: row.learner.fullName, admissionNumber: row.learner.admissionNumber, grade: row.grade ? `${row.grade.name}${row.grade.stream ? ` ${row.grade.stream}` : ""}` : "", present: 0, absent: 0, late: 0, excused: 0, sessions: 0 });
+  }
+  for (const row of rows) {
+    const current = grouped.get(row.attendance.learnerId);
+    if (current) { current[row.attendance.status] += 1; current.sessions += 1; }
+  }
+  const result = Array.from(grouped.values()).sort((a, b) => a.grade.localeCompare(b.grade) || a.learner.localeCompare(b.learner));
+  return { period: input.period, from: window.start.toISOString().slice(0, 10), to: window.end.toISOString().slice(0, 10), rows: result, totals: result.reduce((sum, row) => ({ present: sum.present + row.present, absent: sum.absent + row.absent, late: sum.late + row.late, excused: sum.excused + row.excused, sessions: sum.sessions + row.sessions }), { present: 0, absent: 0, late: 0, excused: 0, sessions: 0 }) };
+}
+export async function saveAttendance(input: { learnerId: number; status: "present" | "absent" | "late" | "excused"; attendanceDate: string; session?: AttendanceSession; note?: string | null }, userId: number) {
   const db = await requireDb();
   const learner = (await db.select().from(learners).where(eq(learners.id, input.learnerId)).limit(1))[0];
   if (!learner) throw new Error("LEARNER_NOT_FOUND");
@@ -278,12 +344,13 @@ export async function saveAttendance(input: { learnerId: number; status: "presen
     const allowedGradeIds = await classTeacherGradeIds(userId);
     if (!canCaptureAttendance(actor?.role, staff?.role, allowedGradeIds, learner.gradeId)) throw new Error("ATTENDANCE_SCOPE_FORBIDDEN");
   }
-  await db.insert(attendances).values({ learnerId: input.learnerId, status: input.status, attendanceDate: new Date(input.attendanceDate), capturedAt: new Date(), note: input.note ?? null, gradeId: learner.gradeId }).onDuplicateKeyUpdate({ set: { status: input.status, capturedAt: new Date(), note: input.note ?? null } });
+  const session = input.session ?? "morning";
+  await db.insert(attendances).values({ learnerId: input.learnerId, status: input.status, attendanceDate: new Date(input.attendanceDate), session, capturedAt: new Date(), note: input.note ?? null, gradeId: learner.gradeId }).onDuplicateKeyUpdate({ set: { status: input.status, capturedAt: new Date(), note: input.note ?? null } });
   await writeAudit(userId, "attendance.save", "learner", learner.id, input);
   return { ok: true };
 }
 
-export async function saveAttendanceBatch(input: { attendanceDate: string; entries: AttendanceBatchEntry[] }, userId: number) {
+export async function saveAttendanceBatch(input: { attendanceDate: string; session?: AttendanceSession; entries: AttendanceBatchEntry[] }, userId: number) {
   const entries = validateAttendanceBatch(input.entries);
   const db = await requireDb();
   const learnerIds = entries.map(entry => entry.learnerId);
@@ -311,11 +378,12 @@ export async function saveAttendanceBatch(input: { attendanceDate: string; entri
   }, {});
   const values = entries.map(entry => {
     const learner = learnerRows.find(row => row.id === entry.learnerId)!;
-    return { learnerId: learner.id, gradeId: learner.gradeId, attendanceDate: new Date(input.attendanceDate), capturedAt: new Date(), status: entry.status, note: null };
+    return { learnerId: learner.id, gradeId: learner.gradeId, attendanceDate: new Date(input.attendanceDate), session: input.session ?? "morning", capturedAt: new Date(), status: entry.status, note: null };
   });
   await db.transaction(async tx => {
     await tx.insert(attendances).values(values).onDuplicateKeyUpdate({ set: {
       status: sql.raw("VALUES(status)"),
+      capturedAt: sql.raw("VALUES(capturedAt)"),
       note: sql.raw("VALUES(note)"),
     } });
     await tx.insert(auditLogs).values({
@@ -323,7 +391,7 @@ export async function saveAttendanceBatch(input: { attendanceDate: string; entri
       action: "attendance.batch_save",
       entityType: "attendance_register",
       entityId: input.attendanceDate,
-      metadata: JSON.stringify({ savedCount: entries.length, gradeIds, gradeLevels: Array.from(new Set(gradeIds.map(id => gradeLevelById.get(id)))), counts }),
+      metadata: JSON.stringify({ savedCount: entries.length, session: input.session ?? "morning", gradeIds, gradeLevels: Array.from(new Set(gradeIds.map(id => gradeLevelById.get(id)))), counts }),
     });
   });
   return { ok: true, savedCount: entries.length, counts };
