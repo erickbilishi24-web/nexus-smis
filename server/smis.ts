@@ -214,8 +214,7 @@ export async function listAttendance(date?: string, userId?: number) {
   if (!userId) return rows.map(row => ({ ...row.attendance, learner: row.learner, grade: row.grade }));
   const actor = (await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1))[0];
   if (actor?.role !== "user") return rows.map(row => ({ ...row.attendance, learner: row.learner, grade: row.grade }));
-  const allocations = await db.select().from(teacherAllocations).where(and(eq(teacherAllocations.teacherUserId, userId), eq(teacherAllocations.status, "active")));
-  const allowedGrades = new Set(allocations.map(row => row.gradeId));
+  const allowedGrades = new Set(await classTeacherGradeIds(userId));
   return rows.filter(row => allowedGrades.has(row.learner.gradeId)).map(row => ({ ...row.attendance, learner: row.learner, grade: row.grade }));
 }
 
@@ -226,7 +225,18 @@ export function isAttendanceAdmin(userRole?: string | null, staffRole?: string |
 export function canAccessAttendanceGrade(userRole: string | null | undefined, staffRole: string | null | undefined, allocatedGradeIds: number[], gradeId: number) {
   return isAttendanceAdmin(userRole, staffRole) || allocatedGradeIds.includes(gradeId);
 }
-
+export function canCaptureAttendance(userRole: string | null | undefined, staffRole: string | null | undefined, classTeacherGradeIds: number[], gradeId: number) {
+  return isAttendanceAdmin(userRole, staffRole) || (staffRole === "class_teacher" && classTeacherGradeIds.includes(gradeId));
+}
+async function classTeacherGradeIds(userId: number) {
+  const db = await requireDb();
+  const allocations = await db.select({ gradeId: teacherAllocations.gradeId }).from(teacherAllocations).where(and(
+    eq(teacherAllocations.teacherUserId, userId),
+    eq(teacherAllocations.status, "active"),
+    eq(teacherAllocations.allocationType, "class_teacher"),
+  ));
+  return Array.from(new Set(allocations.map(row => row.gradeId)));
+}
 export async function getAttendanceRegister(date: string, userId: number) {
   const db = await requireDb();
   const actor = (await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1))[0];
@@ -234,11 +244,8 @@ export async function getAttendanceRegister(date: string, userId: number) {
   const isAdmin = isAttendanceAdmin(actor?.role, staff?.role);
   let allowedGradeIds: number[] | null = null;
   if (!isAdmin) {
-    const allocations = await db.select({ gradeId: teacherAllocations.gradeId }).from(teacherAllocations).where(and(
-      eq(teacherAllocations.teacherUserId, userId),
-      eq(teacherAllocations.status, "active"),
-    ));
-    allowedGradeIds = Array.from(new Set(allocations.map(row => row.gradeId)));
+    const profileGradeIds = await classTeacherGradeIds(userId);
+    allowedGradeIds = profileGradeIds;
     if (!allowedGradeIds.length) return [];
   }
   const roster = await db.select({ learner: learners, grade: grades }).from(learners)
@@ -256,6 +263,7 @@ export async function getAttendanceRegister(date: string, userId: number) {
     grade: row.grade ? `${row.grade.name}${row.grade.stream ? ` ${row.grade.stream}` : ""}` : "",
     attendanceStatus: savedByLearner.get(row.learner.id)?.status ?? null,
     attendanceNote: savedByLearner.get(row.learner.id)?.note ?? null,
+    capturedAt: savedByLearner.get(row.learner.id)?.capturedAt ?? null,
   }));
 }
 
@@ -267,13 +275,10 @@ export async function saveAttendance(input: { learnerId: number; status: "presen
   const staff = (await db.select({ role: staffProfiles.role }).from(staffProfiles).where(eq(staffProfiles.userId, userId)).limit(1))[0];
   const isAdmin = isAttendanceAdmin(actor?.role, staff?.role);
   if (!isAdmin) {
-    const allocations = await db.select({ gradeId: teacherAllocations.gradeId }).from(teacherAllocations).where(and(
-      eq(teacherAllocations.teacherUserId, userId),
-      eq(teacherAllocations.status, "active"),
-    ));
-    if (!canAccessAttendanceGrade(actor?.role, staff?.role, allocations.map(row => row.gradeId), learner.gradeId)) throw new Error("ATTENDANCE_SCOPE_FORBIDDEN");
+    const allowedGradeIds = await classTeacherGradeIds(userId);
+    if (!canCaptureAttendance(actor?.role, staff?.role, allowedGradeIds, learner.gradeId)) throw new Error("ATTENDANCE_SCOPE_FORBIDDEN");
   }
-  await db.insert(attendances).values({ learnerId: input.learnerId, status: input.status, attendanceDate: new Date(input.attendanceDate), note: input.note ?? null, gradeId: learner.gradeId }).onDuplicateKeyUpdate({ set: { status: input.status, note: input.note ?? null } });
+  await db.insert(attendances).values({ learnerId: input.learnerId, status: input.status, attendanceDate: new Date(input.attendanceDate), capturedAt: new Date(), note: input.note ?? null, gradeId: learner.gradeId }).onDuplicateKeyUpdate({ set: { status: input.status, capturedAt: new Date(), note: input.note ?? null } });
   await writeAudit(userId, "attendance.save", "learner", learner.id, input);
   return { ok: true };
 }
@@ -296,13 +301,9 @@ export async function saveAttendanceBatch(input: { attendanceDate: string; entri
   const isAdmin = isAttendanceAdmin(actor?.role, staff?.role);
   let allocatedGradeIds: number[] = [];
   if (!isAdmin) {
-    const allocations = await db.select({ gradeId: teacherAllocations.gradeId }).from(teacherAllocations).where(and(
-      eq(teacherAllocations.teacherUserId, userId),
-      eq(teacherAllocations.status, "active"),
-    ));
-    allocatedGradeIds = Array.from(new Set(allocations.map(row => row.gradeId)));
+    allocatedGradeIds = await classTeacherGradeIds(userId);
   }
-  if (learnerRows.some(row => !canAccessAttendanceGrade(actor?.role, staff?.role, allocatedGradeIds, row.gradeId))) throw new Error("ATTENDANCE_SCOPE_FORBIDDEN");
+  if (learnerRows.some(row => !canCaptureAttendance(actor?.role, staff?.role, allocatedGradeIds, row.gradeId))) throw new Error("ATTENDANCE_SCOPE_FORBIDDEN");
 
   const counts = entries.reduce<Record<string, number>>((result, entry) => {
     result[entry.status] = (result[entry.status] ?? 0) + 1;
@@ -310,7 +311,7 @@ export async function saveAttendanceBatch(input: { attendanceDate: string; entri
   }, {});
   const values = entries.map(entry => {
     const learner = learnerRows.find(row => row.id === entry.learnerId)!;
-    return { learnerId: learner.id, gradeId: learner.gradeId, attendanceDate: new Date(input.attendanceDate), status: entry.status, note: null };
+    return { learnerId: learner.id, gradeId: learner.gradeId, attendanceDate: new Date(input.attendanceDate), capturedAt: new Date(), status: entry.status, note: null };
   });
   await db.transaction(async tx => {
     await tx.insert(attendances).values(values).onDuplicateKeyUpdate({ set: {

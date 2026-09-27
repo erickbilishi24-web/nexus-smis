@@ -162,6 +162,7 @@ export const attendances = mysqlTable("attendances", {
   learnerId: int("learnerId").notNull(),
   gradeId: int("gradeId").notNull(),
   attendanceDate: date("attendanceDate").notNull(),
+  capturedAt: timestamp("capturedAt").defaultNow().notNull(),
   status: mysqlEnum("status", ["present", "absent", "late", "excused"]).notNull(),
   note: varchar("note", { length: 255 }),
 }, table => ({ attendanceUnique: uniqueIndex("attendance_unique").on(table.learnerId, table.attendanceDate) }));

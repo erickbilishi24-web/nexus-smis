@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allocationContextConflict, assertScore, canAccessAttendanceGrade, cbcLevel, isAttendanceAdmin, timetableConflicts } from "./smis";
+import { allocationContextConflict, assertScore, canAccessAttendanceGrade, canCaptureAttendance, cbcLevel, isAttendanceAdmin, timetableConflicts } from "./smis";
 
 describe("Kenyan SMIS backend rules", () => {
   it("maps the CBC eight-level scale correctly", () => {
@@ -26,6 +26,14 @@ describe("Kenyan SMIS backend rules", () => {
     expect(canAccessAttendanceGrade("user", "teacher", [7], 7)).toBe(true);
     expect(canAccessAttendanceGrade("user", "teacher", [7], 8)).toBe(false);
     expect(canAccessAttendanceGrade("admin", null, [], 8)).toBe(true);
+  });
+
+  it("allows attendance capture only to an allocated class teacher or administrator", () => {
+    expect(canCaptureAttendance("user", "class_teacher", [7], 7)).toBe(true);
+    expect(canCaptureAttendance("user", "class_teacher", [7], 8)).toBe(false);
+    expect(canCaptureAttendance("user", "teacher", [7], 7)).toBe(false);
+    expect(canCaptureAttendance("admin", null, [], 8)).toBe(true);
+    expect(canCaptureAttendance("user", "super_admin", [], 8)).toBe(true);
   });
 
   it("detects grade, teacher, and room timetable clashes", () => {

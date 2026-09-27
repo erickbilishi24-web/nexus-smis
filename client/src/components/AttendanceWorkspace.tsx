@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { CalendarDays, Check, Save } from "lucide-react";
+import { CalendarDays, Check, Download, Printer, Save } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -72,9 +72,21 @@ export function AttendanceWorkspace() {
     save.mutate({ attendanceDate: date, entries });
   };
 
+  const downloadRegister = () => {
+    const csv = [
+      ["Attendance date", "Admission No.", "Learner", "Class", "Status", "Captured at"],
+      ...visibleRows.map(row => [date, row.admissionNumber, row.fullName, row.grade, getStatus(row) || "Not marked", row.capturedAt ? new Date(row.capturedAt).toLocaleString("en-KE") : ""]),
+    ].map(row => row.map(value => `"${String(value).replaceAll('"', '""')}"`).join(",")).join("\n");
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    link.download = `attendance-grade-${gradeLevel}-${date}.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
   return <div className="page-enter space-y-6">
     <header className="flex flex-col gap-4 border-b border-[#dfdbd1] pb-5 sm:flex-row sm:items-end sm:justify-between">
-      <div><p className="eyebrow">Daily register · persistent school records</p><h1 className="mt-1 font-editorial text-3xl text-[#193d32]">Learner attendance</h1><p className="mt-2 text-sm text-[#69796f]">Choose a grade, mark the whole class present, then adjust learners who are absent, late, or excused.</p></div>
+      <div><p className="eyebrow">Daily register · persistent school records</p><h1 className="mt-1 font-editorial text-3xl text-[#193d32]">Learner attendance</h1><p className="mt-2 text-sm text-[#69796f]">Choose a grade, mark the whole class present, then adjust learners who are absent, late, or excused. Only an administrator or the class teacher allocated to that class can save. Every save records the exact capture time.</p></div>
       <label className="text-xs font-bold text-[#53675d]">Register date<div className="mt-1 flex items-center gap-2 rounded-lg border border-[#d8ded7] bg-white px-3"><CalendarDays size={15} className="text-[#1d6a57]" /><input type="date" disabled={save.isPending} value={date} onChange={event => { setDate(event.target.value); setDraft({}); }} className="py-2.5 text-sm outline-none disabled:opacity-60" /></div></label>
     </header>
 
@@ -100,10 +112,10 @@ export function AttendanceWorkspace() {
           <Checkbox id="mark-grade-present" checked={allPresentState} disabled={roster.isLoading || save.isPending || visibleRows.length === 0} onCheckedChange={setAllPresent} className="mt-0.5" />
           <div><label htmlFor="mark-grade-present" className="cursor-pointer text-sm font-extrabold text-[#28483f]">Mark all Grade {gradeLevel} learners present</label><p className="mt-1 text-xs text-[#718077]">Then uncheck individual learners to mark them absent, or choose Late / Excused.</p></div>
         </div>
-        <button type="button" disabled={save.isPending || pendingRows.length === 0} onClick={saveRegister} className="action-button disabled:cursor-not-allowed disabled:opacity-50"><Save size={15} />{save.isPending ? "Saving register…" : `Save register${pendingRows.length ? ` · ${pendingRows.length} change${pendingRows.length === 1 ? "" : "s"}` : ""}`}</button>
+        <div className="flex flex-wrap gap-2"><button type="button" onClick={() => window.print()} className="quiet-button print:hidden"><Printer size={15} />Print register</button><button type="button" onClick={downloadRegister} disabled={visibleRows.length === 0} className="quiet-button print:hidden disabled:opacity-50"><Download size={15} />Download CSV</button><button type="button" disabled={save.isPending || pendingRows.length === 0} onClick={saveRegister} className="action-button disabled:cursor-not-allowed disabled:opacity-50"><Save size={15} />{save.isPending ? "Saving register…" : `Save register${pendingRows.length ? ` · ${pendingRows.length} change${pendingRows.length === 1 ? "" : "s"}` : ""}`}</button></div>
       </div>
 
-      {roster.isLoading ? <p className="p-6 text-sm text-[#718077]">Loading assigned learner roster…</p> : visibleRows.length === 0 ? <div className="p-8 text-center"><h2 className="font-bold text-[#28483f]">No Grade {gradeLevel} learners available</h2><p className="mt-2 text-sm text-[#718077]">Add active learners to this grade in People, or ask an administrator to assign this grade to your account. Attendance for Grades 7–9 is available from the tabs above.</p></div> : <div className="overflow-x-auto"><table className="w-full min-w-[700px] text-left text-sm"><thead className="bg-[#edf2ed] text-[.67rem] uppercase tracking-wider text-[#53675d]"><tr><th className="p-3">Admission No.</th><th className="p-3">Learner</th><th className="p-3">Class</th><th className="p-3">Saved status</th><th className="p-3 text-center">Present</th><th className="p-3">If not present</th></tr></thead><tbody>{visibleRows.map(learner => {
+      {roster.isLoading ? <p className="p-6 text-sm text-[#718077]">Loading assigned learner roster…</p> : visibleRows.length === 0 ? <div className="p-8 text-center"><h2 className="font-bold text-[#28483f]">No Grade {gradeLevel} learners available</h2><p className="mt-2 text-sm text-[#718077]">Add active learners to this grade in People, or ask an administrator to assign this grade to your account. Attendance for Grades 7–9 is available from the tabs above.</p></div> : <div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-sm"><thead className="bg-[#edf2ed] text-[.67rem] uppercase tracking-wider text-[#53675d]"><tr><th className="p-3">Admission No.</th><th className="p-3">Learner</th><th className="p-3">Class</th><th className="p-3">Saved status</th><th className="p-3">Captured at</th><th className="p-3 text-center">Present</th><th className="p-3">If not present</th></tr></thead><tbody>{visibleRows.map(learner => {
         const selected = getStatus(learner);
         const statusChoice = selected === "present" ? "" : selected;
         const actual = learner.attendanceStatus as AttendanceStatus | null;
@@ -112,6 +124,7 @@ export function AttendanceWorkspace() {
           <td className="p-3 font-semibold text-[#28483f]">{learner.fullName}</td>
           <td className="p-3 text-[#718077]">{learner.grade}</td>
           <td className="p-3">{actual ? <span className={`rounded-full border px-2 py-1 text-xs font-bold ${statusStyle[actual]}`}>{statusLabel[actual]}</span> : <span className="text-xs text-[#966615]">Not marked</span>}</td>
+          <td className="p-3 text-xs text-[#718077]">{learner.capturedAt ? new Date(learner.capturedAt).toLocaleString("en-KE") : "—"}</td>
           <td className="p-3 text-center"><Checkbox disabled={save.isPending} aria-label={`Mark ${learner.fullName} present`} checked={selected === "present"} onCheckedChange={checked => setDraft(current => ({ ...current, [learner.id]: checked === true ? "present" : "absent" }))} /></td>
           <td className="p-3"><select disabled={save.isPending || selected === "present"} aria-label={`Status for ${learner.fullName} if not present`} value={statusChoice} onChange={event => setDraft(current => ({ ...current, [learner.id]: event.target.value as AttendanceStatus | "" }))} className="rounded-md border border-[#d8ded7] bg-white px-2 py-2 text-xs disabled:opacity-60"><option value="">Choose status</option><option value="absent">Absent</option><option value="late">Late</option><option value="excused">Excused</option></select></td>
         </tr>;
