@@ -2,12 +2,25 @@ import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import { and, eq, or } from "drizzle-orm";
 import { getDb } from "./db";
-import { auditLogs, iamPasswordResets, iamSessions, users } from "../drizzle/schema";
+import { auditLogs, iamPasswordResets, iamSessions, users, type User } from "../drizzle/schema";
 import type { Request, Response } from "express";
 
 export const IAM_COOKIE_NAME = "nexus_iam_session";
 const MAX_FAILED_LOGINS = 5;
 const SESSION_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 30;
+
+export function safeAuthProfile(user: User | null) {
+  return user ? {
+    id: user.id,
+    username: user.username,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    loginMethod: user.loginMethod,
+    accountStatus: user.accountStatus,
+    mustChangePassword: user.mustChangePassword,
+  } : null;
+}
 
 type LoginInput = { identifier: string; password: string };
 
@@ -64,7 +77,7 @@ export async function loginWithIam(input: LoginInput, req: Request, res: Respons
   await db.insert(iamSessions).values({ userId: row.id, sessionHash: tokenHash(token), ipAddress: req.ip, userAgent: req.get("user-agent") ?? null });
   res.cookie(IAM_COOKIE_NAME, token, cookieOptions());
   await audit(row.id, "IAM_LOGIN_SUCCESS", {}, req);
-  return row;
+  return safeAuthProfile(row);
 }
 
 export async function logoutIam(req: Request, res: Response) {

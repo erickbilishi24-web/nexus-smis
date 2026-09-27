@@ -59,7 +59,7 @@ if (!(await db.select().from(guardians).limit(1)).length) {
 }
 if (!(await db.select().from(userPermissions).where(eq(userPermissions.userId, ownerId)).limit(1)).length) await db.insert(userPermissions).values({ userId: ownerId, permissionKey: "ai.access", allowed: 1 });
 const assessmentExisting = await db.select().from(assessments).limit(1);
-const assessment = assessmentExisting[0] ?? (await db.insert(assessments).values({ title: "Term 2 End Term", term: "Term 2", academicYear: 2026, gradeId: grade8.id, status: "open" }).$returningId())[0];
+const assessment = assessmentExisting[0] ?? (await db.insert(assessments).values({ title: "Term 2 End Term", term: "Term 2", academicYear: 2026, gradeId: grade8.id, subjectId: subjectsNow[0]?.id ?? 1, teacherUserId: ownerId, assessmentType: "end_term", status: "draft" }).$returningId())[0];
 for (const learner of learnersNow) {
   const present = learner.admissionNumber !== "G8-031";
   if (!(await db.select().from(attendances).where(eq(attendances.learnerId, learner.id)).limit(1)).length) await db.insert(attendances).values({ learnerId: learner.id, gradeId: learner.gradeId, attendanceDate: new Date(), status: present ? "present" : "absent", note: present ? null : "Guardian follow-up required" });
@@ -68,7 +68,7 @@ for (const learner of learnersNow) {
     if (!(await db.select().from(marks).where(eq(marks.learnerId, learner.id)).limit(1)).length) {
       const score = 62 + ((learner.id + index * 7) % 31);
       const level = score >= 90 ? "EE1" : score >= 75 ? "EE2" : score >= 58 ? "ME1" : "ME2";
-      await db.insert(marks).values({ assessmentId: assessment.id, learnerId: learner.id, subjectId: subject.id, midTerm: String(score - 4), endTerm: String(score), average: String(score - 2), cbcLevel: level, teacherRemark: "Keep building confidence." });
+      await db.insert(marks).values({ assessmentId: assessment.id, learnerId: learner.id, subjectId: subject.id, teacherUserId: assessment.teacherUserId, score: String(score), midTerm: String(score - 4), endTerm: String(score), average: String(score - 2), cbcLevel: level, teacherRemark: "Keep building confidence.", updatedByUserId: ownerId });
     }
   }
 }
