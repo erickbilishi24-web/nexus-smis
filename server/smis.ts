@@ -16,6 +16,7 @@ import {
   grades,
   learners,
   marks,
+  notifications,
   payments,
   reportCards,
   permissions,
@@ -350,6 +351,28 @@ export async function saveAttendance(input: { learnerId: number; status: "presen
   return { ok: true };
 }
 
+export async function evaluateGuardianAbsenceAlerts(learnerIds: number[], userId: number) {
+  const db = await requireDb();
+  const uniqueIds = Array.from(new Set(learnerIds));
+  if (!uniqueIds.length) return { created: 0 };
+  const learnerRows = await db.select().from(learners).where(inArray(learners.id, uniqueIds));
+  let created = 0;
+  for (const learner of learnerRows) {
+    const rows = await db.select().from(attendances).where(eq(attendances.learnerId, learner.id));
+    const unexcused = rows.filter(row => row.status === "absent" || row.status === "late").length;
+    if (unexcused < 3) continue;
+    const title = `Guardian follow-up: ${learner.fullName}`;
+    const body = `${learner.fullName} (${learner.admissionNumber}) has ${unexcused} recorded absent/late sessions. Contact ${learner.guardianName ?? "the guardian"}${learner.guardianPhone ? ` on ${learner.guardianPhone}` : ""} and record the follow-up.`;
+    const existing = (await db.select({ id: notifications.id }).from(notifications).where(and(eq(notifications.title, title), eq(notifications.body, body), eq(notifications.status, "published"))).limit(1))[0];
+    if (!existing) {
+      const row = (await db.insert(notifications).values({ audience: "parents", title, body, status: "published", createdByUserId: userId }).$returningId())[0];
+      await writeAudit(userId, "attendance.guardian_alert", "notification", row.id, { learnerId: learner.id, unexcused });
+      created += 1;
+    }
+  }
+  return { created };
+}
+
 export async function saveAttendanceBatch(input: { attendanceDate: string; session?: AttendanceSession; entries: AttendanceBatchEntry[] }, userId: number) {
   const entries = validateAttendanceBatch(input.entries);
   const db = await requireDb();
@@ -394,7 +417,8 @@ export async function saveAttendanceBatch(input: { attendanceDate: string; sessi
       metadata: JSON.stringify({ savedCount: entries.length, session: input.session ?? "morning", gradeIds, gradeLevels: Array.from(new Set(gradeIds.map(id => gradeLevelById.get(id)))), counts }),
     });
   });
-  return { ok: true, savedCount: entries.length, counts };
+  const alerts = await evaluateGuardianAbsenceAlerts(entries.map(entry => entry.learnerId), userId);
+  return { ok: true, savedCount: entries.length, counts, guardianAlertsCreated: alerts.created };
 }
 
 export async function listAssessments() {
