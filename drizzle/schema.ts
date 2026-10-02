@@ -54,6 +54,8 @@ export const staffProfiles = mysqlTable("staff_profiles", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),
   teacherCode: int("teacherCode").unique(),
+  staffId: varchar("staffId", { length: 40 }),
+  department: varchar("department", { length: 120 }),
   title: varchar("title", { length: 30 }),
   displayName: varchar("displayName", { length: 160 }).notNull(),
   designation: varchar("designation", { length: 120 }),
@@ -333,3 +335,10 @@ export type Learner = typeof learners.$inferSelect;
 export type Attendance = typeof attendances.$inferSelect;
 export type Mark = typeof marks.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
+
+export const rolePermissions = mysqlTable("role_permissions", {
+  id: int("id").autoincrement().primaryKey(),
+  role: varchar("role", { length: 40 }).notNull(),
+  permissionKey: varchar("permissionKey", { length: 120 }).notNull(),
+  allowed: int("allowed").notNull().default(1),
+}, table => ({ rolePermissionUnique: uniqueIndex("role_permission_unique").on(table.role, table.permissionKey) }));

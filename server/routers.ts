@@ -4,6 +4,8 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
+import { MANAGE_PERMISSIONS } from "./access";
+import { AdminError, AUDIT_MODULES, adminCatalog, adminOverview, changeAdminAssignment, changeAdminRole, createAdminUser, getAdminUser, getPermissionMatrixView, listAdminUsers, listAuditTrail, resetAdminPassword, setAccountState, setRolePermission, setUserPermissionOverride, updateAdminUser } from "./administration";
 import { correctLockedAssessmentMark, ensureAssessment, getAssessmentEntries, getAssessmentReportCard, getClassMarklist, listAssessmentScopes, saveAssessmentMarks, setAssessmentFinalState, submitAssessment } from "./assessment";
 import { adminResetIamPassword, changeIamPassword, loginWithIam, logoutIam, requestIamPasswordReset, resetIamPassword, safeAuthProfile } from "./iam";
 import {
@@ -62,6 +64,7 @@ import {
   setTimetableRequirement,
   effectivePermissions,
   userCan,
+  writeAudit,
 } from "./smis";
 import {
   aiFacts,
@@ -82,6 +85,23 @@ const permissionProcedure = (permission: string) => protectedProcedure.use(async
   if (!allowed) throw new TRPCError({ code: "FORBIDDEN", message: `Missing permission: ${permission}` });
   return next();
 });
+const superProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+  if (!(await userCan(ctx.user.id, ctx.user.role, MANAGE_PERMISSIONS))) {
+    await writeAudit(ctx.user.id, "auth.access_denied", "permission", MANAGE_PERMISSIONS, { required: MANAGE_PERMISSIONS });
+    throw new TRPCError({ code: "FORBIDDEN", message: "Only a Super Administrator can do this." });
+  }
+  return next();
+});
+const adminCall = async <T>(fn: () => Promise<T>) => {
+  try { return await fn(); } catch (error) {
+    if (!(error instanceof AdminError)) throw error;
+    const code = /TAKEN|CONFLICT/.test(error.message) ? "CONFLICT" : /NOT_FOUND/.test(error.message) ? "NOT_FOUND" : /ONLY_SUPER|PROTECTED|^CANNOT_/.test(error.message) ? "FORBIDDEN" : "BAD_REQUEST";
+    throw new TRPCError({ code, message: error.message });
+  }
+};
+const roleEnum = z.enum(["super_admin", "admin", "teacher", "class_teacher", "finance", "other"]);
+const subjectAllocations = z.array(z.object({ gradeId: z.number().int().positive(), subjectId: z.number().int().positive() })).max(40);
+
 const masterTimetableProcedure = protectedProcedure.use(async ({ ctx, next }) => {
   if (!await canManageMasterTimetable(ctx.user.id, ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: "MASTER_TIMETABLE_ADMIN_ONLY" });
   return next();
@@ -195,6 +215,23 @@ export const appRouter = router({
     alumni: router({
       list: permissionProcedure("alumni.edit").query(() => listAlumni()),
       archive: permissionProcedure("alumni.edit").input(z.object({ learnerId: z.number().int().positive(), completionYear: z.number().int().min(2000).max(2100), destination: z.string().max(160).nullable().optional() })).mutation(({ input, ctx }) => archiveLearner(input, currentUserId(ctx.user))),
+    }),
+    administration: router({
+      overview: permissionProcedure("administration.view").query(() => adminOverview()),
+      catalog: permissionProcedure("administration.view").query(() => adminCatalog()),
+      list: permissionProcedure("administration.view").input(z.object({ search: z.string().max(100).optional(), role: z.string().optional(), status: z.enum(["active", "suspended", "locked", "pending"]).optional() }).optional()).query(({ input }) => listAdminUsers(input ?? {})),
+      get: permissionProcedure("administration.view").input(z.object({ userId: z.number().int().positive() })).query(({ input }) => adminCall(() => getAdminUser(input.userId))),
+      create: permissionProcedure("administration.create").input(z.object({ fullName: z.string().min(2).max(160), username: z.string().min(3).max(60), staffId: z.string().min(1).max(40), role: roleEnum, department: z.string().max(120).nullable().optional(), email: z.string().email().max(320).nullable().optional().or(z.literal("")), phone: z.string().max(40).nullable().optional(), classGradeId: z.number().int().positive().nullable().optional(), subjectAllocations: subjectAllocations.optional(), status: z.enum(["active", "pending_activation", "disabled"]) })).mutation(({ input, ctx }) => adminCall(() => createAdminUser(input, ctx.user, ctx.req))),
+      update: permissionProcedure("administration.edit").input(z.object({ userId: z.number().int().positive(), fullName: z.string().min(2).max(160), username: z.string().min(3).max(60), staffId: z.string().min(1).max(40), department: z.string().max(120).nullable().optional(), email: z.string().email().max(320).nullable().optional().or(z.literal("")), phone: z.string().max(40).nullable().optional() })).mutation(({ input, ctx }) => adminCall(() => updateAdminUser(input, ctx.user, ctx.req))),
+      changeRole: permissionProcedure("administration.edit").input(z.object({ userId: z.number().int().positive(), role: roleEnum })).mutation(({ input, ctx }) => adminCall(() => changeAdminRole(input, ctx.user, ctx.req))),
+      changeAssignment: permissionProcedure("administration.edit").input(z.object({ userId: z.number().int().positive(), classGradeId: z.number().int().positive().nullable().optional(), subjectAllocations })).mutation(({ input, ctx }) => adminCall(() => changeAdminAssignment(input, ctx.user, ctx.req))),
+      setState: permissionProcedure("administration.edit").input(z.object({ userId: z.number().int().positive(), action: z.enum(["activate", "suspend", "lock", "unlock"]), reason: z.string().max(255).optional() })).mutation(({ input, ctx }) => adminCall(() => setAccountState(input, ctx.user, ctx.req))),
+      resetPassword: permissionProcedure("administration.edit").input(z.object({ userId: z.number().int().positive() })).mutation(({ input, ctx }) => adminCall(() => resetAdminPassword(input, ctx.user, ctx.req))),
+      matrix: permissionProcedure("administration.view").input(z.object({ role: z.string().optional(), userId: z.number().int().positive().optional() })).query(({ input }) => getPermissionMatrixView(input)),
+      setRolePermission: superProcedure.input(z.object({ role: z.string(), permissionKey: z.string(), allowed: z.boolean() })).mutation(({ input, ctx }) => adminCall(() => setRolePermission(input, ctx.user, ctx.req))),
+      setUserPermission: superProcedure.input(z.object({ userId: z.number().int().positive(), permissionKey: z.string(), allowed: z.boolean().nullable() })).mutation(({ input, ctx }) => adminCall(() => setUserPermissionOverride(input, ctx.user, ctx.req))),
+      auditModules: permissionProcedure("administration.view").query(() => AUDIT_MODULES),
+      audit: permissionProcedure("administration.view").input(z.object({ userId: z.number().int().positive().optional(), actorUserId: z.number().int().positive().optional(), action: z.string().max(80).optional(), module: z.string().max(40).optional(), from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), limit: z.number().int().min(1).max(200).optional(), offset: z.number().int().min(0).optional() }).optional()).query(({ input }) => listAuditTrail(input ?? {})),
     }),
     users: router({
       list: permissionProcedure("users.edit").input(z.object({ search: z.string().optional() }).optional()).query(({ input }) => listStaff(input?.search)),

@@ -1,6 +1,7 @@
 import { and, desc, eq, gte, inArray, like, lte, or, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db";
+import { computePermissions } from "./access";
 import { attendanceGradeLevel, validateAttendanceBatch, type AttendanceBatchEntry } from "../shared/attendance";
 import {
   alumni,
@@ -49,19 +50,7 @@ export const permissionCatalog = [
 ] as const;
 
 export async function effectivePermissions(userId: number, role: string) {
-  const db = await requireDb();
-  const profile = (await db.select({ role: staffProfiles.role }).from(staffProfiles).where(eq(staffProfiles.userId, userId)).limit(1))[0];
-  const profilePermissionRole = profile?.role === "class_teacher" || profile?.role === "senior_teacher" ? "teacher"
-    : profile?.role === "deputy_head" || profile?.role === "head_teacher" ? "admin"
-    : profile?.role;
-  const base = new Set([...(permissionsByRole[role] ?? []), ...(profilePermissionRole ? permissionsByRole[profilePermissionRole] ?? [] : [])]);
-  const overrides = await db.select().from(userPermissions).where(eq(userPermissions.userId, userId));
-  const values = new Set(base);
-  for (const override of overrides) {
-    if (override.allowed) values.add(override.permissionKey);
-    else values.delete(override.permissionKey);
-  }
-  return Array.from(values);
+  return computePermissions(userId, role);
 }
 
 export async function userCan(userId: number, role: string, permission: string) {
