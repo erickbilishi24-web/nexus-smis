@@ -424,6 +424,9 @@ export async function getAssessmentReportCard(input: { learnerId: number; academ
     return {
       subject: row.subject,
       score: mark?.score == null ? null : Number(mark.score),
+      midTerm: mark?.midTerm == null ? null : Number(mark.midTerm),
+      endTerm: mark?.endTerm == null ? null : Number(mark.endTerm),
+      average: mark?.average == null ? null : Number(mark.average),
       cbcLevel: mark?.cbcLevel ?? null,
       teacherRemark: mark?.teacherRemark ?? null,
       assessmentStatus: assessment?.status ?? periodAssessments.find(item => item.subjectId === row.subject.id)?.status ?? "missing",

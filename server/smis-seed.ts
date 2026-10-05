@@ -26,9 +26,11 @@ for (const [permissionKey, description] of permissionCatalog) {
 
 if (!(await db.select().from(schoolSettings).limit(1)).length) await db.insert(schoolSettings).values({ schoolName: "Ebunangwe Junior School", motto: "See the school day clearly.", currentTerm: "Term 2", academicYear: 2026, includeFeesOnReportCard: 1 });
 
-const gradeRows = await db.select().from(grades);
-const grade8 = gradeRows[0] ?? (await db.insert(grades).values({ name: "Grade 8", stream: "Blue", classTeacherUserId: ownerId }).$returningId())[0];
-const grade7 = gradeRows[1] ?? (await db.insert(grades).values({ name: "Grade 7", stream: "Green", classTeacherUserId: ownerId }).$returningId())[0];
+	const gradeRows = await db.select().from(grades);
+	const ensureGrade = async (name: string, stream: string) => gradeRows.find(row => row.name === name) ?? (await db.insert(grades).values({ name, stream, classTeacherUserId: ownerId }).$returningId())[0];
+	const grade8 = await ensureGrade("Grade 8", "Blue");
+	const grade7 = await ensureGrade("Grade 7", "Green");
+	const grade9 = await ensureGrade("Grade 9", "Red");
 const subjectRows = await db.select().from(subjects);
 const subjectSeeds = [
   { name: "Mathematics", code: "MAT" },
@@ -46,8 +48,9 @@ const learnerSeeds = [
   { admissionNumber: "G8-024", fullName: "Amina Mwende", guardianName: "Mary Mwende", guardianPhone: "+254 711 000 024", gradeId: grade8.id },
   { admissionNumber: "G8-031", fullName: "John Otieno", guardianName: "Otieno Peter", guardianPhone: "+254 711 000 031", gradeId: grade8.id },
   { admissionNumber: "G8-042", fullName: "Wanjiku Njeri", guardianName: "Jane Njeri", guardianPhone: "+254 711 000 042", gradeId: grade8.id },
-  { admissionNumber: "G8-051", fullName: "David Kiptoo", guardianName: "Kiptoo Amos", guardianPhone: "+254 711 000 051", gradeId: grade8.id },
-  { admissionNumber: "G7-014", fullName: "Faith Naliaka", guardianName: "Naliaka Ruth", guardianPhone: "+254 711 000 014", gradeId: grade7.id },
+	  { admissionNumber: "G8-051", fullName: "David Kiptoo", guardianName: "Kiptoo Amos", guardianPhone: "+254 711 000 051", gradeId: grade8.id },
+	  { admissionNumber: "G7-014", fullName: "Faith Naliaka", guardianName: "Naliaka Ruth", guardianPhone: "+254 711 000 014", gradeId: grade7.id },
+	  { admissionNumber: "G9-009", fullName: "Maryann Wangechi", guardianName: "Wangechi Jane", guardianPhone: "+254 711 000 009", gradeId: grade9.id },
 ];
 for (const learner of learnerSeeds) {
   if (!(await db.select().from(learners).where(eq(learners.admissionNumber, learner.admissionNumber)).limit(1)).length) await db.insert(learners).values(learner);
