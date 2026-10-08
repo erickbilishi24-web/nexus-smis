@@ -58,16 +58,16 @@ export function PeopleRegistry() {
   const staffPreview = trpc.smis.users.previewImport.useQuery({ rows: importRows }, { enabled: importKind === "staff" && importRows.length > 0 });
   const preview = importKind === "learners" ? learnerPreview.data : staffPreview.data;
 
-  const refreshLearners = () => void utils.smis.learners.list.invalidate();
-  const refreshStaff = () => void utils.smis.users.list.invalidate();
+  const refreshLearners = () => utils.smis.learners.list.invalidate();
+  const refreshStaff = () => utils.smis.users.list.invalidate();
   const learnerCreate = trpc.smis.learners.create.useMutation({ onSuccess: () => { toast.success("Learner record saved to People"); setLearnerForm(emptyLearner); setFormOpen(false); refreshLearners(); }, onError: error => toast.error(error.message.replaceAll("_", " ")) });
   const learnerUpdate = trpc.smis.learners.update.useMutation({ onSuccess: () => { toast.success("Learner record updated"); setLearnerForm(emptyLearner); setFormOpen(false); refreshLearners(); }, onError: error => toast.error(error.message.replaceAll("_", " ")) });
   const learnerStatus = trpc.smis.learners.setStatus.useMutation({ onSuccess: () => { toast.success("Learner status updated"); refreshLearners(); }, onError: error => toast.error(error.message.replaceAll("_", " ")) });
   const staffCreate = trpc.smis.users.createStaff.useMutation({ onSuccess: data => { toast.success(`Staff record saved · Code ${data.teacherCode}`); setStaffForm(emptyStaff); setFormOpen(false); refreshStaff(); }, onError: error => toast.error(error.message.replaceAll("_", " ")) });
   const staffUpdate = trpc.smis.users.updateStaff.useMutation({ onSuccess: () => { toast.success("Staff record updated"); setStaffForm(emptyStaff); setFormOpen(false); refreshStaff(); }, onError: error => toast.error(error.message.replaceAll("_", " ")) });
   const staffStatus = trpc.smis.users.setStaffStatus.useMutation({ onSuccess: () => { toast.success("Staff status updated"); refreshStaff(); }, onError: error => toast.error(error.message.replaceAll("_", " ")) });
-  const learnerImport = trpc.smis.learners.import.useMutation({ onSuccess: data => { toast.success(`${data.created} learner records imported`); closeImport(); refreshLearners(); }, onError: error => toast.error(error.message.replaceAll("_", " ")) });
-  const staffImport = trpc.smis.users.import.useMutation({ onSuccess: data => { toast.success(`${data.created} staff records imported`); closeImport(); refreshStaff(); }, onError: error => toast.error(error.message.replaceAll("_", " ")) });
+  const learnerImport = trpc.smis.learners.import.useMutation({ onSuccess: async data => { closeImport(); setSearch(""); await refreshLearners(); toast.success("Bulk file uploaded", { description: `${data.created} learner records are now visible in the Learners list.` }); }, onError: error => toast.error(error.message.replaceAll("_", " ")) });
+  const staffImport = trpc.smis.users.import.useMutation({ onSuccess: async data => { closeImport(); setSearch(""); await refreshStaff(); toast.success("Bulk file uploaded", { description: `${data.created} staff records are now visible in the Teachers & Staff list.` }); }, onError: error => toast.error(error.message.replaceAll("_", " ")) });
 
   function closeImport() { setImportKind(null); setImportRows([]); setImportName(""); }
   function openLearnerForm(row?: NonNullable<typeof learners.data>[number]) {

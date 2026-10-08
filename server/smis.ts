@@ -732,6 +732,16 @@ function textValue(row: PeopleImportRow, key: string) {
   const value = row[key]; return value == null ? "" : String(value).trim();
 }
 
+function normalizedImportKey(value: string) {
+  return value.replace(/[^a-z0-9]/gi, "").toLowerCase();
+}
+
+function importTextValue(row: PeopleImportRow, ...keys: string[]) {
+  const wanted = new Set(keys.map(normalizedImportKey));
+  const found = Object.entries(row).find(([key, value]) => wanted.has(normalizedImportKey(key)) && value != null && String(value).trim() !== "");
+  return found ? String(found[1]).trim() : "";
+}
+
 export async function previewPeopleImport(input: { kind: PeopleImportKind; rows: PeopleImportRow[] }) {
   const db = await requireDb();
   const errors: Array<{ row: number; message: string }> = [];
@@ -744,12 +754,12 @@ export async function previewPeopleImport(input: { kind: PeopleImportKind; rows:
     const row = input.rows[index];
     const rowNumber = index + 2;
     if (input.kind === "learners") {
-      const fullName = textValue(row, "learnerName") || textValue(row, "fullName");
-      const admissionNumber = (textValue(row, "admissionNumber") || textValue(row, "admissionNo")).toUpperCase();
-      const gradeName = textValue(row, "gradeName") || textValue(row, "grade");
-      const stream = textValue(row, "stream");
+      const fullName = importTextValue(row, "learnerName", "fullName", "name");
+      const admissionNumber = importTextValue(row, "admissionNumber", "admissionNo", "admission").toUpperCase();
+      const gradeName = importTextValue(row, "gradeName", "grade", "class", "gradeClass");
+      const stream = importTextValue(row, "stream", "streamName");
       const grade = gradeRows.find(item => item.name.toLowerCase() === gradeName.toLowerCase() && (!stream || (item.stream ?? "").toLowerCase() === stream.toLowerCase()));
-      const rawStatus = textValue(row, "status").toLowerCase();
+      const rawStatus = importTextValue(row, "status", "state").toLowerCase();
       const status = rawStatus === "inactive" ? "inactive" : "active";
       if (rawStatus && rawStatus !== "active" && rawStatus !== "inactive") errors.push({ row: rowNumber, message: "Status must be active or inactive." });
       if (!fullName) errors.push({ row: rowNumber, message: "Learner name is required." });
@@ -758,19 +768,19 @@ export async function previewPeopleImport(input: { kind: PeopleImportKind; rows:
       if (admissionNumber && (await db.select({ id: learners.id }).from(learners).where(eq(learners.admissionNumber, admissionNumber)).limit(1)).length) errors.push({ row: rowNumber, message: `Admission number already exists: ${admissionNumber}.` });
       if (!grade) errors.push({ row: rowNumber, message: `Grade/class not found: ${gradeName}${stream ? ` ${stream}` : ""}.` });
       seenAdmissions.add(admissionNumber);
-      if (fullName && admissionNumber && grade) preview.push({ row: rowNumber, learnerName: fullName, admissionNumber, gradeId: grade.id, grade: `${grade.name}${grade.stream ? ` ${grade.stream}` : ""}`, guardianName: textValue(row, "guardianName") || textValue(row, "parentGuardianName") || null, guardianIdNumber: textValue(row, "guardianIdNumber") || textValue(row, "parentGuardianId") || null, guardianPhone: textValue(row, "guardianPhone") || textValue(row, "parentGuardianPhone") || null, status });
+      if (fullName && admissionNumber && grade) preview.push({ row: rowNumber, learnerName: fullName, admissionNumber, gradeId: grade.id, grade: `${grade.name}${grade.stream ? ` ${grade.stream}` : ""}`, guardianName: importTextValue(row, "guardianName", "parentGuardianName", "parentName", "guardian") || null, guardianIdNumber: importTextValue(row, "guardianIdNumber", "parentGuardianId", "parentId", "guardianId") || null, guardianPhone: importTextValue(row, "guardianPhone", "parentGuardianPhone", "parentPhone", "guardianPhoneNumber") || null, status });
     } else {
-      const displayName = textValue(row, "staffName") || textValue(row, "displayName") || textValue(row, "name");
-      const role = (textValue(row, "role") || "teacher") as PeopleStaffRole;
+      const displayName = importTextValue(row, "staffName", "displayName", "name", "teacherName");
+      const role = (importTextValue(row, "role", "systemRole", "designationRole") || "teacher") as PeopleStaffRole;
       const allowedRoles: PeopleStaffRole[] = ["teacher", "class_teacher", "senior_teacher", "deputy_head", "head_teacher", "finance", "storekeeper", "other"];
       if (!displayName) errors.push({ row: rowNumber, message: "Staff name is required." });
       if (!allowedRoles.includes(role)) errors.push({ row: rowNumber, message: `Unknown staff role: ${role}.` });
-      const rawStatus = textValue(row, "status").toLowerCase();
-      const email = textValue(row, "email");
+      const rawStatus = importTextValue(row, "status", "state").toLowerCase();
+      const email = importTextValue(row, "email", "emailAddress");
       const status = rawStatus === "inactive" ? "inactive" : "active";
       if (rawStatus && rawStatus !== "active" && rawStatus !== "inactive") errors.push({ row: rowNumber, message: "Status must be active or inactive." });
       if (email && !/^\S+@\S+\.\S+$/.test(email)) errors.push({ row: rowNumber, message: "Email format is invalid." });
-      if (displayName && allowedRoles.includes(role)) preview.push({ row: rowNumber, displayName, title: textValue(row, "title") || null, designation: textValue(row, "designation") || textValue(row, "roleLabel") || null, phone: textValue(row, "phone") || null, email: email || null, role, status });
+      if (displayName && allowedRoles.includes(role)) preview.push({ row: rowNumber, displayName, title: importTextValue(row, "title") || null, designation: importTextValue(row, "designation", "roleLabel", "jobTitle") || null, phone: importTextValue(row, "phone", "phoneNumber", "mobile") || null, email: email || null, role, status });
     }
   }
   return { kind: input.kind, total: input.rows.length, valid: preview.length, errors, preview };
