@@ -790,16 +790,77 @@ export async function importPeopleRows(input: { kind: PeopleImportKind; rows: Pe
   const checked = await previewPeopleImport(input);
   if (checked.errors.length) throw new Error(`IMPORT_VALIDATION_FAILED:${JSON.stringify(checked.errors.slice(0, 10))}`);
   let created = 0;
+  const learnerIds: number[] = [];
+  const staffProfileIds: number[] = [];
+  const userIds: number[] = [];
   for (const row of checked.preview as Array<Record<string, unknown>>) {
     if (input.kind === "learners") {
-      await createLearner({ fullName: String(row.learnerName), admissionNumber: String(row.admissionNumber), guardianName: row.guardianName ? String(row.guardianName) : null, guardianIdNumber: row.guardianIdNumber ? String(row.guardianIdNumber) : null, guardianPhone: row.guardianPhone ? String(row.guardianPhone) : null, gradeId: Number(row.gradeId), status: row.status === "inactive" ? "inactive" : "active" }, userId);
+      const createdLearner = await createLearner({ fullName: String(row.learnerName), admissionNumber: String(row.admissionNumber), guardianName: row.guardianName ? String(row.guardianName) : null, guardianIdNumber: row.guardianIdNumber ? String(row.guardianIdNumber) : null, guardianPhone: row.guardianPhone ? String(row.guardianPhone) : null, gradeId: Number(row.gradeId), status: row.status === "inactive" ? "inactive" : "active" }, userId);
+      learnerIds.push(createdLearner.id);
     } else {
-      await createStaff({ displayName: String(row.displayName), title: row.title ? String(row.title) : null, designation: row.designation ? String(row.designation) : null, phone: row.phone ? String(row.phone) : null, email: row.email ? String(row.email) : null, role: String(row.role) as PeopleStaffRole, status: row.status === "inactive" ? "inactive" : "active" }, userId);
+      const createdStaff = await createStaff({ displayName: String(row.displayName), title: row.title ? String(row.title) : null, designation: row.designation ? String(row.designation) : null, phone: row.phone ? String(row.phone) : null, email: row.email ? String(row.email) : null, role: String(row.role) as PeopleStaffRole, status: row.status === "inactive" ? "inactive" : "active" }, userId);
+      staffProfileIds.push(createdStaff.id); userIds.push(createdStaff.userId);
     }
     created += 1;
   }
-  await writeAudit(userId, "people.bulk_import", input.kind, null, { rows: created });
+  await writeAudit(userId, "people.bulk_import", input.kind, null, { rows: created, learnerIds, staffProfileIds, userIds, undoable: true });
   return { ok: true, created };
+}
+
+type ImportBatch = { auditId: number; kind: PeopleImportKind; createdAt: Date; rows: number; learnerIds: number[]; staffProfileIds: number[]; userIds: number[] };
+
+function parseImportBatch(row: typeof auditLogs.$inferSelect): ImportBatch | null {
+  if (row.action !== "people.bulk_import" || !row.entityType || !["learners", "staff"].includes(row.entityType)) return null;
+  try {
+    const metadata = JSON.parse(row.metadata ?? "{}") as Record<string, unknown>;
+    if (metadata.undoable !== true) return null;
+    return { auditId: row.id, kind: row.entityType as PeopleImportKind, createdAt: row.createdAt, rows: Number(metadata.rows ?? 0), learnerIds: Array.isArray(metadata.learnerIds) ? metadata.learnerIds.map(Number).filter(Number.isInteger) : [], staffProfileIds: Array.isArray(metadata.staffProfileIds) ? metadata.staffProfileIds.map(Number).filter(Number.isInteger) : [], userIds: Array.isArray(metadata.userIds) ? metadata.userIds.map(Number).filter(Number.isInteger) : [] };
+  } catch { return null; }
+}
+
+export async function getLastPeopleImport() {
+  const db = await requireDb();
+  const rows = await db.select().from(auditLogs).where(eq(auditLogs.action, "people.bulk_import")).orderBy(desc(auditLogs.createdAt)).limit(20);
+  const batch = rows.map(parseImportBatch).find((item): item is ImportBatch => item !== null);
+  return batch ? { ...batch, createdAt: batch.createdAt.toISOString() } : null;
+}
+
+export async function undoLastPeopleImport(userId: number) {
+  const db = await requireDb();
+  const rows = await db.select().from(auditLogs).where(eq(auditLogs.action, "people.bulk_import")).orderBy(desc(auditLogs.createdAt)).limit(20);
+  const batch = rows.map(parseImportBatch).find((item): item is ImportBatch => item !== null);
+  if (!batch) throw new Error("NO_UNDOABLE_IMPORT");
+  const blockedLearners: number[] = [];
+  const blockedStaff: number[] = [];
+  for (const learnerId of batch.learnerIds) {
+    const [markRows, attendanceRows, paymentRows] = await Promise.all([
+      db.select({ id: marks.id }).from(marks).where(eq(marks.learnerId, learnerId)).limit(1),
+      db.select({ id: attendances.id }).from(attendances).where(eq(attendances.learnerId, learnerId)).limit(1),
+      db.select({ id: payments.id }).from(payments).where(eq(payments.learnerId, learnerId)).limit(1),
+    ]);
+    if (markRows.length || attendanceRows.length || paymentRows.length) blockedLearners.push(learnerId);
+  }
+  for (const staffProfileId of batch.staffProfileIds) {
+    const profile = (await db.select({ userId: staffProfiles.userId }).from(staffProfiles).where(eq(staffProfiles.id, staffProfileId)).limit(1))[0];
+    if (!profile) continue;
+    const [timetableRows, allocationRows, assessmentRows, markRows] = await Promise.all([
+      db.select({ id: timetableEntries.id }).from(timetableEntries).where(eq(timetableEntries.teacherUserId, profile.userId)).limit(1),
+      db.select({ id: teacherAllocations.id }).from(teacherAllocations).where(eq(teacherAllocations.teacherUserId, profile.userId)).limit(1),
+      db.select({ id: assessments.id }).from(assessments).where(eq(assessments.teacherUserId, profile.userId)).limit(1),
+      db.select({ id: marks.id }).from(marks).where(eq(marks.teacherUserId, profile.userId)).limit(1),
+    ]);
+    if (timetableRows.length || allocationRows.length || assessmentRows.length || markRows.length) blockedStaff.push(staffProfileId);
+  }
+  if (blockedLearners.length || blockedStaff.length) throw new Error(`IMPORT_UNDO_BLOCKED:${JSON.stringify({ learners: blockedLearners.length, staff: blockedStaff.length })}`);
+  await db.transaction(async tx => {
+    if (batch.learnerIds.length) { await tx.delete(learnerGuardians).where(inArray(learnerGuardians.learnerId, batch.learnerIds)); await tx.delete(learners).where(inArray(learners.id, batch.learnerIds)); }
+    if (batch.staffProfileIds.length) await tx.delete(staffProfiles).where(inArray(staffProfiles.id, batch.staffProfileIds));
+    if (batch.userIds.length) await tx.delete(userPermissions).where(inArray(userPermissions.userId, batch.userIds));
+    if (batch.userIds.length) await tx.delete(users).where(inArray(users.id, batch.userIds));
+  });
+  await db.update(auditLogs).set({ metadata: JSON.stringify({ rows: batch.rows, learnerIds: batch.learnerIds, staffProfileIds: batch.staffProfileIds, userIds: batch.userIds, undoable: false, undoneAt: new Date().toISOString() }) }).where(eq(auditLogs.id, batch.auditId));
+  await writeAudit(userId, "people.bulk_import.undo", batch.kind, String(batch.auditId), { rows: batch.rows, learnerIds: batch.learnerIds, staffProfileIds: batch.staffProfileIds, userIds: batch.userIds });
+  return { ok: true, kind: batch.kind, rows: batch.rows };
 }
 
 export type StaffRole = "teacher" | "class_teacher" | "senior_teacher" | "deputy_head" | "head_teacher" | "finance" | "storekeeper" | "other";
