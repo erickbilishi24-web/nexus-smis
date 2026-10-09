@@ -1,4 +1,4 @@
-import { useMemo, useState, type ChangeEvent, type FormEvent } from "react";
+import { useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import * as XLSX from "xlsx";
 import { Download, Edit3, FileSpreadsheet, Filter, Plus, Search, Undo2, Upload, UserCheck, Users, X } from "lucide-react";
 import { toast } from "sonner";
@@ -51,6 +51,8 @@ export function PeopleRegistry() {
   const [importName, setImportName] = useState("");
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStats, setUploadStats] = useState({ loaded: 0, total: 0, speed: 0 });
+  const [uploadEta, setUploadEta] = useState<number | null>(null);
+  const fileReaderRef = useRef<FileReader | null>(null);
 
   const utils = trpc.useUtils();
   const catalog = trpc.smis.people.catalog.useQuery();
@@ -73,7 +75,8 @@ export function PeopleRegistry() {
   const staffImport = trpc.smis.users.import.useMutation({ onSuccess: async data => { closeImport(); setSearch(""); await refreshStaff(); toast.success("Bulk file uploaded", { description: `${data.created} staff records are now visible in the Teachers & Staff list.` }); }, onError: error => toast.error(error.message.replaceAll("_", " ")) });
   const undoImport = trpc.smis.users.undoLastImport.useMutation({ onSuccess: async data => { setTab(data.kind === "learners" ? "learners" : "staff"); setSearch(""); await Promise.all([refreshLearners(), refreshStaff(), lastImport.refetch()]); toast.success("Last import undone", { description: `${data.rows} ${data.kind === "learners" ? "learner" : "staff"} records were removed.` }); }, onError: error => toast.error(error.message.replaceAll("_", " ")) });
 
-  function closeImport() { setImportKind(null); setImportRows([]); setImportName(""); setUploadProgress(0); setUploadStats({ loaded: 0, total: 0, speed: 0 }); }
+  function closeImport() { fileReaderRef.current?.abort(); fileReaderRef.current = null; setImportKind(null); setImportRows([]); setImportName(""); setUploadProgress(0); setUploadStats({ loaded: 0, total: 0, speed: 0 }); setUploadEta(null); }
+  function cancelUpload() { closeImport(); toast.success("Bulk upload cancelled"); }
   function openLearnerForm(row?: NonNullable<typeof learners.data>[number]) {
     if (!row) setLearnerForm(emptyLearner);
     else setLearnerForm({ learnerId: row.id, fullName: row.fullName, admissionNumber: row.admissionNumber, guardianName: row.guardianName ?? "", guardianIdNumber: row.guardianIdNumber ?? "", guardianPhone: row.guardianPhone ?? "", gradeId: String(row.gradeId), status: row.status === "inactive" ? "inactive" : "active" });
@@ -97,22 +100,24 @@ export function PeopleRegistry() {
   }
   async function handleFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]; if (!file) return;
+    setImportKind(tab); setImportName(file.name); setImportRows([]); setUploadProgress(0); setUploadStats({ loaded: 0, total: file.size, speed: 0 }); setUploadEta(null);
     try {
-      setUploadProgress(0); setUploadStats({ loaded: 0, total: file.size, speed: 0 });
       const buffer = await new Promise<ArrayBuffer>((resolve, reject) => {
         const reader = new FileReader();
+        fileReaderRef.current = reader;
         const startedAt = performance.now();
-        reader.onprogress = progressEvent => { if (progressEvent.lengthComputable) { const elapsedSeconds = Math.max((performance.now() - startedAt) / 1000, 0.001); setUploadProgress(Math.round((progressEvent.loaded / progressEvent.total) * 100)); setUploadStats({ loaded: progressEvent.loaded, total: progressEvent.total, speed: progressEvent.loaded / elapsedSeconds }); } };
-        reader.onload = () => { setUploadProgress(100); setUploadStats({ loaded: file.size, total: file.size, speed: file.size / Math.max((performance.now() - startedAt) / 1000, 0.001) }); resolve(reader.result as ArrayBuffer); };
+        reader.onprogress = progressEvent => { if (progressEvent.lengthComputable) { const elapsedSeconds = Math.max((performance.now() - startedAt) / 1000, 0.001); const speed = progressEvent.loaded / elapsedSeconds; setUploadProgress(Math.round((progressEvent.loaded / progressEvent.total) * 100)); setUploadStats({ loaded: progressEvent.loaded, total: progressEvent.total, speed }); setUploadEta(speed > 0 ? (progressEvent.total - progressEvent.loaded) / speed : null); } };
+        reader.onload = () => { setUploadProgress(100); setUploadStats({ loaded: file.size, total: file.size, speed: file.size / Math.max((performance.now() - startedAt) / 1000, 0.001) }); setUploadEta(0); fileReaderRef.current = null; resolve(reader.result as ArrayBuffer); };
         reader.onerror = () => reject(reader.error ?? new Error("FILE_READ_FAILED"));
+        reader.onabort = () => reject(new DOMException("Upload cancelled", "AbortError"));
         reader.readAsArrayBuffer(file);
       });
       const workbook = XLSX.read(buffer, { type: "array" });
       const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json<ImportRow>(firstSheet, { defval: "" });
-      setImportKind(tab); setImportRows(rows); setImportName(file.name);
+      setImportRows(rows);
       if (!rows.length) toast.error("The workbook contains no data rows"); else toast.success(`${rows.length} rows loaded for validation`);
-    } catch { toast.error("The workbook could not be read. Use the supplied Excel template."); }
+    } catch (error) { if (!(error instanceof DOMException && error.name === "AbortError")) toast.error("The workbook could not be read. Use the supplied Excel template."); }
     event.target.value = "";
   }
   function confirmImport() {

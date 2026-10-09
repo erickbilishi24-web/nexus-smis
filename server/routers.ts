@@ -8,6 +8,8 @@ import { MANAGE_PERMISSIONS } from "./access";
 import { AdminError, AUDIT_MODULES, adminCatalog, adminOverview, changeAdminAssignment, changeAdminRole, createAdminUser, getAdminUser, getPermissionMatrixView, listAdminUsers, listAuditTrail, resetAdminPassword, setAccountState, setRolePermission, setUserPermissionOverride, updateAdminUser } from "./administration";
 import { correctLockedAssessmentMark, ensureAssessment, getAssessmentEntries, getAssessmentReportCard, getClassMarklist, listAssessmentScopes, saveAssessmentMarks, setAssessmentFinalState, submitAssessment } from "./assessment";
 import { adminResetIamPassword, changeIamPassword, loginWithIam, logoutIam, requestIamPasswordReset, resetIamPassword, safeAuthProfile } from "./iam";
+import { clockIn, getClockingSetup, saveSchoolLocation } from "./clocking";
+import { addLibraryBook, checkoutLibraryBook, libraryLookups, libraryOverview, listLibraryBooks, listLibraryLoans, renewLibraryLoan, returnLibraryBook } from "./library";
 import {
   archiveLearner,
   canViewMasterTimetable,
@@ -185,6 +187,21 @@ export const appRouter = router({
     notifications: router({
       list: permissionProcedure("communication.edit").query(() => listNotifications()),
       create: permissionProcedure("communication.edit").input(z.object({ audience: z.enum(["parents", "staff", "learners", "all"]), title: z.string().min(1).max(160), body: z.string().min(1), status: z.enum(["draft", "published"]) })).mutation(({ input, ctx }) => createNotification(input, currentUserId(ctx.user))),
+    }),
+    clocking: router({
+      status: protectedProcedure.query(({ ctx }) => getClockingSetup(ctx.user.id)),
+      clockIn: permissionProcedure("dashboard.view").input(z.object({ latitude: z.number().min(-90).max(90), longitude: z.number().min(-180).max(180) })).mutation(({ input, ctx }) => clockIn(input, ctx.user.id)),
+      saveLocation: permissionProcedure("settings.edit").input(z.object({ latitude: z.number().min(-90).max(90), longitude: z.number().min(-180).max(180), radiusMeters: z.number().int().min(25).max(1000) })).mutation(({ input, ctx }) => saveSchoolLocation(input, ctx.user.id, ctx.user.role)),
+    }),
+    library: router({
+      overview: permissionProcedure("library.view").query(() => libraryOverview()),
+      lookups: permissionProcedure("library.view").query(() => libraryLookups()),
+      books: permissionProcedure("library.view").input(z.object({ search: z.string().optional() }).optional()).query(({ input }) => listLibraryBooks(input?.search)),
+      loans: permissionProcedure("library.view").input(z.object({ overdueOnly: z.boolean().optional() }).optional()).query(({ input }) => listLibraryLoans(input?.overdueOnly ?? false)),
+      addBook: permissionProcedure("library.create").input(z.object({ title: z.string().min(1).max(200), author: z.string().max(160).nullable().optional(), isbn: z.string().max(40).nullable().optional(), publisher: z.string().max(160).nullable().optional(), pubYear: z.number().int().min(1800).max(2200).nullable().optional(), subject: z.string().max(120).nullable().optional(), categoryId: z.number().int().positive().nullable().optional(), copies: z.number().int().min(1).max(100), location: z.string().max(120).nullable().optional() })).mutation(({ input, ctx }) => addLibraryBook(input, ctx.user.id)),
+      checkout: permissionProcedure("library.edit").input(z.object({ copyId: z.number().int().positive(), learnerId: z.number().int().positive().nullable().optional(), staffUserId: z.number().int().positive().nullable().optional(), dueDays: z.number().int().min(1).max(90) })).mutation(({ input, ctx }) => checkoutLibraryBook(input, ctx.user.id)),
+      return: permissionProcedure("library.edit").input(z.object({ loanId: z.number().int().positive() })).mutation(({ input, ctx }) => returnLibraryBook(input.loanId, ctx.user.id)),
+      renew: permissionProcedure("library.edit").input(z.object({ loanId: z.number().int().positive() })).mutation(({ input, ctx }) => renewLibraryLoan(input.loanId, ctx.user.id)),
     }),
     store: router({
       overview: permissionProcedure("store.view").query(() => getStoreOverview()),
