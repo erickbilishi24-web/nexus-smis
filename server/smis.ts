@@ -101,10 +101,12 @@ export async function getSettings() {
 
 export async function getDashboardSnapshot() {
   const db = await requireDb();
-  const [settings, learnerRows, attendanceRows, paymentRows, assessmentRows, staffRows, lowStockRows] = await Promise.all([
+  const trendStart = new Date(); trendStart.setHours(0, 0, 0, 0); trendStart.setDate(trendStart.getDate() - 6);
+  const [settings, learnerRows, attendanceRows, trendRows, paymentRows, assessmentRows, staffRows, lowStockRows] = await Promise.all([
     getSettings(),
     db.select({ learner: learners, grade: grades }).from(learners).leftJoin(grades, eq(grades.id, learners.gradeId)).where(eq(learners.status, "active")),
     db.select().from(attendances).orderBy(desc(attendances.id)).limit(100),
+    db.select({ attendanceDate: attendances.attendanceDate, status: attendances.status }).from(attendances).where(gte(attendances.attendanceDate, trendStart)),
     db.select().from(payments).orderBy(desc(payments.paidAt)).limit(100),
     db.select().from(assessments).where(sql`${assessments.status} <> 'approved'`),
     db.select().from(staffProfiles).where(eq(staffProfiles.status, "active")),
@@ -113,6 +115,7 @@ export async function getDashboardSnapshot() {
   const attendanceToday = attendanceRows.filter(row => String(row.attendanceDate) === new Date().toISOString().slice(0, 10));
   const present = attendanceToday.filter(row => row.status === "present").length;
   const attendanceRate = attendanceToday.length ? Math.round((present / attendanceToday.length) * 1000) / 10 : 0;
+  const attendanceTrend = Array.from({ length: 7 }, (_, index) => { const date = new Date(trendStart); date.setDate(trendStart.getDate() + index); const label = date.toISOString().slice(0, 10); const rows = trendRows.filter(row => String(row.attendanceDate) === label); return { label, present: rows.filter(row => row.status === "present" || row.status === "late").length, absent: rows.filter(row => row.status === "absent").length }; });
   const learnersById = new Map(learnerRows.map(row => [row.learner.id, row]));
   const recentAttendance = attendanceToday.slice(0, 8).flatMap(attendance => {
     const row = learnersById.get(attendance.learnerId);
@@ -130,6 +133,7 @@ export async function getDashboardSnapshot() {
     school: settings,
     counts: { learners: learnerRows.length, staff: staffRows.length, assessmentsPending: assessmentRows.length, collections },
     attendance: { today: attendanceToday.length, present, rate: attendanceRate },
+    attendanceTrend,
     recentAttendance,
     lowStock: Array.from(stock.values()).filter(item => item.quantity <= item.reorderLevel),
     recentLearners: learnerRows.slice(0, 8).map(row => ({ ...row.learner, grade: row.grade ? `${row.grade.name}${row.grade.stream ? ` ${row.grade.stream}` : ""}` : "" })),
@@ -759,6 +763,7 @@ export async function previewPeopleImport(input: { kind: PeopleImportKind; rows:
   if (!input.rows.length) return { kind: input.kind, total: 0, valid: 0, errors: [{ row: 0, message: "The workbook contains no data rows." }], preview };
   if (input.rows.length > 500) return { kind: input.kind, total: input.rows.length, valid: 0, errors: [{ row: 0, message: "Import limit is 500 rows per confirmation." }], preview };
   const gradeRows = await db.select().from(grades);
+  const gradeByKey = new Map(gradeRows.map(item => [`${item.name.toLowerCase()}|${(item.stream ?? "").toLowerCase()}`, item]));
   const existingAdmissions = new Set<string>();
   if (input.kind === "learners") {
     const admissionNumbers = input.rows.map(row => importTextValue(row, "admissionNumber", "admissionNo", "admission").toUpperCase()).filter(Boolean);
@@ -776,7 +781,7 @@ export async function previewPeopleImport(input: { kind: PeopleImportKind; rows:
       const admissionNumber = importTextValue(row, "admissionNumber", "admissionNo", "admission").toUpperCase();
       const gradeName = importTextValue(row, "gradeName", "grade", "class", "gradeClass");
       const stream = importTextValue(row, "stream", "streamName");
-      const grade = gradeRows.find(item => item.name.toLowerCase() === gradeName.toLowerCase() && (!stream || (item.stream ?? "").toLowerCase() === stream.toLowerCase()));
+      const grade = gradeByKey.get(`${gradeName.toLowerCase()}|${stream.toLowerCase()}`) ?? (!stream ? gradeRows.find(item => item.name.toLowerCase() === gradeName.toLowerCase()) : undefined);
       const rawStatus = importTextValue(row, "status", "state").toLowerCase();
       const status = rawStatus === "inactive" ? "inactive" : "active";
       if (rawStatus && rawStatus !== "active" && rawStatus !== "inactive") errors.push({ row: rowNumber, message: "Status must be active or inactive." });
