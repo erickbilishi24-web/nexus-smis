@@ -831,6 +831,8 @@ export async function importPeopleRows(input: { kind: PeopleImportKind; rows: Pe
 }
 
 type ImportBatch = { auditId: number; kind: PeopleImportKind; createdAt: Date; rows: number; learnerIds: number[]; staffProfileIds: number[]; userIds: number[] };
+export const PEOPLE_IMPORT_UNDO_WINDOW_MS = 60 * 60 * 1000;
+export function isPeopleImportUndoable(createdAt: Date, now = Date.now()) { return now - createdAt.getTime() <= PEOPLE_IMPORT_UNDO_WINDOW_MS; }
 
 function parseImportBatch(row: typeof auditLogs.$inferSelect): ImportBatch | null {
   if (row.action !== "people.bulk_import" || !row.entityType || !["learners", "staff"].includes(row.entityType)) return null;
@@ -844,14 +846,14 @@ function parseImportBatch(row: typeof auditLogs.$inferSelect): ImportBatch | nul
 export async function getLastPeopleImport() {
   const db = await requireDb();
   const rows = await db.select().from(auditLogs).where(eq(auditLogs.action, "people.bulk_import")).orderBy(desc(auditLogs.createdAt)).limit(20);
-  const batch = rows.map(parseImportBatch).find((item): item is ImportBatch => item !== null);
+  const batch = rows.map(parseImportBatch).find((item): item is ImportBatch => item !== null && isPeopleImportUndoable(item.createdAt));
   return batch ? { ...batch, createdAt: batch.createdAt.toISOString() } : null;
 }
 
 export async function undoLastPeopleImport(userId: number) {
   const db = await requireDb();
   const rows = await db.select().from(auditLogs).where(eq(auditLogs.action, "people.bulk_import")).orderBy(desc(auditLogs.createdAt)).limit(20);
-  const batch = rows.map(parseImportBatch).find((item): item is ImportBatch => item !== null);
+  const batch = rows.map(parseImportBatch).find((item): item is ImportBatch => item !== null && isPeopleImportUndoable(item.createdAt));
   if (!batch) throw new Error("NO_UNDOABLE_IMPORT");
   const blockedLearners: number[] = [];
   const blockedStaff: number[] = [];
