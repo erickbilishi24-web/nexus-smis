@@ -1,9 +1,11 @@
 import { and, asc, eq } from "drizzle-orm";
-import { curriculumOfferings } from "../drizzle/schema";
+import { curriculumOfferings, schoolSettings } from "../drizzle/schema";
 import { requireDb, writeAudit } from "./smis";
 
 export const KICD_CURRICULUM_SOURCE = "https://kicd.ac.ke/wp-content/uploads/2017/10/CURRICULUMFRAMEWORK.pdf";
 export const KICD_DESIGNS_SOURCE = "https://kicd.ac.ke/cbc-materials/curriculum-designs/";
+export const SCHOOL_LEVELS = ["ECDE", "Primary", "Junior School", "Senior School"] as const;
+const DEFAULT_LEVELS = [...SCHOOL_LEVELS];
 
 type Entry = { level: string; grade: string; area: string; pathway?: string };
 const sharedPrimary = ["English", "Kiswahili", "Mathematics", "Environmental Activities", "Religious Education", "Creative Activities", "Movement and Creative Activities", "Indigenous Language"];
@@ -31,8 +33,20 @@ export function curriculumCatalogue(): Entry[] {
 
 export async function getCurriculumSetup() {
   const db = await requireDb();
-  const saved = await db.select().from(curriculumOfferings).orderBy(asc(curriculumOfferings.level), asc(curriculumOfferings.gradeLabel), asc(curriculumOfferings.pathway), asc(curriculumOfferings.learningArea));
-  return { source: KICD_CURRICULUM_SOURCE, designsSource: KICD_DESIGNS_SOURCE, catalogue: curriculumCatalogue(), saved };
+  const [saved, settings] = await Promise.all([db.select().from(curriculumOfferings).orderBy(asc(curriculumOfferings.level), asc(curriculumOfferings.gradeLabel), asc(curriculumOfferings.pathway), asc(curriculumOfferings.learningArea)), db.select({ enabledSchoolLevels: schoolSettings.enabledSchoolLevels }).from(schoolSettings).limit(1)]);
+  const levels = settings[0]?.enabledSchoolLevels?.split(",").filter(level => SCHOOL_LEVELS.includes(level as typeof SCHOOL_LEVELS[number])) ?? DEFAULT_LEVELS;
+  return { source: KICD_CURRICULUM_SOURCE, designsSource: KICD_DESIGNS_SOURCE, catalogue: curriculumCatalogue(), saved, enabledSchoolLevels: levels };
+}
+
+export async function saveEnabledSchoolLevels(levels: string[], userId: number) {
+  const db = await requireDb();
+  const selected = Array.from(new Set(levels.filter(level => SCHOOL_LEVELS.includes(level as typeof SCHOOL_LEVELS[number]))));
+  if (!selected.length) throw new Error("SCHOOL_LEVEL_REQUIRED");
+  const current = (await db.select({ id: schoolSettings.id }).from(schoolSettings).limit(1))[0];
+  if (!current) throw new Error("SCHOOL_SETTINGS_REQUIRED");
+  await db.update(schoolSettings).set({ enabledSchoolLevels: selected.join(",") }).where(eq(schoolSettings.id, current.id));
+  await writeAudit(userId, "curriculum.school_levels.update", "school_settings", current.id, { enabledSchoolLevels: selected });
+  return { enabledSchoolLevels: selected };
 }
 
 export async function saveCurriculumSelections(input: { selections: Array<{ level: string; grade: string; pathway?: string | null; area: string; offered: boolean }> }, userId: number) {

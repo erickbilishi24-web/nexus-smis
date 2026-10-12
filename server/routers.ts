@@ -10,7 +10,7 @@ import { correctLockedAssessmentMark, ensureAssessment, getAssessmentEntries, ge
 import { adminResetIamPassword, changeIamPassword, loginWithIam, logoutIam, requestIamPasswordReset, resetIamPassword, safeAuthProfile } from "./iam";
 import { clockIn, getClockingSetup, saveSchoolLocation } from "./clocking";
 import { listMessageGrades, listMessageRecipients, listNexusMessages, previewMessageRecipients, queueNexusMessage } from "./messages";
-import { getCurriculumSetup, saveCurriculumSelections } from "./curriculum";
+import { getCurriculumSetup, saveCurriculumSelections, saveEnabledSchoolLevels } from "./curriculum";
 import { addLibraryBook, checkoutLibraryBook, libraryLookups, libraryOverview, listLibraryBooks, listLibraryLoans, renewLibraryLoan, returnLibraryBook } from "./library";
 import {
   archiveLearner,
@@ -33,6 +33,7 @@ import {
   listAlumni,
   listAllocations,
   listAcademicCatalog,
+  canManageSchoolLevels,
   saveTeacherAllocation,
   changeTeacherAllocationStatus,
   listAssessments,
@@ -112,7 +113,10 @@ const masterTimetableProcedure = protectedProcedure.use(async ({ ctx, next }) =>
   if (!await canManageMasterTimetable(ctx.user.id, ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: "MASTER_TIMETABLE_ADMIN_ONLY" });
   return next();
 });
-
+const schoolLevelProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+  if (!await canManageSchoolLevels(ctx.user.id)) throw new TRPCError({ code: "FORBIDDEN", message: "Only a Super Administrator can configure school levels." });
+  return next();
+});
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -286,7 +290,9 @@ export const appRouter = router({
       createGrade: permissionProcedure("settings.edit").input(z.object({ name: z.string().min(1).max(80), stream: z.string().max(80).nullable().optional() })).mutation(({ input, ctx }) => createGradeClass(input, currentUserId(ctx.user))),
       createSubject: permissionProcedure("settings.edit").input(z.object({ name: z.string().min(1).max(120), code: z.string().min(1).max(30) })).mutation(({ input, ctx }) => createLearningArea(input, currentUserId(ctx.user))),
       curriculum: permissionProcedure("settings.edit").query(() => getCurriculumSetup()),
+      canManageSchoolLevels: protectedProcedure.query(({ ctx }) => canManageSchoolLevels(currentUserId(ctx.user))),
       saveCurriculum: permissionProcedure("settings.edit").input(z.object({ selections: z.array(z.object({ level: z.string().max(40), grade: z.string().max(40), pathway: z.string().max(100).nullable().optional(), area: z.string().max(160), offered: z.boolean() })) })).mutation(({ input, ctx }) => saveCurriculumSelections(input, currentUserId(ctx.user))),
+      saveSchoolLevels: schoolLevelProcedure.input(z.object({ levels: z.array(z.enum(["ECDE", "Primary", "Junior School", "Senior School"])) })).mutation(({ input, ctx }) => saveEnabledSchoolLevels(input.levels, currentUserId(ctx.user))),
       update: adminProcedure.input(z.object({ schoolName: z.string().min(1).max(200), motto: z.string().max(255).nullable().optional(), currentTerm: z.string().min(1).max(40), academicYear: z.number().int().min(2000).max(2100), includeFeesOnReportCard: z.boolean(), showPercentagesOnReportCard: z.boolean().optional() })).mutation(({ input, ctx }) => saveSettings(input, currentUserId(ctx.user))),
     }),
     reports: router({
