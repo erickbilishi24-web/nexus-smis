@@ -2,6 +2,7 @@ import { and, desc, eq, gte, inArray, like, lte, or, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db";
 import { computePermissions } from "./access";
+import { curriculumCatalogue } from "./curriculum";
 import { attendanceGradeLevel, validateAttendanceBatch, type AttendanceBatchEntry } from "../shared/attendance";
 import {
   alumni,
@@ -885,11 +886,19 @@ export async function updateStaffRole(input: { staffProfileId: number; role: Sta
 
 export async function listAcademicCatalog() {
   const db = await requireDb();
-  const [gradeRows, subjectRows, offerings] = await Promise.all([db.select().from(grades).orderBy(grades.name, grades.stream), db.select().from(subjects).orderBy(subjects.name), db.select().from(curriculumOfferings).where(eq(curriculumOfferings.offered, 1))]);
-  const configuredGrades = new Set(offerings.map(row => row.gradeLabel));
-  const configuredAreas = new Set(offerings.map(row => row.learningArea.toLowerCase()));
-  const filteredSubjects = configuredGrades.size ? subjectRows.filter(subject => configuredAreas.has(subject.name.toLowerCase()) || configuredAreas.has(subject.code.toLowerCase())) : subjectRows;
-  return { grades: gradeRows, subjects: filteredSubjects };
+  const [gradeRows, existingSubjects] = await Promise.all([db.select().from(grades).orderBy(grades.name, grades.stream), db.select().from(subjects).orderBy(subjects.name)]);
+  const existingNames = new Set(existingSubjects.map(subject => subject.name.toLowerCase()));
+  const existingCodes = new Set(existingSubjects.map(subject => subject.code.toLowerCase()));
+  const missing = Array.from(new Set(curriculumCatalogue().map(row => row.area))).filter(name => !existingNames.has(name.toLowerCase())).map((name, index) => {
+    const stem = `CBC-${name.toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24) || `AREA-${index + 1}`}`;
+    let code = stem; let suffix = 2;
+    while (existingCodes.has(code.toLowerCase())) code = `${stem.slice(0, 27 - String(suffix).length)}-${suffix++}`;
+    existingCodes.add(code.toLowerCase()); existingNames.add(name.toLowerCase());
+    return { name, code };
+  });
+  if (missing.length) await db.insert(subjects).values(missing);
+  const subjectRows = missing.length ? await db.select().from(subjects).orderBy(subjects.name) : existingSubjects;
+  return { grades: gradeRows, subjects: subjectRows };
 }
 
 export async function createGradeClass(input: { name: string; stream?: string | null }, userId: number) {
