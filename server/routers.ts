@@ -9,6 +9,8 @@ import { AdminError, AUDIT_MODULES, adminCatalog, adminOverview, changeAdminAssi
 import { correctLockedAssessmentMark, ensureAssessment, getAssessmentEntries, getAssessmentReportCard, getClassMarklist, listAssessmentScopes, saveAssessmentMarks, setAssessmentFinalState, submitAssessment } from "./assessment";
 import { adminResetIamPassword, changeIamPassword, loginWithIam, logoutIam, requestIamPasswordReset, resetIamPassword, safeAuthProfile } from "./iam";
 import { clockIn, getClockingSetup, saveSchoolLocation } from "./clocking";
+import { listMessageGrades, listMessageRecipients, listNexusMessages, previewMessageRecipients, queueNexusMessage } from "./messages";
+import { getCurriculumSetup, saveCurriculumSelections } from "./curriculum";
 import { addLibraryBook, checkoutLibraryBook, libraryLookups, libraryOverview, listLibraryBooks, listLibraryLoans, renewLibraryLoan, returnLibraryBook } from "./library";
 import {
   archiveLearner,
@@ -229,7 +231,14 @@ export const appRouter = router({
     }),
     communication: router({
       list: permissionProcedure("communication.edit").query(() => listCommunications()),
-      create: permissionProcedure("communication.edit").input(z.object({ audience: z.enum(["parents", "staff", "learners", "all"]), channel: z.enum(["sms", "notice", "email"]), subject: z.string().min(1).max(160), body: z.string().min(1) })).mutation(({ input, ctx }) => createCommunication(input, currentUserId(ctx.user))),
+      create: permissionProcedure("communication.edit").input(z.object({ audience: z.enum(["parents", "staff", "learners", "all"]), channel: z.enum(["sms", "notice", "email"]), subject: z.string().min(1).max(160), body: z.string().min(1).max(5000) })).mutation(({ input, ctx }) => createCommunication(input, currentUserId(ctx.user))),
+    }),
+    messages: router({
+      grades: permissionProcedure("communication.edit").query(() => listMessageGrades()),
+      recipients: permissionProcedure("communication.edit").input(z.object({ kind: z.enum(["guardian", "learner", "staff", "guardian_grade"]), search: z.string().optional(), gradeId: z.number().int().positive().optional() })).query(({ input }) => listMessageRecipients(input.kind, input.search, input.gradeId)),
+      preview: permissionProcedure("communication.edit").input(z.object({ kind: z.enum(["guardian", "learner", "staff", "grade", "guardian_grade"]), ids: z.array(z.number().int().positive()).default([]), gradeId: z.number().int().positive().optional() })).query(({ input }) => previewMessageRecipients(input.kind, input.ids, input.gradeId)),
+      history: permissionProcedure("communication.edit").query(() => listNexusMessages()),
+      queue: permissionProcedure("communication.edit").input(z.object({ category: z.string().max(80).default("announcement"), channel: z.enum(["sms", "email", "in_app", "whatsapp"]), body: z.string().min(1).max(5000), kind: z.enum(["guardian", "learner", "staff", "grade", "guardian_grade"]), ids: z.array(z.number().int().positive()).default([]), gradeId: z.number().int().positive().optional() })).mutation(({ input, ctx }) => queueNexusMessage(input, currentUserId(ctx.user))),
     }),
     alumni: router({
       list: permissionProcedure("alumni.edit").query(() => listAlumni()),
@@ -276,6 +285,8 @@ export const appRouter = router({
       get: permissionProcedure("dashboard.view").query(() => getSettings()),
       createGrade: permissionProcedure("settings.edit").input(z.object({ name: z.string().min(1).max(80), stream: z.string().max(80).nullable().optional() })).mutation(({ input, ctx }) => createGradeClass(input, currentUserId(ctx.user))),
       createSubject: permissionProcedure("settings.edit").input(z.object({ name: z.string().min(1).max(120), code: z.string().min(1).max(30) })).mutation(({ input, ctx }) => createLearningArea(input, currentUserId(ctx.user))),
+      curriculum: permissionProcedure("settings.edit").query(() => getCurriculumSetup()),
+      saveCurriculum: permissionProcedure("settings.edit").input(z.object({ selections: z.array(z.object({ level: z.string().max(40), grade: z.string().max(40), pathway: z.string().max(100).nullable().optional(), area: z.string().max(160), offered: z.boolean() })) })).mutation(({ input, ctx }) => saveCurriculumSelections(input, currentUserId(ctx.user))),
       update: adminProcedure.input(z.object({ schoolName: z.string().min(1).max(200), motto: z.string().max(255).nullable().optional(), currentTerm: z.string().min(1).max(40), academicYear: z.number().int().min(2000).max(2100), includeFeesOnReportCard: z.boolean(), showPercentagesOnReportCard: z.boolean().optional() })).mutation(({ input, ctx }) => saveSettings(input, currentUserId(ctx.user))),
     }),
     reports: router({

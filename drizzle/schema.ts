@@ -247,6 +247,40 @@ export const communications = mysqlTable("communications", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+export const nexusMessages = mysqlTable("nexus_messages", {
+  id: int("id").autoincrement().primaryKey(),
+  category: varchar("category", { length: 80 }).notNull().default("announcement"),
+  channel: mysqlEnum("channel", ["sms", "email", "in_app", "whatsapp"]).notNull().default("in_app"),
+  body: text("body").notNull(),
+  status: mysqlEnum("status", ["draft", "queued", "sent", "failed", "cancelled"]).notNull().default("queued"),
+  selectionJson: text("selectionJson"),
+  createdByUserId: int("createdByUserId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const nexusMessageRecipients = mysqlTable("nexus_message_recipients", {
+  id: int("id").autoincrement().primaryKey(),
+  messageId: int("messageId").notNull(),
+  recipientType: varchar("recipientType", { length: 30 }).notNull(),
+  recipientId: int("recipientId").notNull(),
+  label: varchar("label", { length: 180 }).notNull(),
+  status: mysqlEnum("status", ["queued", "sent", "failed"]).notNull().default("queued"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => ({ messageRecipientUnique: uniqueIndex("nexus_message_recipient_unique").on(table.messageId, table.recipientType, table.recipientId) }));
+
+export const curriculumOfferings = mysqlTable("curriculum_offerings", {
+  id: int("id").autoincrement().primaryKey(),
+  level: varchar("level", { length: 40 }).notNull(),
+  gradeLabel: varchar("gradeLabel", { length: 40 }).notNull(),
+  pathway: varchar("pathway", { length: 100 }),
+  learningArea: varchar("learningArea", { length: 160 }).notNull(),
+  subjectCode: varchar("subjectCode", { length: 40 }),
+  offered: int("offered").notNull().default(1),
+  sourceUrl: varchar("sourceUrl", { length: 500 }),
+  updatedByUserId: int("updatedByUserId").notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, table => ({ curriculumOfferingUnique: uniqueIndex("curriculum_offering_unique").on(table.level, table.gradeLabel, table.pathway, table.learningArea) }));
+
 export const alumni = mysqlTable("alumni", {
   id: int("id").autoincrement().primaryKey(),
   learnerId: int("learnerId").notNull().unique(),

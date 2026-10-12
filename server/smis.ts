@@ -10,6 +10,7 @@ import {
   attendances,
   auditLogs,
   communications,
+  curriculumOfferings,
   expenditures,
   guardians,
   learnerGuardians,
@@ -749,6 +750,14 @@ export async function previewPeopleImport(input: { kind: PeopleImportKind; rows:
   if (!input.rows.length) return { kind: input.kind, total: 0, valid: 0, errors: [{ row: 0, message: "The workbook contains no data rows." }], preview };
   if (input.rows.length > 500) return { kind: input.kind, total: input.rows.length, valid: 0, errors: [{ row: 0, message: "Import limit is 500 rows per confirmation." }], preview };
   const gradeRows = await db.select().from(grades);
+  const existingAdmissions = new Set<string>();
+  if (input.kind === "learners") {
+    const admissionNumbers = input.rows.map(row => importTextValue(row, "admissionNumber", "admissionNo", "admission").toUpperCase()).filter(Boolean);
+    if (admissionNumbers.length) {
+      const existing = await db.select({ admissionNumber: learners.admissionNumber }).from(learners).where(inArray(learners.admissionNumber, admissionNumbers));
+      existing.forEach(row => existingAdmissions.add(row.admissionNumber.toUpperCase()));
+    }
+  }
   const seenAdmissions = new Set<string>();
   for (let index = 0; index < input.rows.length; index += 1) {
     const row = input.rows[index];
@@ -765,7 +774,7 @@ export async function previewPeopleImport(input: { kind: PeopleImportKind; rows:
       if (!fullName) errors.push({ row: rowNumber, message: "Learner name is required." });
       if (!admissionNumber) errors.push({ row: rowNumber, message: "Admission number is required." });
       if (seenAdmissions.has(admissionNumber)) errors.push({ row: rowNumber, message: `Duplicate admission number in workbook: ${admissionNumber}.` });
-      if (admissionNumber && (await db.select({ id: learners.id }).from(learners).where(eq(learners.admissionNumber, admissionNumber)).limit(1)).length) errors.push({ row: rowNumber, message: `Admission number already exists: ${admissionNumber}.` });
+      if (admissionNumber && existingAdmissions.has(admissionNumber)) errors.push({ row: rowNumber, message: `Admission number already exists: ${admissionNumber}.` });
       if (!grade) errors.push({ row: rowNumber, message: `Grade/class not found: ${gradeName}${stream ? ` ${stream}` : ""}.` });
       seenAdmissions.add(admissionNumber);
       if (fullName && admissionNumber && grade) preview.push({ row: rowNumber, learnerName: fullName, admissionNumber, gradeId: grade.id, grade: `${grade.name}${grade.stream ? ` ${grade.stream}` : ""}`, guardianName: importTextValue(row, "guardianName", "parentGuardianName", "parentName", "guardian") || null, guardianIdNumber: importTextValue(row, "guardianIdNumber", "parentGuardianId", "parentId", "guardianId") || null, guardianPhone: importTextValue(row, "guardianPhone", "parentGuardianPhone", "parentPhone", "guardianPhoneNumber") || null, status });
@@ -876,8 +885,11 @@ export async function updateStaffRole(input: { staffProfileId: number; role: Sta
 
 export async function listAcademicCatalog() {
   const db = await requireDb();
-  const [gradeRows, subjectRows] = await Promise.all([db.select().from(grades).orderBy(grades.name, grades.stream), db.select().from(subjects).orderBy(subjects.name)]);
-  return { grades: gradeRows, subjects: subjectRows };
+  const [gradeRows, subjectRows, offerings] = await Promise.all([db.select().from(grades).orderBy(grades.name, grades.stream), db.select().from(subjects).orderBy(subjects.name), db.select().from(curriculumOfferings).where(eq(curriculumOfferings.offered, 1))]);
+  const configuredGrades = new Set(offerings.map(row => row.gradeLabel));
+  const configuredAreas = new Set(offerings.map(row => row.learningArea.toLowerCase()));
+  const filteredSubjects = configuredGrades.size ? subjectRows.filter(subject => configuredAreas.has(subject.name.toLowerCase()) || configuredAreas.has(subject.code.toLowerCase())) : subjectRows;
+  return { grades: gradeRows, subjects: filteredSubjects };
 }
 
 export async function createGradeClass(input: { name: string; stream?: string | null }, userId: number) {
