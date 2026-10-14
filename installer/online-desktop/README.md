@@ -1,13 +1,14 @@
 # NEXUS SMIS Online Desktop Package
 
-This is the recommended package for schools using the hosted NEXUS platform. It does **not** install XAMPP, PHP, MySQL, Node.js, or a local copy of school data.
+This is the recommended client package for schools using the hosted NEXUS platform. It does **not** install XAMPP, PHP, MySQL, Node.js, or a local copy of school data. The hosted backend must enforce school/tenant isolation; this client does not create tenants or security boundaries.
 
 ## Use now
 
-1. On Windows, double-click `Install-NEXUS-Desktop.bat`.
-2. The script creates NEXUS SMIS shortcuts on the Desktop and Start Menu.
-3. The hosted NEXUS site opens in the default browser.
-4. In Chrome or Edge, choose **Install NEXUS SMIS** from the browser address bar/menu for a standalone app window and automatic online updates.
+1. Set the hosted school URL in `nexus-desktop.config.json` if this deployment uses a different NEXUS domain. The default is the current hosted NEXUS URL.
+2. On Windows, double-click `Install-NEXUS-Desktop.bat`.
+3. The script creates NEXUS SMIS shortcuts on the Desktop and Start Menu.
+4. The hosted NEXUS site opens in the default browser.
+5. In Chrome or Edge, choose **Install NEXUS SMIS** from the browser address bar/menu for a standalone app window and automatic online updates.
 
 ## Build the optional EXE
 

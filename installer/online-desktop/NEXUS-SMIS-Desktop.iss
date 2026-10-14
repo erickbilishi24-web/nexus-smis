@@ -15,6 +15,7 @@ DisableProgramGroupPage=yes
 
 [Files]
 Source: "Install-NEXUS-Desktop.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "nexus-desktop.config.json"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autodesktop}\NEXUS SMIS"; Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File \"{app}\Install-NEXUS-Desktop.ps1\""; WorkingDir: "{app}"
