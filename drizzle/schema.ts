@@ -355,6 +355,18 @@ export const notifications = mysqlTable("notifications", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+export const nexusAiTransactions = mysqlTable("nexus_ai_transactions", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  documentType: varchar("documentType", { length: 80 }).notNull(),
+  documentTitle: varchar("documentTitle", { length: 255 }).notNull(),
+  phoneNumber: varchar("phoneNumber", { length: 40 }),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  mpesaReceipt: varchar("mpesaReceipt", { length: 80 }),
+  status: mysqlEnum("status", ["pending", "paid", "failed", "cancelled"]).notNull().default("pending"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  paidAt: timestamp("paidAt"),
+});
 export const reportCards = mysqlTable("report_cards", {
   id: int("id").autoincrement().primaryKey(),
   learnerId: int("learnerId").notNull(),

@@ -11,6 +11,7 @@ import { adminResetIamPassword, changeIamPassword, loginWithIam, logoutIam, requ
 import { clockIn, getClockingSetup, saveSchoolLocation } from "./clocking";
 import { listMessageGrades, listMessageRecipients, listNexusMessages, previewMessageRecipients, queueNexusMessage } from "./messages";
 import { getCurriculumSetup, saveCurriculumSelections, saveEnabledSchoolLevels } from "./curriculum";
+import { listNexusAiTransactions } from "./ai-payments";
 import { addLibraryBook, batchCheckoutLibraryBooks, checkoutLibraryBook, libraryLookups, libraryOverview, listLibraryBooks, listLibraryLoans, renewLibraryLoan, returnLibraryBook } from "./library";
 import {
   archiveLearner,
@@ -306,6 +307,7 @@ export const appRouter = router({
     }),
     ai: router({
       ask: permissionProcedure("ai.access").input(z.object({ question: z.string().min(1).max(500) })).query(({ input, ctx }) => aiFacts(input.question, ctx.user.id, ctx.user.role)),
+      transactions: permissionProcedure("ai.access").query(({ ctx }) => listNexusAiTransactions(ctx.user.id)),
     }),
   }),
 });
