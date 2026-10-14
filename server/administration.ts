@@ -238,8 +238,10 @@ export async function setAccountState(input: { userId: number; action: "activate
   const db = await requireDb();
   const role = await assertCanManage(actor, input.userId);
   const u = (await db.select().from(users).where(eq(users.id, input.userId)).limit(1))[0];
+  const targetStaff = (await db.select({ role: staffProfiles.role }).from(staffProfiles).where(eq(staffProfiles.userId, input.userId)).limit(1))[0];
   const state = stateOf(u);
   if (input.userId === actor.id && input.action !== "activate") fail("CANNOT_RESTRICT_OWN_ACCOUNT");
+  if (targetStaff?.role === "super_admin" && (input.action === "suspend" || input.action === "lock")) fail("SUPER_ADMIN_ACCOUNT_PROTECTED");
   if (await hasManagePermissions(role) && (input.action === "suspend" || input.action === "lock")) await assertNotLastPermissionManager(input.userId);
   const revoke = () => db.update(iamSessions).set({ status: "revoked", logoutAt: new Date() }).where(and(eq(iamSessions.userId, input.userId), eq(iamSessions.status, "active")));
   const staffStatus = (status: "active" | "disabled") => db.update(staffProfiles).set({ status }).where(eq(staffProfiles.userId, input.userId));

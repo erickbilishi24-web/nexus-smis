@@ -2,12 +2,13 @@ import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import { and, eq, or } from "drizzle-orm";
 import { getDb } from "./db";
-import { auditLogs, iamPasswordResets, iamSessions, users, type User } from "../drizzle/schema";
+import { auditLogs, iamPasswordResets, iamSessions, staffProfiles, users, type User } from "../drizzle/schema";
 import type { Request, Response } from "express";
 
 export const IAM_COOKIE_NAME = "nexus_iam_session";
 const MAX_FAILED_LOGINS = 5;
 const SESSION_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 30;
+export function shouldLockIamAccount(isSuperAdmin: boolean, failedAttempts: number) { return !isSuperAdmin && failedAttempts >= MAX_FAILED_LOGINS; }
 
 export function safeAuthProfile(user: User | null) {
   return user ? {
@@ -64,13 +65,16 @@ export async function loginWithIam(input: LoginInput, req: Request, res: Respons
     throw new Error("INVALID_CREDENTIALS");
   }
   if (row.accountStatus === "disabled" || row.accountStatus === "pending_activation") throw new Error("ACCOUNT_DISABLED");
-  if (row.accountLocked) throw new Error("ACCOUNT_LOCKED");
+  const staff = (await db.select({ role: staffProfiles.role }).from(staffProfiles).where(eq(staffProfiles.userId, row.id)).limit(1))[0];
+  const isSuperAdmin = staff?.role === "super_admin";
+  if (row.accountLocked && !isSuperAdmin) throw new Error("ACCOUNT_LOCKED");
   const valid = await bcrypt.compare(input.password, row.passwordHash);
   if (!valid) {
     const failed = row.failedLoginAttempts + 1;
-    await db.update(users).set({ failedLoginAttempts: failed, accountLocked: failed >= MAX_FAILED_LOGINS ? 1 : 0, accountStatus: failed >= MAX_FAILED_LOGINS ? "locked" : row.accountStatus }).where(eq(users.id, row.id));
-    await audit(row.id, failed >= MAX_FAILED_LOGINS ? "IAM_ACCOUNT_LOCKED" : "IAM_LOGIN_FAILED", { attempts: failed }, req);
-    throw new Error(failed >= MAX_FAILED_LOGINS ? "ACCOUNT_LOCKED" : "INVALID_CREDENTIALS");
+    const shouldLock = shouldLockIamAccount(isSuperAdmin, failed);
+    await db.update(users).set({ failedLoginAttempts: isSuperAdmin ? 0 : failed, accountLocked: shouldLock ? 1 : 0, accountStatus: shouldLock ? "locked" : "active" }).where(eq(users.id, row.id));
+    await audit(row.id, shouldLock ? "IAM_ACCOUNT_LOCKED" : "IAM_LOGIN_FAILED", { attempts: failed, protectedSuperAdmin: isSuperAdmin }, req);
+    throw new Error(shouldLock ? "ACCOUNT_LOCKED" : "INVALID_CREDENTIALS");
   }
   const token = crypto.randomBytes(48).toString("base64url");
   await db.update(users).set({ failedLoginAttempts: 0, accountLocked: 0, lastSignedIn: new Date() }).where(eq(users.id, row.id));
