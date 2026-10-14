@@ -1,0 +1,14 @@
+{
+  "name": "NEXUS SMIS",
+  "short_name": "NEXUS SMIS",
+  "description": "Online school management workspace for Kenyan schools.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#fbf8f0",
+  "theme_color": "#1d6a57",
+  "orientation": "any",
+  "icons": [
+    { "src": "/nexus-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

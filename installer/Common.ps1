@@ -18,6 +18,8 @@ function Get-Version([string]$Command, [string[]]$Arguments = @('--version')) {
   try { return ((& $Command @Arguments 2>&1 | Select-Object -First 1).ToString()).Trim() } catch { return 'unavailable' }
 }
 function Assert-Prerequisites([string]$XamppRoot) {
+  $mysqlBin = Join-Path $XamppRoot 'mysql\bin'
+  if (Test-Path $mysqlBin) { $env:Path = "$mysqlBin;$env:Path" }
   Require-Command 'node' 'Install Node.js LTS, then reopen PowerShell.'
   Require-Command 'npm' 'Install Node.js LTS, then reopen PowerShell.'
   Require-Command 'mysql' 'Add XAMPP mysql\bin to PATH or pass a release package with mysql tools.'
@@ -62,7 +64,7 @@ function Initialize-Database([string]$MysqlUser, [string]$MysqlPassword, [string
   $env:MYSQL_PWD = $MysqlPassword
   try {
     & mysql -u $MysqlUser -e "CREATE DATABASE IF NOT EXISTS ``$safeName`` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-    if ($LASTEXITCODE -ne 0) { throw "Unable to create or access database: $safeName" }
+    if ($LASTEXITCODE -ne 0) { throw "Unable to create or access database: $safeName. Start XAMPP MySQL and confirm the configured database user/password, then retry." }
     Write-Log "Database ready: $safeName"
   } finally { Remove-Item Env:MYSQL_PWD -ErrorAction SilentlyContinue }
 }
