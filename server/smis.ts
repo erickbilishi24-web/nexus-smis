@@ -25,6 +25,7 @@ import {
   permissions,
   schoolSettings,
   staffProfiles,
+  staffClockings,
   storeItems,
   storeMovements,
   subjects,
@@ -102,15 +103,17 @@ export async function getSettings() {
 export async function getDashboardSnapshot() {
   const db = await requireDb();
   const trendStart = new Date(); trendStart.setHours(0, 0, 0, 0); trendStart.setDate(trendStart.getDate() - 6);
-  const [settings, learnerRows, attendanceRows, trendRows, paymentRows, assessmentRows, staffRows, lowStockRows] = await Promise.all([
+  const [settings, learnerRows, attendanceRows, trendRows, paymentRows, paymentTrendRows, assessmentRows, staffRows, staffClockingRows, lowStockRows] = await Promise.all([
     getSettings(),
     db.select({ learner: learners, grade: grades }).from(learners).leftJoin(grades, eq(grades.id, learners.gradeId)).where(eq(learners.status, "active")),
     db.select().from(attendances).orderBy(desc(attendances.id)).limit(100),
     db.select({ attendanceDate: attendances.attendanceDate, status: attendances.status }).from(attendances).where(gte(attendances.attendanceDate, trendStart)),
     db.select().from(payments).orderBy(desc(payments.paidAt)).limit(100),
+    db.select({ amount: payments.amount, paidAt: payments.paidAt }).from(payments).where(gte(payments.paidAt, trendStart)),
     db.select().from(assessments).where(sql`${assessments.status} <> 'approved'`),
     db.select().from(staffProfiles).where(eq(staffProfiles.status, "active")),
-    db.select({ item: storeItems, movement: storeMovements }).from(storeItems).leftJoin(storeMovements, eq(storeItems.id, storeMovements.itemId)),
+    db.select({ userId: staffClockings.userId }).from(staffClockings).where(eq(staffClockings.clockDate, new Date(new Date().toISOString().slice(0, 10)))),
+    db.select({ item: storeItems, movement: storeMovements }).from(storeItems).leftJoin(storeMovements, eq(storeMovements.itemId, storeItems.id)),
   ]);
   const attendanceToday = attendanceRows.filter(row => String(row.attendanceDate) === new Date().toISOString().slice(0, 10));
   const present = attendanceToday.filter(row => row.status === "present").length;
@@ -122,6 +125,8 @@ export async function getDashboardSnapshot() {
     return row ? [{ attendance, learner: row.learner, grade: row.grade }] : [];
   });
   const collections = paymentRows.reduce((sum, row) => sum + Number(row.amount), 0);
+  const collectionTrend = Array.from({ length: 7 }, (_, index) => { const date = new Date(trendStart); date.setDate(trendStart.getDate() + index); const label = date.toISOString().slice(0, 10); return { label, amount: paymentTrendRows.filter(row => new Date(row.paidAt).toISOString().slice(0, 10) === label).reduce((sum, row) => sum + Number(row.amount), 0) }; });
+  const staffOnDuty = new Set(staffClockingRows.map(row => row.userId)).size;
   const stock = new Map<number, { name: string; unit: string; quantity: number; reorderLevel: number }>();
   for (const row of lowStockRows) {
     if (!row.item) continue;
@@ -131,9 +136,10 @@ export async function getDashboardSnapshot() {
   }
   return {
     school: settings,
-    counts: { learners: learnerRows.length, staff: staffRows.length, assessmentsPending: assessmentRows.length, collections },
+    counts: { learners: learnerRows.length, staff: staffRows.length, assessmentsPending: assessmentRows.length, collections, staffOnDuty },
     attendance: { today: attendanceToday.length, present, rate: attendanceRate },
     attendanceTrend,
+    collectionTrend,
     recentAttendance,
     lowStock: Array.from(stock.values()).filter(item => item.quantity <= item.reorderLevel),
     recentLearners: learnerRows.slice(0, 8).map(row => ({ ...row.learner, grade: row.grade ? `${row.grade.name}${row.grade.stream ? ` ${row.grade.stream}` : ""}` : "" })),

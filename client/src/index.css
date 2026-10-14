@@ -73,9 +73,12 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgb(29 106 87 / 2
 .ledger-rule { border-top: 1px solid #dfdcd2; }
 .eyebrow { color: #1d6a57; font-size: .68rem; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
 .soft-card { position: relative; overflow: hidden; background: repeating-linear-gradient(to bottom, rgb(255 254 250 / 96%) 0, rgb(255 254 250 / 96%) 35px, rgb(29 106 87 / 3%) 36px), #fffefa; border: 1px solid #d9d5cb; border-top: 4px solid #1d6a57; border-radius: .42rem .95rem .52rem .72rem; box-shadow: 5px 5px 0 #e6e1d5, 10px 11px 0 #efebe2, 0 16px 34px rgb(38 63 49 / 5%); }
+.soft-card { transition: transform 180ms cubic-bezier(.23,1,.32,1), box-shadow 180ms cubic-bezier(.23,1,.32,1); }
+.soft-card:hover { transform: translateY(-2px); box-shadow: 5px 7px 0 #e6e1d5, 10px 13px 0 #efebe2, 0 20px 38px rgb(38 63 49 / 9%); }
 .soft-card::before { content: ""; position: absolute; z-index: 2; top: 17px; left: -1px; width: 7px; height: 37px; background: #d99b3d; border-radius: 0 3px 3px 0; box-shadow: 1px 1px 0 rgb(25 52 46 / 10%); }
 .soft-card > * { position: relative; z-index: 1; }
 .dashboard-hero { border-top: 5px solid #1d6a57; border-radius: .45rem 1.18rem .55rem .95rem; box-shadow: 6px 6px 0 #d9e2d8, 12px 12px 0 #ece8df; }
+.dashboard-hero::after { content: ""; position: absolute; right: 20%; bottom: -4rem; width: 15rem; height: 15rem; border: 1.5rem solid rgb(217 177 95 / 14%); border-radius: 50%; pointer-events: none; }
 .warm-shadow { box-shadow: 0 16px 40px rgb(38 63 49 / 7%); }
 .nav-fade { background: linear-gradient(180deg, rgb(255 254 250 / 0) 0%, #fffefa 100%); }
 .paper-noise { position: relative; isolation: isolate; }
