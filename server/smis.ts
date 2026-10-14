@@ -762,7 +762,7 @@ function importTextValue(row: PeopleImportRow, ...keys: string[]) {
   return found ? String(found[1]).trim() : "";
 }
 
-export async function previewPeopleImport(input: { kind: PeopleImportKind; rows: PeopleImportRow[] }) {
+export async function previewPeopleImport(input: { kind: PeopleImportKind; rows: PeopleImportRow[]; rowOffset?: number }) {
   const db = await requireDb();
   const errors: Array<{ row: number; message: string }> = [];
   const preview: Array<Record<string, unknown>> = [];
@@ -781,7 +781,7 @@ export async function previewPeopleImport(input: { kind: PeopleImportKind; rows:
   const seenAdmissions = new Set<string>();
   for (let index = 0; index < input.rows.length; index += 1) {
     const row = input.rows[index];
-    const rowNumber = index + 2;
+    const rowNumber = (input.rowOffset ?? 0) + index + 2;
     if (input.kind === "learners") {
       const fullName = importTextValue(row, "learnerName", "fullName", "name");
       const admissionNumber = importTextValue(row, "admissionNumber", "admissionNo", "admission").toUpperCase();
