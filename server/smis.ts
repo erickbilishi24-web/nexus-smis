@@ -634,7 +634,7 @@ export async function getIntegratedReportCard(input: { learnerId: number; academ
   const markRows = await db.select({ mark: marks, assessment: assessments, subject: subjects }).from(marks).innerJoin(assessments, eq(assessments.id, marks.assessmentId)).innerJoin(subjects, eq(subjects.id, marks.subjectId)).where(eq(marks.learnerId, input.learnerId));
   const valid = markRows.filter(row => row.assessment.academicYear === academicYear && row.assessment.term === term && row.assessment.gradeId === learnerRow.learner.gradeId).sort((a,b) => b.assessment.id - a.assessment.id);
   const approved = valid.filter(row => row.assessment.status === "approved"); const source = approved.length ? approved : valid;
-  const seen = new Set<number>(); const marksheet = source.filter(row => { if (seen.has(row.mark.subjectId)) return false; seen.add(row.mark.subjectId); return true; }).map(row => ({ subject: row.subject, midTerm: Number(row.mark.midTerm), endTerm: Number(row.mark.endTerm), average: Number(row.mark.average), cbcLevel: row.mark.cbcLevel, teacherRemark: row.mark.teacherRemark, assessmentStatus: row.assessment.status }));
+  const seen = new Set<number>(); const marksheet = source.filter(row => { const entered = row.mark.score != null || row.mark.midTerm != null || row.mark.endTerm != null || row.mark.average != null || row.mark.cbcLevel != null || row.mark.teacherRemark != null; if (!entered || seen.has(row.mark.subjectId)) return false; seen.add(row.mark.subjectId); return true; }).map(row => ({ subject: row.subject, midTerm: row.mark.midTerm == null ? null : Number(row.mark.midTerm), endTerm: row.mark.endTerm == null ? null : Number(row.mark.endTerm), average: row.mark.average == null ? (row.mark.score == null ? null : Number(row.mark.score)) : Number(row.mark.average), cbcLevel: row.mark.cbcLevel, teacherRemark: row.mark.teacherRemark, assessmentStatus: row.assessment.status }));
   const attendanceRows = await db.select().from(attendances).where(eq(attendances.learnerId, input.learnerId));
   const present = attendanceRows.filter(row => row.status === "present" || row.status === "late").length; const absent = attendanceRows.filter(row => row.status === "absent").length;
   const allocationRows = await db.select({ allocation: teacherAllocations, staff: staffProfiles }).from(teacherAllocations).leftJoin(staffProfiles, eq(staffProfiles.userId, teacherAllocations.teacherUserId)).where(and(eq(teacherAllocations.gradeId, learnerRow.learner.gradeId), eq(teacherAllocations.status, "active")));
@@ -668,8 +668,14 @@ export async function createCommunication(input: { audience: "parents" | "staff"
   return { ok: true, status: "draft" };
 }
 
-export async function listAlumni() {
+export async function listAlumni(userId = 0) {
   const db = await requireDb();
+  const finalRows = await db.select({ learner: learners, grade: grades }).from(learners).innerJoin(grades, eq(grades.id, learners.gradeId)).where(eq(learners.status, "active"));
+  const finalGrades = new Set(["PP2", "Grade 6", "Grade 9", "Grade 12"]);
+  for (const row of finalRows.filter(item => finalGrades.has(item.grade.name))) {
+    const existing = (await db.select({ id: alumni.id }).from(alumni).where(eq(alumni.learnerId, row.learner.id)).limit(1))[0];
+    if (!existing) { await db.insert(alumni).values({ learnerId: row.learner.id, completionYear: new Date().getFullYear(), destination: null, archivedByUserId: userId }); await db.update(learners).set({ status: "archived" }).where(eq(learners.id, row.learner.id)); }
+  }
   return db.select({ alumni: alumni, learner: learners }).from(alumni).innerJoin(learners, eq(learners.id, alumni.learnerId)).orderBy(desc(alumni.completionYear));
 }
 

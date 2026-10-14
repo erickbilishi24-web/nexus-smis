@@ -1,5 +1,5 @@
 import { and, desc, eq, isNull, lt, sql } from "drizzle-orm";
-import { libraryBooks, libraryCategories, libraryCopies, libraryFines, libraryLoans, learners, staffProfiles, users } from "../drizzle/schema";
+import { grades, libraryBooks, libraryCategories, libraryCopies, libraryFines, libraryLoans, learners, staffProfiles, users } from "../drizzle/schema";
 import { getDb } from "./db";
 import { writeAudit } from "./smis";
 
@@ -20,7 +20,7 @@ export async function libraryOverview() {
   return { titles: Number(books[0]?.count ?? 0), copies: Number(copies[0]?.count ?? 0), available: Number(available[0]?.count ?? 0), borrowed: Number(borrowed[0]?.count ?? 0), overdue: Number(overdue[0]?.count ?? 0), members: Number(members[0]?.learners ?? 0), finesOutstanding: Number(fines[0]?.amount ?? 0) };
 }
 
-export async function libraryLookups() { const db = await requireDb(); return { categories: await db.select().from(libraryCategories).where(eq(libraryCategories.active, 1)).orderBy(libraryCategories.name), learners: await db.select({ id: learners.id, name: learners.fullName, admissionNumber: learners.admissionNumber }).from(learners).where(eq(learners.status, "active")).orderBy(learners.fullName).limit(500), staff: await db.select({ userId: users.id, name: staffProfiles.displayName, staffId: staffProfiles.staffId }).from(staffProfiles).innerJoin(users, eq(users.id, staffProfiles.userId)).where(eq(staffProfiles.status, "active")).orderBy(staffProfiles.displayName).limit(200) }; }
+export async function libraryLookups() { const db = await requireDb(); return { categories: await db.select().from(libraryCategories).where(eq(libraryCategories.active, 1)).orderBy(libraryCategories.name), learners: await db.select({ id: learners.id, name: learners.fullName, admissionNumber: learners.admissionNumber, gradeId: learners.gradeId, gradeName: grades.name }).from(learners).innerJoin(grades, eq(grades.id, learners.gradeId)).where(eq(learners.status, "active")).orderBy(learners.fullName).limit(500), staff: await db.select({ userId: users.id, name: staffProfiles.displayName, staffId: staffProfiles.staffId }).from(staffProfiles).innerJoin(users, eq(users.id, staffProfiles.userId)).where(eq(staffProfiles.status, "active")).orderBy(staffProfiles.displayName).limit(200) }; }
 
 export async function listLibraryBooks(search?: string) {
   const db = await requireDb(); const term = search?.trim();
@@ -46,6 +46,13 @@ export async function checkoutLibraryBook(input: { copyId: number; learnerId?: n
   const db = await requireDb(); const copy = (await db.select().from(libraryCopies).where(eq(libraryCopies.id, input.copyId)).limit(1))[0]; if (!copy || copy.status !== "available") throw new Error("LIBRARY_COPY_UNAVAILABLE");
   const loan = (await db.insert(libraryLoans).values({ copyId: input.copyId, learnerId: input.learnerId ?? null, staffUserId: input.staffUserId ?? null, loanedOn: dateOnly(), dueDate: dateOnly(Math.min(90, Math.max(1, input.dueDays))), issuedByUserId: userId }).$returningId())[0];
   await db.update(libraryCopies).set({ status: "borrowed" }).where(eq(libraryCopies.id, input.copyId)); await writeAudit(userId, "library.checkout", "library_loan", loan.id, input); return { loanId: loan.id };
+}
+
+export async function batchCheckoutLibraryBooks(input: { copyIds: number[]; learnerIds: number[]; dueDays: number }, userId: number) {
+  if (!input.copyIds.length || input.copyIds.length !== input.learnerIds.length) throw new Error("LIBRARY_BATCH_SELECTION_MISMATCH");
+  const issued: number[] = [];
+  for (let i = 0; i < input.copyIds.length; i += 1) issued.push((await checkoutLibraryBook({ copyId: input.copyIds[i], learnerId: input.learnerIds[i], staffUserId: null, dueDays: input.dueDays }, userId)).loanId);
+  return { loanIds: issued, count: issued.length };
 }
 
 export async function returnLibraryBook(loanId: number, userId: number) { const db = await requireDb(); const loan = (await db.select().from(libraryLoans).where(and(eq(libraryLoans.id, loanId), isNull(libraryLoans.returnedOn))).limit(1))[0]; if (!loan) throw new Error("LIBRARY_LOAN_NOT_FOUND"); await db.update(libraryLoans).set({ returnedOn: dateOnly() }).where(eq(libraryLoans.id, loanId)); await db.update(libraryCopies).set({ status: "available" }).where(eq(libraryCopies.id, loan.copyId)); await writeAudit(userId, "library.return", "library_loan", loanId, {}); return { ok: true }; }

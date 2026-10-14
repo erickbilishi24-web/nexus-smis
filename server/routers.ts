@@ -11,7 +11,7 @@ import { adminResetIamPassword, changeIamPassword, loginWithIam, logoutIam, requ
 import { clockIn, getClockingSetup, saveSchoolLocation } from "./clocking";
 import { listMessageGrades, listMessageRecipients, listNexusMessages, previewMessageRecipients, queueNexusMessage } from "./messages";
 import { getCurriculumSetup, saveCurriculumSelections, saveEnabledSchoolLevels } from "./curriculum";
-import { addLibraryBook, checkoutLibraryBook, libraryLookups, libraryOverview, listLibraryBooks, listLibraryLoans, renewLibraryLoan, returnLibraryBook } from "./library";
+import { addLibraryBook, batchCheckoutLibraryBooks, checkoutLibraryBook, libraryLookups, libraryOverview, listLibraryBooks, listLibraryLoans, renewLibraryLoan, returnLibraryBook } from "./library";
 import {
   archiveLearner,
   canViewMasterTimetable,
@@ -206,6 +206,7 @@ export const appRouter = router({
       loans: permissionProcedure("library.view").input(z.object({ overdueOnly: z.boolean().optional() }).optional()).query(({ input }) => listLibraryLoans(input?.overdueOnly ?? false)),
       addBook: permissionProcedure("library.create").input(z.object({ title: z.string().min(1).max(200), author: z.string().max(160).nullable().optional(), isbn: z.string().max(40).nullable().optional(), publisher: z.string().max(160).nullable().optional(), pubYear: z.number().int().min(1800).max(2200).nullable().optional(), subject: z.string().max(120).nullable().optional(), categoryId: z.number().int().positive().nullable().optional(), copies: z.number().int().min(1).max(100), location: z.string().max(120).nullable().optional() })).mutation(({ input, ctx }) => addLibraryBook(input, ctx.user.id)),
       checkout: permissionProcedure("library.edit").input(z.object({ copyId: z.number().int().positive(), learnerId: z.number().int().positive().nullable().optional(), staffUserId: z.number().int().positive().nullable().optional(), dueDays: z.number().int().min(1).max(90) })).mutation(({ input, ctx }) => checkoutLibraryBook(input, ctx.user.id)),
+      batchCheckout: permissionProcedure("library.edit").input(z.object({ copyIds: z.array(z.number().int().positive()).min(1).max(100), learnerIds: z.array(z.number().int().positive()).min(1).max(100), dueDays: z.number().int().min(1).max(90) })).mutation(({ input, ctx }) => batchCheckoutLibraryBooks(input, ctx.user.id)),
       return: permissionProcedure("library.edit").input(z.object({ loanId: z.number().int().positive() })).mutation(({ input, ctx }) => returnLibraryBook(input.loanId, ctx.user.id)),
       renew: permissionProcedure("library.edit").input(z.object({ loanId: z.number().int().positive() })).mutation(({ input, ctx }) => renewLibraryLoan(input.loanId, ctx.user.id)),
     }),
@@ -245,7 +246,7 @@ export const appRouter = router({
       queue: permissionProcedure("communication.edit").input(z.object({ category: z.string().max(80).default("announcement"), channel: z.enum(["sms", "email", "in_app", "whatsapp"]), body: z.string().min(1).max(5000), kind: z.enum(["guardian", "learner", "staff", "grade", "guardian_grade"]), ids: z.array(z.number().int().positive()).default([]), gradeId: z.number().int().positive().optional() })).mutation(({ input, ctx }) => queueNexusMessage(input, currentUserId(ctx.user))),
     }),
     alumni: router({
-      list: permissionProcedure("alumni.edit").query(() => listAlumni()),
+      list: permissionProcedure("alumni.edit").query(({ ctx }) => listAlumni(currentUserId(ctx.user))),
       archive: permissionProcedure("alumni.edit").input(z.object({ learnerId: z.number().int().positive(), completionYear: z.number().int().min(2000).max(2100), destination: z.string().max(160).nullable().optional() })).mutation(({ input, ctx }) => archiveLearner(input, currentUserId(ctx.user))),
     }),
     administration: router({

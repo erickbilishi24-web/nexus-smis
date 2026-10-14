@@ -45,6 +45,8 @@ export async function saveEnabledSchoolLevels(levels: string[], userId: number) 
   const current = (await db.select({ id: schoolSettings.id }).from(schoolSettings).limit(1))[0];
   if (!current) throw new Error("SCHOOL_SETTINGS_REQUIRED");
   await db.update(schoolSettings).set({ enabledSchoolLevels: selected.join(",") }).where(eq(schoolSettings.id, current.id));
+  const disabled = SCHOOL_LEVELS.filter(level => !selected.includes(level));
+  for (const level of disabled) await db.update(curriculumOfferings).set({ offered: 0, updatedByUserId: userId, updatedAt: new Date() }).where(eq(curriculumOfferings.level, level));
   await writeAudit(userId, "curriculum.school_levels.update", "school_settings", current.id, { enabledSchoolLevels: selected });
   return { enabledSchoolLevels: selected };
 }
