@@ -25,9 +25,12 @@ try {
   Copy-Item "$ReleaseDir\installer" "$InstallRoot\current" -Recurse -Force
   Copy-Item "$ReleaseDir\config\*" "$InstallRoot\config" -Recurse -Force
   if (-not (Test-Path "$InstallRoot\config\runtime.env")) { Copy-Item "$PSScriptRoot\runtime.env.template" "$InstallRoot\config\runtime.env" }
+  Initialize-Database $MysqlUser $MysqlPassword $DatabaseName
   Push-Location "$InstallRoot\current"
   try { npm install --global pnpm; pnpm install --frozen-lockfile; pnpm build } finally { Pop-Location }
   Invoke-Migrations (Join-Path $ReleaseDir 'database\migrations') $MysqlUser $MysqlPassword $DatabaseName
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$InstallRoot\current\installer\Register-NexusTask.ps1" -InstallRoot $InstallRoot
+  if ($LASTEXITCODE -ne 0) { throw 'Unable to register automatic NEXUS startup.' }
   $port = 3000
   Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',"$InstallRoot\current\installer\Start-Nexus.ps1",'-InstallRoot',$InstallRoot -WorkingDirectory "$InstallRoot\current" -WindowStyle Hidden
   Start-Sleep -Seconds 4

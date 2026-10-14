@@ -31,6 +31,16 @@ function Assert-Prerequisites([string]$XamppRoot) {
   Write-Log "Detected MySQL/MariaDB client: $(Get-Version $mysql)"
   Write-Log "Detected Node: $(Get-Version 'node')"
 }
+function Initialize-Database([string]$MysqlUser, [string]$MysqlPassword, [string]$DatabaseName) {
+  $safeName = $DatabaseName -replace '[^A-Za-z0-9_]', ''
+  if (-not $safeName) { throw 'Database name is empty or invalid.' }
+  $env:MYSQL_PWD = $MysqlPassword
+  try {
+    & mysql -u $MysqlUser -e "CREATE DATABASE IF NOT EXISTS ``$safeName`` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+    if ($LASTEXITCODE -ne 0) { throw "Unable to create or access database: $safeName" }
+    Write-Log "Database ready: $safeName"
+  } finally { Remove-Item Env:MYSQL_PWD -ErrorAction SilentlyContinue }
+}
 function Read-Manifest([string]$ReleaseDir) {
   $path = Join-Path $ReleaseDir 'manifest.json'
   if (-not (Test-Path $path)) { throw "Release manifest missing: $path" }
@@ -90,5 +100,10 @@ function Configure-Apache([string]$XamppRoot, [string]$InstallRoot, [string]$Rel
   if (-not (Select-String -LiteralPath $httpd -SimpleMatch $include -Quiet)) { Add-Content -LiteralPath $httpd -Value "`r`n# NEXUS SMIS managed include`r`n$include`r`n" }
   $hosts = Join-Path $env:WINDIR 'System32\drivers\etc\hosts'
   if (-not (Select-String -LiteralPath $hosts -Pattern '\bnexus-smis\.local\b' -Quiet)) { Add-Content -LiteralPath $hosts -Value "`r`n127.0.0.1 nexus-smis.local # NEXUS SMIS`r`n" }
+  try {
+    if (-not (Get-NetFirewallRule -DisplayName 'NEXUS SMIS HTTP' -ErrorAction SilentlyContinue)) { New-NetFirewallRule -DisplayName 'NEXUS SMIS HTTP' -Direction Inbound -Protocol TCP -LocalPort 80 -Action Allow -Profile Domain,Private | Out-Null }
+  } catch { Write-Log "Firewall rule was not created automatically: $($_.Exception.Message)" 'WARN' }
+  $lan = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } | Select-Object -First 1 -ExpandProperty IPAddress)
+  if ($lan) { Write-Log "School LAN URL: http://$lan/ (ensure the network is Private and firewall permits Apache)" }
   Write-Log "Apache vhost prepared at $target; custom files were not overwritten."
 }

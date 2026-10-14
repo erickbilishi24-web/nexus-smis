@@ -17,7 +17,7 @@ try {
   Copy-Item 'drizzle\*.sql' "$Release\database\migrations" -Force
   Copy-Item "$PSScriptRoot\apache\nexus-smis-vhost.conf" "$Release\config" -Force
   Copy-Item "$PSScriptRoot\runtime.env.template" "$Release\config" -Force
-  Copy-Item "$PSScriptRoot\*.ps1", "$PSScriptRoot\*.bat" "$Release\installer" -Force
+  Copy-Item "$PSScriptRoot\*.ps1", "$PSScriptRoot\*.bat", "$PSScriptRoot\*.iss" "$Release\installer" -Force
 } finally { Pop-Location }
 $files = Get-ChildItem $Release -File -Recurse | Where-Object { $_.Name -ne 'manifest.json' } | ForEach-Object { [pscustomobject]@{ path = $_.FullName.Substring($Release.Length + 1).Replace('\','/'); sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant() } }
 $manifest = [ordered]@{ product = 'NEXUS SMIS'; version = $Version; createdUtc = (Get-Date).ToUniversalTime().ToString('o'); sourceCommit = (git -C $Repo rev-parse HEAD).Trim(); runtime = [ordered]@{ node = '22.x LTS'; database = 'MySQL 8 / MariaDB 10.6+'; web = 'Apache 2.4 via XAMPP' }; files = @($files) }
