@@ -40,6 +40,22 @@ function Install-AndBuild([string]$AppRoot) {
     if ($LASTEXITCODE -ne 0) { throw 'NEXUS production build failed.' }
   } finally { Pop-Location }
 }
+function Initialize-RuntimeEnvironment([string]$InstallRoot, [string]$MysqlUser, [string]$MysqlPassword, [string]$DatabaseName) {
+  $envFile = Join-Path $InstallRoot 'config\runtime.env'
+  if (-not (Test-Path $envFile)) { throw "Runtime environment file missing: $envFile" }
+  $content = Get-Content -Raw -LiteralPath $envFile
+  if ($content -match 'replace-with-a-long-random-secret') {
+    $bytes = New-Object byte[] 48; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+    $secret = [Convert]::ToBase64String($bytes).Replace('+','-').Replace('/','_').TrimEnd('=')
+    $content = $content -replace 'replace-with-a-long-random-secret', $secret
+  }
+  $escapedUser = [Uri]::EscapeDataString($MysqlUser); $escapedPassword = [Uri]::EscapeDataString($MysqlPassword); $escapedDb = [Uri]::EscapeDataString($DatabaseName)
+  $databaseUrl = "mysql://$escapedUser`:$escapedPassword@127.0.0.1:3306/$escapedDb"
+  if ($content -match '(?m)^DATABASE_URL=.*$') { $content = [regex]::Replace($content, '(?m)^DATABASE_URL=.*$', "DATABASE_URL=$databaseUrl") }
+  else { $content += "`r`nDATABASE_URL=$databaseUrl`r`n" }
+  Set-Content -Encoding utf8 -LiteralPath $envFile -Value $content
+  Write-Log "Runtime environment prepared with generated JWT secret and database connection."
+}
 function Initialize-Database([string]$MysqlUser, [string]$MysqlPassword, [string]$DatabaseName) {
   $safeName = $DatabaseName -replace '[^A-Za-z0-9_]', ''
   if (-not $safeName) { throw 'Database name is empty or invalid.' }
@@ -94,6 +110,10 @@ function Invoke-Migrations([string]$MigrationDir, [string]$MysqlUser, [string]$M
 }
 function Test-HttpHealth([int]$Port) {
   try { $response = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$Port/api/trpc/smis.health?input=%7B%7D" -TimeoutSec 15; return $response.StatusCode -eq 200 } catch { return $false }
+}
+function Assert-PortAvailable([int]$Port) {
+  $listeners = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+  if ($listeners) { throw "Port $Port is already in use. Stop the conflicting service or choose the same documented port in the Apache proxy and runtime.env." }
 }
 function Configure-Apache([string]$XamppRoot, [string]$InstallRoot, [string]$ReleaseDir) {
   $extra = Join-Path $XamppRoot 'apache\conf\extra'

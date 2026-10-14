@@ -20,6 +20,7 @@ try {
   $xampp = Find-XamppRoot $XamppRoot; Assert-Prerequisites $xampp
   Configure-Apache $xampp $InstallRoot $ReleaseDir
   New-Backup $InstallRoot $backup $MysqlUser $MysqlPassword $DatabaseName
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$InstallRoot\current\installer\Stop-Nexus.ps1" -InstallRoot $InstallRoot
   if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }; New-Item -ItemType Directory -Force -Path $stage | Out-Null
   Copy-Item "$ReleaseDir\app\*" $stage -Recurse -Force; Copy-Item "$ReleaseDir\public" $stage -Recurse -Force; Copy-Item "$ReleaseDir\installer" $stage -Recurse -Force
   $managed = Get-ChildItem "$InstallRoot\current" -File -Recurse | ForEach-Object { $_.FullName.Substring((Resolve-Path "$InstallRoot\current").Path.Length + 1) }
@@ -30,6 +31,7 @@ try {
   Rename-Item $stage current
   Install-AndBuild "$InstallRoot\current"
   Invoke-Migrations (Join-Path $ReleaseDir 'database\migrations') $MysqlUser $MysqlPassword $DatabaseName
+  Assert-PortAvailable 3000
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$InstallRoot\current\installer\Register-NexusTask.ps1" -InstallRoot $InstallRoot
   if ($LASTEXITCODE -ne 0) { throw 'Unable to refresh automatic NEXUS startup registration.' }
   Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',"$InstallRoot\current\installer\Start-Nexus.ps1",'-InstallRoot',$InstallRoot -WorkingDirectory "$InstallRoot\current" -WindowStyle Hidden

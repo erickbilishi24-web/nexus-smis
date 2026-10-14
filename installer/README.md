@@ -21,8 +21,8 @@ The builder runs type checking, all tests, and the production build, then create
 3. Extract a release ZIP.
 4. Run `Install-Nexus.bat` as Administrator, or run `Install-Nexus.ps1 -ReleaseDir <release-folder>`.
 5. The installer detects Apache/PHP/MySQL/MariaDB/Node versions, checks required binaries, verifies every release checksum, copies application files, preserves secrets in `C:\NEXUS-SMIS\config\runtime.env`, installs dependencies, builds the frontend/server, applies ordered migrations, starts Node on port 3000, checks the public health procedure, and creates a desktop shortcut.
-6. The installer configures the Apache vhost to serve `C:\NEXUS-SMIS\current\public` (the compiled `index.html` and assets), proxies `/api` to Node on port 3000, adds the local hosts entry, creates a private/domain TCP 80 firewall rule when permitted, and logs the detected LAN URL. It does not expose MySQL to the LAN.
-7. The installer registers a SYSTEM scheduled task for automatic Node startup and the launcher loads `config\runtime.env` into the child process environment. If `pnpm` is unavailable at runtime, the launcher falls back to `npm run start`.
+6. The installer configures the Apache vhost to serve `C:\NEXUS-SMIS\current\public` (the compiled `index.html` and assets), proxies `/api` to Node on port 3000, adds the local hosts entry, creates a private/domain TCP 80 firewall rule when permitted, and logs the detected LAN URL. `HOST=127.0.0.1` keeps the service local; `HOST=0.0.0.0` enables authorised school-LAN access. It does not expose MySQL to the LAN.
+7. The installer registers a SYSTEM scheduled task for automatic Node startup and the launcher loads `config\runtime.env` into the child process environment. If `pnpm` is unavailable at runtime, the launcher falls back to `npm run start`. Fresh installs and upgrades stop with an actionable message if port 3000 is occupied rather than silently leaving Apache pointed at the wrong port.
 
 ## Safe update
 

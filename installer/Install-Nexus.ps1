@@ -25,9 +25,11 @@ try {
   Copy-Item "$ReleaseDir\installer" "$InstallRoot\current" -Recurse -Force
   Copy-Item "$ReleaseDir\config\*" "$InstallRoot\config" -Recurse -Force
   if (-not (Test-Path "$InstallRoot\config\runtime.env")) { Copy-Item "$PSScriptRoot\runtime.env.template" "$InstallRoot\config\runtime.env" }
+  Initialize-RuntimeEnvironment $InstallRoot $MysqlUser $MysqlPassword $DatabaseName
   Initialize-Database $MysqlUser $MysqlPassword $DatabaseName
   Install-AndBuild "$InstallRoot\current"
   Invoke-Migrations (Join-Path $ReleaseDir 'database\migrations') $MysqlUser $MysqlPassword $DatabaseName
+  Assert-PortAvailable 3000
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$InstallRoot\current\installer\Register-NexusTask.ps1" -InstallRoot $InstallRoot
   if ($LASTEXITCODE -ne 0) { throw 'Unable to register automatic NEXUS startup.' }
   $port = 3000

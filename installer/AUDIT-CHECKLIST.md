@@ -1,7 +1,7 @@
 # NEXUS SMIS Installer Audit Checklist
 
-Audit date: 2026-10-14  
-Audited source: GitHub/main commit `4bce08d`  
+Audit date: 2026-10-14
+Audited source: current working tree after GitHub/main commit `f1ee253`
 Method: source inspection plus Linux application validation. No Windows/XAMPP execution was available.
 
 ## Results
@@ -15,11 +15,11 @@ Method: source inspection plus Linux application validation. No Windows/XAMPP ex
 | Correct environment loading | PASS (source) | `Start-Nexus.ps1` loads `runtime.env` into the child process; runtime execution remains not tested on Windows. |
 | Automatic database setup | PASS (source) | Installer creates the database with `utf8mb4` if absent and never drops it; live MySQL execution is not tested here. |
 | Safe repeatable migrations | PASS (source) | Migration IDs and SHA-256 hashes are tracked; conflicts stop the update. Actual MySQL replay is pending Windows testing. |
-| Windows-safe startup | PASS (source) | No Unix-style `NODE_ENV=production` command in the launcher; PowerShell sets the process environment and uses npm fallback. Runtime execution is pending. |
+| Windows-safe startup | PASS (source) | Production script is now `node dist/index.js`; PowerShell sets `NODE_ENV` and loads runtime values into the child process, with npm fallback. Runtime execution is pending. |
 | Nullable timestamp compatibility | PARTIAL | Existing Drizzle migrations are preserved; no new timestamp rewrite was justified by source audit. Must be verified against the target MariaDB version. |
 | Secure Super Admin provisioning | PARTIAL | Existing IAM uses hashed credentials and roles; installer does not create a universal password or a dedicated first-run credential wizard. Initial account setup remains an application/manual setup step. |
 | Database credentials protected | PASS (source) | Credentials are passed as parameters/environment and no credentials are bundled; MySQL is not exposed by the Apache vhost. |
-| LAN deployment and firewall | PARTIAL | Vhost, local hosts entry, LAN URL logging, and private/domain port 80 rule are implemented; multi-computer LAN access is not tested. |
+| LAN deployment and firewall | PARTIAL | Configurable `HOST=0.0.0.0`, local hosts entry, LAN URL logging, port conflict detection, and private/domain port 80 rule are implemented; multi-computer LAN access is not tested. |
 | Automatic restart after Windows reboot | PARTIAL | SYSTEM scheduled task registration exists; Windows Task Scheduler execution is not tested. |
 | Offline core operations | PARTIAL | Local Node/MySQL architecture supports local operation; internet-dependent OAuth, AI, storage, maps, messaging, and M-Pesa integrations are documented but offline behavior is not end-to-end tested. |
 | Logs and health checks | PASS (source) | Installer/update logs, Node startup, and direct health check exist; Windows log rotation and runtime health remain pending. |
@@ -37,6 +37,9 @@ Method: source inspection plus Linux application validation. No Windows/XAMPP ex
 - Runtime environment values are scoped to the Node child process.
 - Startup falls back to `npm run start` if pnpm is not on PATH.
 - An Inno Setup definition and build wrapper are included for a Windows build machine.
+- Production startup no longer depends on Unix `NODE_ENV=production` syntax; the runtime template supports host-only or LAN mode.
+- Fresh installation generates a JWT secret and aligns `DATABASE_URL` with the installer database credentials.
+- Fresh installs and upgrades detect port 3000 conflicts; upgrades stop only the existing NEXUS process before restarting.
 
 ## Tests executed here
 
