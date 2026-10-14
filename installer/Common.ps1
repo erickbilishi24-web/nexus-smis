@@ -31,6 +31,15 @@ function Assert-Prerequisites([string]$XamppRoot) {
   Write-Log "Detected MySQL/MariaDB client: $(Get-Version $mysql)"
   Write-Log "Detected Node: $(Get-Version 'node')"
 }
+function Install-AndBuild([string]$AppRoot) {
+  Push-Location $AppRoot
+  try {
+    $pnpm = Get-Command pnpm -ErrorAction SilentlyContinue
+    if ($pnpm) { & $pnpm.Source install --frozen-lockfile; if ($LASTEXITCODE -ne 0) { throw 'pnpm dependency installation failed.' }; & $pnpm.Source build }
+    else { Write-Log 'pnpm not found; using npm install fallback.' 'WARN'; & npm install; if ($LASTEXITCODE -ne 0) { throw 'npm dependency installation failed.' }; & npm run build }
+    if ($LASTEXITCODE -ne 0) { throw 'NEXUS production build failed.' }
+  } finally { Pop-Location }
+}
 function Initialize-Database([string]$MysqlUser, [string]$MysqlPassword, [string]$DatabaseName) {
   $safeName = $DatabaseName -replace '[^A-Za-z0-9_]', ''
   if (-not $safeName) { throw 'Database name is empty or invalid.' }

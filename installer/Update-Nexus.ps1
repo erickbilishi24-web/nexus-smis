@@ -28,8 +28,10 @@ try {
   if ($configConflicts) { throw "Modified-file conflicts detected; update stopped: $($configConflicts -join ', ')" }
   if (Test-Path $old) { Remove-Item $old -Recurse -Force }; Rename-Item "$InstallRoot\current" rollback
   Rename-Item $stage current
-  Push-Location "$InstallRoot\current"; try { pnpm install --frozen-lockfile; pnpm build } finally { Pop-Location }
+  Install-AndBuild "$InstallRoot\current"
   Invoke-Migrations (Join-Path $ReleaseDir 'database\migrations') $MysqlUser $MysqlPassword $DatabaseName
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$InstallRoot\current\installer\Register-NexusTask.ps1" -InstallRoot $InstallRoot
+  if ($LASTEXITCODE -ne 0) { throw 'Unable to refresh automatic NEXUS startup registration.' }
   Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',"$InstallRoot\current\installer\Start-Nexus.ps1",'-InstallRoot',$InstallRoot -WorkingDirectory "$InstallRoot\current" -WindowStyle Hidden
   Start-Sleep -Seconds 4
   if (-not (Test-HttpHealth 3000)) { throw 'Health check failed; rolling back application files.' }
