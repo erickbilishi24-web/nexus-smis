@@ -120,6 +120,11 @@ export async function getDashboardSnapshot() {
   const attendanceRate = attendanceToday.length ? Math.round((present / attendanceToday.length) * 1000) / 10 : 0;
   const attendanceTrend = Array.from({ length: 7 }, (_, index) => { const date = new Date(trendStart); date.setDate(trendStart.getDate() + index); const label = date.toISOString().slice(0, 10); const rows = trendRows.filter(row => String(row.attendanceDate) === label); return { label, present: rows.filter(row => row.status === "present" || row.status === "late").length, absent: rows.filter(row => row.status === "absent").length }; });
   const learnersById = new Map(learnerRows.map(row => [row.learner.id, row]));
+  const byGrade = new Map<string, number>(); const byGender = new Map<string, number>();
+  for (const row of learnerRows) { const gradeLabel = row.grade ? `${row.grade.name}${row.grade.stream ? ` ${row.grade.stream}` : ""}` : "Unassigned"; byGrade.set(gradeLabel, (byGrade.get(gradeLabel) ?? 0) + 1); const genderLabel = row.learner.gender === "male" ? "Boys" : row.learner.gender === "female" ? "Girls" : "Other / not recorded"; byGender.set(genderLabel, (byGender.get(genderLabel) ?? 0) + 1); }
+  const learnerDistribution = Array.from(byGrade, ([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count).slice(0, 6);
+  const genderDistribution = Array.from(byGender, ([label, count]) => ({ label, count }));
+  const newEnrollmentsThisMonth = learnerRows.filter(row => { const created = new Date(row.learner.createdAt); const now = new Date(); return created.getFullYear() === now.getFullYear() && created.getMonth() === now.getMonth(); }).length;
   const recentAttendance = attendanceToday.slice(0, 8).flatMap(attendance => {
     const row = learnersById.get(attendance.learnerId);
     return row ? [{ attendance, learner: row.learner, grade: row.grade }] : [];
@@ -140,6 +145,9 @@ export async function getDashboardSnapshot() {
     attendance: { today: attendanceToday.length, present, rate: attendanceRate },
     attendanceTrend,
     collectionTrend,
+    learnerDistribution,
+    genderDistribution,
+    newEnrollmentsThisMonth,
     recentAttendance,
     lowStock: Array.from(stock.values()).filter(item => item.quantity <= item.reorderLevel),
     recentLearners: learnerRows.slice(0, 8).map(row => ({ ...row.learner, grade: row.grade ? `${row.grade.name}${row.grade.stream ? ` ${row.grade.stream}` : ""}` : "" })),

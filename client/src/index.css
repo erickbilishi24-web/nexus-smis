@@ -79,6 +79,9 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgb(29 106 87 / 2
 .soft-card > * { position: relative; z-index: 1; }
 .dashboard-hero { border-top: 5px solid #1d6a57; border-radius: .45rem 1.18rem .55rem .95rem; box-shadow: 6px 6px 0 #d9e2d8, 12px 12px 0 #ece8df; }
 .dashboard-hero::after { content: ""; position: absolute; right: 20%; bottom: -4rem; width: 15rem; height: 15rem; border: 1.5rem solid rgb(217 177 95 / 14%); border-radius: 50%; pointer-events: none; }
+.dashboard-panel { background: #fff; border: 1px solid #e1e8eb; border-radius: .9rem; padding: 1.05rem; box-shadow: 0 5px 18px rgb(42 67 82 / 5%); }
+.dashboard-metric { background: #fff; border: 1px solid #e1e8eb; border-radius: .85rem; padding: 1rem; box-shadow: 0 5px 18px rgb(42 67 82 / 5%); transition: transform 180ms cubic-bezier(.23,1,.32,1), box-shadow 180ms cubic-bezier(.23,1,.32,1); }
+.dashboard-metric:hover { transform: translateY(-2px); box-shadow: 0 12px 24px rgb(42 67 82 / 10%); }
 .warm-shadow { box-shadow: 0 16px 40px rgb(38 63 49 / 7%); }
 .nav-fade { background: linear-gradient(180deg, rgb(255 254 250 / 0) 0%, #fffefa 100%); }
 .paper-noise { position: relative; isolation: isolate; }
