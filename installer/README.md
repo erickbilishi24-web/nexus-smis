@@ -4,8 +4,6 @@
 
 NEXUS is a React 19/Vite frontend, an Express 4 + tRPC 11 Node.js service, Drizzle ORM, and MySQL/MariaDB. XAMPP Apache serves the compiled frontend and reverse-proxies `/api` to Node.js. XAMPP MySQL/MariaDB stores the application database. PHP is required by phpMyAdmin/XAMPP tooling but is not the NEXUS application runtime. No Python service is present in the audited application.
 
-For schools using the hosted online NEXUS service, use `installer/online-desktop/`. It creates a lightweight Windows desktop shortcut and supports Chrome/Edge PWA installation; it does not require XAMPP or a local database. This XAMPP installer remains the optional package for offline or school-LAN hosting.
-
 ## Release model
 
 Create releases only from a tested commit:
@@ -18,8 +16,8 @@ The builder runs type checking, all tests, and the production build, then create
 
 ## Fresh installation
 
-1. On a PC that already has XAMPP/phpMyAdmin, start **Apache** and **MySQL** in the XAMPP Control Panel. Install Node.js LTS as the only additional runtime prerequisite; phpMyAdmin itself is not used by the installer. Node.js is required because NEXUS is a Node/tRPC service, not a PHP application.
-2. The installer automatically discovers XAMPP's `mysql\bin` tools even when they are not on the Windows PATH. It creates the `nexus_smis` database if it does not exist, using `utf8mb4`; it never drops existing data. If MySQL is stopped or credentials are wrong, it stops with a retryable message.
+1. Install XAMPP with Apache and MySQL/MariaDB and Node.js LTS. The installer checks these prerequisites; Node.js is required because NEXUS is a Node/tRPC service, not a PHP application.
+2. Start MySQL. The installer creates the `nexus_smis` database if it does not exist, using `utf8mb4`; it never drops an existing database.
 3. Extract a release ZIP.
 4. Run `Install-Nexus.bat` as Administrator, or run `Install-Nexus.ps1 -ReleaseDir <release-folder>`.
 5. The installer detects Apache/PHP/MySQL/MariaDB/Node versions, checks required binaries, verifies every release checksum, copies application files, preserves secrets in `C:\NEXUS-SMIS\config\runtime.env`, installs dependencies, builds the frontend/server, applies ordered migrations, starts Node on port 3000, checks the public health procedure, and creates a desktop shortcut.
