@@ -1,5 +1,10 @@
 name: Build NEXUS APK
-on: [workflow_dispatch, push]
+on:
+  workflow_dispatch:
+  push:
+    paths: ['android/**', '.github/workflows/build-android-apk.yml']
+permissions:
+  contents: write
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -15,3 +20,12 @@ jobs:
         with:
           name: NEXUS-SMIS-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Commit APK to dist/ for easy download
+        run: |
+          mkdir -p dist
+          cp android/app/build/outputs/apk/debug/app-debug.apk dist/NEXUS-SMIS.apk
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add dist/NEXUS-SMIS.apk
+          git commit -m "Build NEXUS-SMIS.apk" || exit 0
+          git push
