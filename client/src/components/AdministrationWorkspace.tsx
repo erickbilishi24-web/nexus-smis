@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { ResourceHubWorkspace } from "@/components/ResourceHubWorkspace";
 
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "../../../server/routers";
@@ -227,6 +228,7 @@ export function AdministrationWorkspace() {
       {tab === "audit" && <><AuditFilters withUser value={auditF} onChange={v => { setAuditF(v); setAuditPage(0); }} /><AuditTable filters={toQuery(auditF)} page={auditPage} onPage={setAuditPage} /></>}
     </section>
 
+    <section aria-label="Resource Hub link management" className="space-y-3"><div><p className="eyebrow">Super Admin configuration</p><h2 className="mt-1 text-lg font-bold text-[#28483f]">Resource Hub links</h2><p className="mt-1 text-xs text-[#718077]">Configure the external TPAD, school website, lesson, virtual lab, KEMIS and KNEC destinations used by your school.</p></div><ResourceHubWorkspace /></section>
     {catalog && dialog && <UserDialog key={dialog.row?.userId ?? "new"} mode={dialog.mode} row={dialog.row} catalog={catalog} onClose={() => setDialog(null)} onLink={(l, name) => setLink({ link: l, name })} />}
     {catalog && roleRow && <RoleDialog key={roleRow.userId} row={roleRow} catalog={catalog} onClose={() => setRoleRow(null)} />}
     {catalog && assignRow && <AssignmentDialog key={assignRow.userId} row={assignRow} catalog={catalog} onClose={() => setAssignRow(null)} />}
