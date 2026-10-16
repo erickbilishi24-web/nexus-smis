@@ -12,13 +12,14 @@ const blankForm = (categoryId: number, displayOrder = 0): FormState => ({ catego
 export function ResourceHubWorkspace() {
   const auth = useAuth();
   const permissions = trpc.smis.users.effectivePermissions.useQuery(undefined, { enabled: Boolean(auth.user), retry: false });
+  const masterAccess = trpc.smis.timetable.access.useQuery(undefined, { enabled: Boolean(auth.user), retry: false });
   const categoriesQuery = trpc.resourceHub.categories.useQuery();
   const resourcesQuery = trpc.resourceHub.list.useQuery(undefined, { enabled: Boolean(auth.user), retry: false });
   const adminQuery = trpc.resourceHub.adminDashboard.useQuery(undefined, { enabled: auth.user?.role === "admin" && Boolean(auth.user?.resourceHubManage), retry: false });
   const utils = trpc.useUtils();
   const [query, setQuery] = useState(""); const [category, setCategory] = useState("all"); const [type, setType] = useState("all"); const [form, setForm] = useState<FormState | null>(null);
   const resources = resourcesQuery.data?.resources ?? []; const categories = resourcesQuery.data?.categories ?? categoriesQuery.data ?? [];
-  const manager = auth.user?.role === "admin" && (Boolean(auth.user.resourceHubManage) || Boolean(permissions.data?.includes("*")));
+  const manager = auth.user?.role === "admin" && (Boolean(auth.user.resourceHubManage) || Boolean(permissions.data?.includes("*")) || Boolean(masterAccess.data?.canManageMaster));
   const types = useMemo(() => Array.from(new Set(resources.map(r => r.mediaType).filter((v): v is string => Boolean(v)))).sort(), [resources]);
   const filtered = useMemo(() => resources.filter(r => { const text = [r.title, r.description, r.subject, r.grade, r.learningArea, r.mediaType, r.category?.name].filter(Boolean).join(" ").toLowerCase(); return (category === "all" || r.category?.slug === category) && (type === "all" || r.mediaType === type) && (!query.trim() || text.includes(query.trim().toLowerCase())); }), [resources, category, type, query]);
   const invalidate = () => { void utils.resourceHub.list.invalidate(); void utils.resourceHub.adminDashboard.invalidate(); void utils.resourceHub.categories.invalidate(); };
