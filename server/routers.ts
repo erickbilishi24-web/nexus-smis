@@ -150,6 +150,7 @@ export const appRouter = router({
   resourceHub: router({
     categories: publicProcedure.query(() => getPublicCategorySummary()),
     list: protectedProcedure.query(({ ctx }) => getResourcesForRole(ctx.user.role)),
+    canManage: protectedProcedure.query(({ ctx }) => canManageResourceHub(ctx.user)),
     adminDashboard: resourceManagerProcedure.query(() => getAdminDashboard()),
     create: resourceManagerProcedure.input(resourceInput).mutation(({ input, ctx }) => resourceMutation(() => createResource(input, ctx.user))),
     update: resourceManagerProcedure.input(resourceInput.extend({ resourceId: z.number().int().positive() })).mutation(({ input, ctx }) => { const { resourceId, ...payload } = input; return resourceMutation(() => updateResource(resourceId, payload, ctx.user)); }),
