@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { canManageResourceHub, validateResourceUrl } from "./resourceHub";
 
-const baseUser = { role: "admin" as const, resourceHubManage: true, openId: "admin-open-id" };
+const baseUser = { role: "admin" as const, resourceHubManage: true, openId: "admin-open-id", username: "admin" };
 
 describe("Resource Hub URL validation", () => {
   it("accepts HTTPS destinations and normalizes whitespace", () => {
@@ -29,12 +29,16 @@ describe("Resource Hub authorization", () => {
     delete process.env.OWNER_OPEN_ID;
   });
 
-  it("allows an explicitly granted admin", () => {
-    expect(canManageResourceHub(baseUser)).toBe(true);
+  it("does not allow an ordinary admin, even when a manager flag is present", () => {
+    expect(canManageResourceHub(baseUser)).toBe(false);
+  });
+
+  it("allows the configured Super Admin username", () => {
+    expect(canManageResourceHub({ ...baseUser, username: "superadmin" })).toBe(true);
   });
 
   it("does not allow an ordinary user even when a flag is malformed", () => {
-    expect(canManageResourceHub({ role: "user", resourceHubManage: true, openId: "user" })).toBe(false);
+    expect(canManageResourceHub({ role: "user", resourceHubManage: true, openId: "user", username: "superadmin" })).toBe(false);
   });
 
   it("allows the configured owner as the default Super Admin", () => {

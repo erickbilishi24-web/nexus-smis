@@ -47,8 +47,8 @@ export function validateResourceUrl(value: string, allowHttp = false): string {
   return parsed.toString();
 }
 
-export function canManageResourceHub(user: Pick<User, "role" | "resourceHubManage" | "openId">): boolean {
-  return user.role === "admin" && (user.resourceHubManage || user.openId === (process.env.OWNER_OPEN_ID ?? ENV.ownerOpenId));
+export function canManageResourceHub(user: Pick<User, "role" | "resourceHubManage" | "openId"> & { username?: string | null }): boolean {
+  return user.role === "admin" && (user.username === "superadmin" || user.openId === (process.env.OWNER_OPEN_ID ?? ENV.ownerOpenId));
 }
 
 function requireDb() {
