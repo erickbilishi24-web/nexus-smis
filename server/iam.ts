@@ -20,6 +20,7 @@ export function safeAuthProfile(user: User | null) {
     loginMethod: user.loginMethod,
     accountStatus: user.accountStatus,
     mustChangePassword: user.mustChangePassword,
+    resourceHubManage: user.resourceHubManage,
   } : null;
 }
 

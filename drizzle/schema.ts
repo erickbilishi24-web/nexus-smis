@@ -1,8 +1,10 @@
 import {
   bigint,
+  boolean,
   date,
   decimal,
   int,
+  index,
   mysqlEnum,
   mysqlTable,
   text,
@@ -26,6 +28,7 @@ export const users = mysqlTable("users", {
   passwordChangedAt: timestamp("passwordChangedAt"),
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
+  resourceHubManage: boolean("resourceHubManage").notNull().default(false),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
@@ -421,3 +424,18 @@ export const libraryReservations = mysqlTable("library_reservations", {
 export const libraryFines = mysqlTable("library_fines", {
   id: int("id").autoincrement().primaryKey(), loanId: bigint("loanId", { mode: "number" }).notNull(), amount: decimal("amount", { precision: 12, scale: 2 }).notNull(), paid: decimal("paid", { precision: 12, scale: 2 }).notNull().default("0"), reason: varchar("reason", { length: 255 }), createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
+
+export const resourceCategories = mysqlTable("resource_categories", {
+  id: int("id").autoincrement().primaryKey(), slug: varchar("slug", { length: 64 }).notNull().unique(), name: varchar("name", { length: 120 }).notNull(), description: text("description").notNull(), icon: varchar("icon", { length: 64 }).notNull(), displayOrder: int("displayOrder").notNull().default(0), createdAt: timestamp("createdAt").defaultNow().notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => ({ orderIdx: index("resource_categories_order_idx").on(table.displayOrder) }));
+export const resources = mysqlTable("resources", {
+  id: int("id").autoincrement().primaryKey(), categoryId: int("categoryId").notNull(), title: varchar("title", { length: 160 }).notNull(), url: varchar("url", { length: 2048 }).notNull(), description: text("description").notNull(), icon: varchar("icon", { length: 64 }).notNull(), grade: varchar("grade", { length: 80 }), subject: varchar("subject", { length: 120 }), learningArea: varchar("learningArea", { length: 160 }), mediaType: varchar("mediaType", { length: 80 }), allowHttp: boolean("allowHttp").notNull().default(false), isActive: boolean("isActive").notNull().default(false), displayOrder: int("displayOrder").notNull().default(0), createdBy: int("createdBy"), updatedBy: int("updatedBy"), createdAt: timestamp("createdAt").defaultNow().notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => ({ categoryOrderIdx: index("resources_category_order_idx").on(table.categoryId, table.displayOrder), activeIdx: index("resources_active_idx").on(table.isActive) }));
+export const resourceRoleVisibility = mysqlTable("resource_role_visibility", {
+  id: int("id").autoincrement().primaryKey(), resourceId: int("resourceId").notNull(), role: varchar("role", { length: 64 }).notNull(), createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => ({ resourceRoleIdx: index("resource_role_visibility_resource_role_idx").on(table.resourceId, table.role) }));
+export const resourceAuditLogs = mysqlTable("resource_audit_logs", {
+  id: int("id").autoincrement().primaryKey(), actorUserId: int("actorUserId").notNull(), action: varchar("action", { length: 64 }).notNull(), resourceId: int("resourceId"), targetLabel: varchar("targetLabel", { length: 200 }).notNull(), beforeJson: text("beforeJson"), afterJson: text("afterJson"), createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => ({ auditCreatedIdx: index("resource_audit_created_idx").on(table.createdAt) }));
+export type ResourceCategory = typeof resourceCategories.$inferSelect;
+export type Resource = typeof resources.$inferSelect;

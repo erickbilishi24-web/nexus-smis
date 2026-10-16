@@ -86,7 +86,7 @@ import {
   saveGuardian,
   setUserPermission,
 } from "./smis-extension";
-
+import { canManageResourceHub, createResource, deleteResource, getAdminDashboard, getPublicCategorySummary, getResourcesForRole, reorderResource, setResourceActive, setResourceManager, setResourceVisibility, updateResource } from "./resourceHub";
 const currentUserId = (user: { id: number }) => user.id;
 const permissionProcedure = (permission: string) => protectedProcedure.use(async ({ ctx, next }) => {
   const allowed = await userCan(ctx.user.id, ctx.user.role, permission);
@@ -109,6 +109,9 @@ const adminCall = async <T>(fn: () => Promise<T>) => {
 };
 const roleEnum = z.enum(["super_admin", "admin", "teacher", "class_teacher", "finance", "other"]);
 const subjectAllocations = z.array(z.object({ gradeId: z.number().int().positive(), subjectId: z.number().int().positive() })).max(40);
+const resourceInput = z.object({ categoryId: z.number().int().positive(), title: z.string().trim().min(2).max(160), url: z.string().trim().min(1).max(2048), description: z.string().trim().min(2).max(2000), icon: z.string().trim().max(64).default("globe-2"), grade: z.string().trim().max(80).optional(), subject: z.string().trim().max(120).optional(), learningArea: z.string().trim().max(160).optional(), mediaType: z.string().trim().max(80).optional(), allowHttp: z.boolean().default(false), isActive: z.boolean().default(false), displayOrder: z.number().int().min(0).max(100000).default(0), visibilityRoles: z.array(z.string().trim().min(1).max(64)).max(12).default([]) });
+const resourceManagerProcedure = protectedProcedure.use(async ({ ctx, next }) => { if (!canManageResourceHub(ctx.user)) throw new TRPCError({ code: "FORBIDDEN", message: "RESOURCE_HUB_MANAGEMENT_FORBIDDEN" }); return next(); });
+const resourceMutation = async <T>(fn: () => Promise<T>) => { try { return await fn(); } catch (error) { throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "RESOURCE_HUB_SAVE_FAILED" }); } };
 
 const masterTimetableProcedure = protectedProcedure.use(async ({ ctx, next }) => {
   if (!await canManageMasterTimetable(ctx.user.id, ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: "MASTER_TIMETABLE_ADMIN_ONLY" });
@@ -143,6 +146,18 @@ export const appRouter = router({
     forgotPassword: publicProcedure.input(z.object({ identifier: z.string().min(1).max(320) })).mutation(({ input, ctx }) => requestIamPasswordReset(input.identifier, ctx.req)),
     resetPassword: publicProcedure.input(z.object({ token: z.string().min(20).max(200), newPassword: z.string().min(10).max(200) })).mutation(({ input, ctx }) => resetIamPassword(input.token, input.newPassword, ctx.req).then(() => ({ success: true }) as const)),
     adminResetPassword: permissionProcedure("users.edit").input(z.object({ userId: z.number().int().positive() })).mutation(({ input, ctx }) => adminResetIamPassword(input.userId, ctx.user.id, ctx.req)),
+  }),
+  resourceHub: router({
+    categories: publicProcedure.query(() => getPublicCategorySummary()),
+    list: protectedProcedure.query(({ ctx }) => getResourcesForRole(ctx.user.role)),
+    adminDashboard: resourceManagerProcedure.query(() => getAdminDashboard()),
+    create: resourceManagerProcedure.input(resourceInput).mutation(({ input, ctx }) => resourceMutation(() => createResource(input, ctx.user))),
+    update: resourceManagerProcedure.input(resourceInput.extend({ resourceId: z.number().int().positive() })).mutation(({ input, ctx }) => { const { resourceId, ...payload } = input; return resourceMutation(() => updateResource(resourceId, payload, ctx.user)); }),
+    setActive: resourceManagerProcedure.input(z.object({ resourceId: z.number().int().positive(), isActive: z.boolean() })).mutation(({ input, ctx }) => resourceMutation(() => setResourceActive(input.resourceId, input.isActive, ctx.user))),
+    delete: resourceManagerProcedure.input(z.object({ resourceId: z.number().int().positive() })).mutation(({ input, ctx }) => resourceMutation(() => deleteResource(input.resourceId, ctx.user))),
+    reorder: resourceManagerProcedure.input(z.object({ resourceId: z.number().int().positive(), displayOrder: z.number().int().min(0).max(100000) })).mutation(({ input, ctx }) => resourceMutation(() => reorderResource(input.resourceId, input.displayOrder, ctx.user))),
+    setVisibility: resourceManagerProcedure.input(z.object({ resourceId: z.number().int().positive(), visibilityRoles: z.array(z.string().trim().min(1).max(64)).max(12) })).mutation(({ input, ctx }) => resourceMutation(() => setResourceVisibility(input.resourceId, input.visibilityRoles, ctx.user))),
+    setManager: resourceManagerProcedure.input(z.object({ userId: z.number().int().positive(), resourceHubManage: z.boolean() })).mutation(({ input, ctx }) => resourceMutation(() => setResourceManager(input.userId, input.resourceHubManage, ctx.user))),
   }),
   smis: router({
     health: publicProcedure.query(() => ({ ok: true, service: "kenyan-smis", persistence: "mysql-drizzle", modules: ["learners", "attendance", "assessments", "reports", "finance", "store", "timetable", "communication", "alumni", "users", "settings", "audit"] })),
