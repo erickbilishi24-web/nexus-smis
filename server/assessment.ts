@@ -401,10 +401,6 @@ export async function getAssessmentReportCard(input: { learnerId: number; academ
   const classSubjects = canViewWholeClass
     ? await db.select({ subject: subjects }).from(subjects).orderBy(subjects.name)
     : [];
-  const reportSubjects = classSubjects.length ? classSubjects : allocations;
-  if (!reportSubjects.length && !canViewWholeClass) throw new Error("REPORT_SCOPE_FORBIDDEN");
-  const allocationBySubject = new Map(allocations.map(row => [row.subject.id, row]));
-
   const periodAssessments = await db.select().from(assessments).where(and(
     eq(assessments.gradeId, learnerRow.learner.gradeId),
     eq(assessments.academicYear, input.academicYear),
@@ -417,6 +413,10 @@ export async function getAssessmentReportCard(input: { learnerId: number; academ
     ? await db.select().from(marks).where(and(eq(marks.learnerId, input.learnerId), inArray(marks.assessmentId, ids)))
     : [];
   const savedBySubject = new Map(saved.map(row => [row.subjectId, row]));
+  const scopedSubjects = classSubjects.length ? classSubjects : allocations;
+  if (!scopedSubjects.length && !canViewWholeClass) throw new Error("REPORT_SCOPE_FORBIDDEN");
+  const reportSubjects = scopedSubjects.filter(row => savedBySubject.has(row.subject.id));
+  const allocationBySubject = new Map(allocations.map(row => [row.subject.id, row]));
   const marksheet = Array.from(new Map(reportSubjects.map(row => [row.subject.id, row])).values()).map(row => {
     const assessment = publishedAssessments.find(item => item.subjectId === row.subject.id);
     const mark = savedBySubject.get(row.subject.id);

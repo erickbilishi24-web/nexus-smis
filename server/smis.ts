@@ -40,6 +40,7 @@ export const permissionsByRole: Record<string, string[]> = {
   super_admin: ["*"],
   admin: ["dashboard.view", "learners.view", "learners.add", "learners.edit", "learners.deactivate", "attendance.view", "attendance.edit", "assessments.view", "assessments.edit", "reports.view", "finance.view", "finance.edit", "store.view", "store.edit", "timetable.view", "timetable.edit", "communication.edit", "alumni.edit", "users.edit", "settings.edit", "audit.view", "allocations.view", "allocations.create", "allocations.edit", "allocations.deactivate", "allocations.replace", "allocations.bulk"],
   teacher: ["dashboard.view", "learners.view", "attendance.view", "attendance.edit", "assessments.view", "assessments.edit", "reports.view", "timetable.view", "allocations.view"],
+  class_teacher: ["dashboard.view", "learners.view", "attendance.view", "attendance.edit", "assessments.view", "assessments.edit", "reports.view", "timetable.view", "allocations.view"],
   finance: ["dashboard.view", "learners.view", "finance.view", "finance.edit", "reports.view"],
   storekeeper: ["dashboard.view", "store.view", "store.edit", "reports.view"],
   other: ["dashboard.view"],
