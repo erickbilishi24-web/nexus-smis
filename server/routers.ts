@@ -8,6 +8,7 @@ import { MANAGE_PERMISSIONS } from "./access";
 import { AdminError, AUDIT_MODULES, adminCatalog, adminOverview, changeAdminAssignment, changeAdminRole, createAdminUser, getAdminUser, getPermissionMatrixView, listAdminUsers, listAuditTrail, resetAdminPassword, setAccountState, setRolePermission, setUserPermissionOverride, updateAdminUser } from "./administration";
 import { correctLockedAssessmentMark, ensureAssessment, getAssessmentEntries, getAssessmentReportCard, getClassMarklist, listAssessmentScopes, saveAssessmentMarks, setAssessmentFinalState, submitAssessment } from "./assessment";
 import { adminResetIamPassword, changeIamPassword, loginWithIam, logoutIam, requestIamPasswordReset, resetIamPassword, safeAuthProfile } from "./iam";
+import { listFeedback, submitFeedback } from "./feedback";
 import { clockIn, getClockingSetup, saveSchoolLocation } from "./clocking";
 import { listMessageGrades, listMessageRecipients, listNexusMessages, previewMessageRecipients, queueNexusMessage } from "./messages";
 import { getCurriculumSetup, saveCurriculumSelections, saveEnabledSchoolLevels } from "./curriculum";
@@ -159,6 +160,10 @@ export const appRouter = router({
     reorder: resourceManagerProcedure.input(z.object({ resourceId: z.number().int().positive(), displayOrder: z.number().int().min(0).max(100000) })).mutation(({ input, ctx }) => resourceMutation(() => reorderResource(input.resourceId, input.displayOrder, ctx.user))),
     setVisibility: resourceManagerProcedure.input(z.object({ resourceId: z.number().int().positive(), visibilityRoles: z.array(z.string().trim().min(1).max(64)).max(12) })).mutation(({ input, ctx }) => resourceMutation(() => setResourceVisibility(input.resourceId, input.visibilityRoles, ctx.user))),
     setManager: resourceManagerProcedure.input(z.object({ userId: z.number().int().positive(), resourceHubManage: z.boolean() })).mutation(({ input, ctx }) => resourceMutation(() => setResourceManager(input.userId, input.resourceHubManage, ctx.user))),
+  }),
+  feedback: router({
+    submit: protectedProcedure.input(z.object({ rating: z.number().int().min(1).max(5), message: z.string().trim().min(3).max(4000) })).mutation(({ input, ctx }) => submitFeedback(input, currentUserId(ctx.user))),
+    list: protectedProcedure.query(({ ctx }) => listFeedback(ctx.user)),
   }),
   smis: router({
     health: publicProcedure.query(() => ({ ok: true, service: "kenyan-smis", persistence: "mysql-drizzle", modules: ["learners", "attendance", "assessments", "reports", "finance", "store", "timetable", "communication", "alumni", "users", "settings", "audit"] })),

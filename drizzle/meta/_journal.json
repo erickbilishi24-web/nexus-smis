@@ -176,6 +176,13 @@
       "when": 1792152237911,
       "tag": "0024_handy_lucky_pierre",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "5",
+      "when": 1792249028611,
+      "tag": "0025_real_arclight",
+      "breakpoints": true
     }
   ]
 }

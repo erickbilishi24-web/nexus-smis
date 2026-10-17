@@ -383,7 +383,13 @@ export const reportCards = mysqlTable("report_cards", {
   generatedAt: timestamp("generatedAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, table => ({ reportCardPeriodUnique: uniqueIndex("report_card_period_unique").on(table.learnerId, table.academicYear, table.term, table.assessmentType) }));
-
+export const nexusFeedback = mysqlTable("nexus_feedback", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  rating: int("rating").notNull(),
+  message: text("message").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
 export type Learner = typeof learners.$inferSelect;
 export type Attendance = typeof attendances.$inferSelect;
 export type Mark = typeof marks.$inferSelect;
