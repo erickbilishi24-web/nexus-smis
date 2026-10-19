@@ -93,6 +93,13 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgb(29 106 87 / 2
 .nav-item.active .nav-icon { color: #1d6a57; }
 .nav-icon { width: 1.05rem; height: 1.05rem; flex: 0 0 auto; }
 .page-enter { animation: page-enter 250ms cubic-bezier(.23,1,.32,1) both; }
+.shell > main { min-width: 0; transition: opacity 220ms cubic-bezier(.23,1,.32,1); }
+.nav-item, .icon-button, .action-button, .quiet-button { will-change: transform, background-color, opacity; }
+@media (max-width: 1023px) {
+  .shell > main { position: relative; z-index: 0; }
+  .shell > main > header { transition: background-color 220ms cubic-bezier(.23,1,.32,1), box-shadow 220ms cubic-bezier(.23,1,.32,1); }
+}
+
 .record-row { transition: background 150ms cubic-bezier(.23,1,.32,1); }
 .record-row:hover { background: #f6f4ed; }
 .icon-button { display: inline-flex; align-items: center; justify-content: center; width: 2.4rem; height: 2.4rem; border: 1px solid #e1ddd3; border-radius: .75rem; background: #fffefa; color: #496057; transition: all 150ms cubic-bezier(.23,1,.32,1); }
