@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allocationContextConflict, assertScore, canAccessAttendanceGrade, canCaptureAttendance, cbcLevel, isAttendanceAdmin, timetableConflicts } from "./smis";
+import { allocationContextConflict, assertScore, canAccessAttendanceGrade, canCaptureAttendance, cbcLevel, isAttendanceAdmin, resolveImportGrade, timetableConflicts } from "./smis";
 
 describe("Kenyan SMIS backend rules", () => {
   it("maps the CBC eight-level scale correctly", () => {
@@ -45,6 +45,14 @@ describe("Kenyan SMIS backend rules", () => {
     expect(conflicts).toContain("grade:1:1:8");
     expect(conflicts).toContain("teacher:1:1:3");
     expect(conflicts).toContain("room:1:1:8B");
+  });
+
+  it("resolves legacy combined learner class labels only when unambiguous", () => {
+    const classes = [{ id: 2, name: "Grade 7", stream: "Green" }, { id: 1, name: "Grade 8", stream: "Blue" }, { id: 90001, name: "Grade 9", stream: "Red" }];
+    expect(resolveImportGrade(classes, "GRADE 7 Blue", "")?.stream).toBe("Green");
+    expect(resolveImportGrade(classes, "Grade 7", "Green")?.name).toBe("Grade 7");
+    expect(resolveImportGrade(classes, "Grade 7 Blue", "Other")).toBeUndefined();
+    expect(resolveImportGrade([{ id: 1, name: "Grade 7", stream: "Green" }, { id: 2, name: "Grade 7", stream: "Red" }], "Grade 7 Blue", "")).toBeUndefined();
   });
 
   it("treats active teacher allocations as the authoritative conflict boundary", () => {

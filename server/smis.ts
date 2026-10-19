@@ -777,7 +777,21 @@ function importTextValue(row: PeopleImportRow, ...keys: string[]) {
   const found = Object.entries(row).find(([key, value]) => wanted.has(normalizedImportKey(key)) && value != null && String(value).trim() !== "");
   return found ? String(found[1]).trim() : "";
 }
+function normalizedClassPart(value: string) {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+export function resolveImportGrade(gradeRows: Array<{ id: number; name: string; stream: string | null }>, gradeName: string, stream: string) {
+  const normalizedName = normalizedClassPart(gradeName);
+  const normalizedStream = normalizedClassPart(stream);
+  const exact = gradeRows.find(item => normalizedClassPart(item.name) === normalizedName && normalizedClassPart(item.stream ?? "") === normalizedStream);
+  if (exact) return exact;
+  if (stream) return undefined;
 
+  // Older workbooks sometimes combine the grade and stream in gradeName (for example, "Grade 7 Blue").
+  // If that grade has exactly one existing class, resolve to it; ambiguous grades remain errors.
+  const candidates = gradeRows.filter(item => normalizedName.startsWith(`${normalizedClassPart(item.name)} `));
+  return candidates.length === 1 ? candidates[0] : undefined;
+}
 export async function previewPeopleImport(input: { kind: PeopleImportKind; rows: PeopleImportRow[]; rowOffset?: number }) {
   const db = await requireDb();
   const errors: Array<{ row: number; message: string }> = [];
@@ -785,7 +799,6 @@ export async function previewPeopleImport(input: { kind: PeopleImportKind; rows:
   if (!input.rows.length) return { kind: input.kind, total: 0, valid: 0, errors: [{ row: 0, message: "The workbook contains no data rows." }], preview };
   if (input.rows.length > 500) return { kind: input.kind, total: input.rows.length, valid: 0, errors: [{ row: 0, message: "Import limit is 500 rows per confirmation." }], preview };
   const gradeRows = await db.select().from(grades);
-  const gradeByKey = new Map(gradeRows.map(item => [`${item.name.toLowerCase()}|${(item.stream ?? "").toLowerCase()}`, item]));
   const existingAdmissions = new Set<string>();
   if (input.kind === "learners") {
     const admissionNumbers = input.rows.map(row => importTextValue(row, "admissionNumber", "admissionNo", "admission").toUpperCase()).filter(Boolean);
@@ -803,7 +816,7 @@ export async function previewPeopleImport(input: { kind: PeopleImportKind; rows:
       const admissionNumber = importTextValue(row, "admissionNumber", "admissionNo", "admission").toUpperCase();
       const gradeName = importTextValue(row, "gradeName", "grade", "class", "gradeClass");
       const stream = importTextValue(row, "stream", "streamName");
-      const grade = gradeByKey.get(`${gradeName.toLowerCase()}|${stream.toLowerCase()}`) ?? (!stream ? gradeRows.find(item => item.name.toLowerCase() === gradeName.toLowerCase()) : undefined);
+      const grade = resolveImportGrade(gradeRows, gradeName, stream);
       const rawStatus = importTextValue(row, "status", "state").toLowerCase();
       const status = rawStatus === "inactive" ? "inactive" : "active";
       if (rawStatus && rawStatus !== "active" && rawStatus !== "inactive") errors.push({ row: rowNumber, message: "Status must be active or inactive." });
@@ -811,7 +824,7 @@ export async function previewPeopleImport(input: { kind: PeopleImportKind; rows:
       if (!admissionNumber) errors.push({ row: rowNumber, message: "Admission number is required." });
       if (seenAdmissions.has(admissionNumber)) errors.push({ row: rowNumber, message: `Duplicate admission number in workbook: ${admissionNumber}.` });
       if (admissionNumber && existingAdmissions.has(admissionNumber)) errors.push({ row: rowNumber, message: `Admission number already exists: ${admissionNumber}.` });
-      if (!grade) errors.push({ row: rowNumber, message: `Grade/class not found: ${gradeName}${stream ? ` ${stream}` : ""}.` });
+      if (!grade) errors.push({ row: rowNumber, message: `Grade/class not found: ${gradeName}${stream ? ` ${stream}` : ""}. Use an exact Grade/Class value from the Add Learner list.` });
       seenAdmissions.add(admissionNumber);
       if (fullName && admissionNumber && grade) preview.push({ row: rowNumber, learnerName: fullName, admissionNumber, gradeId: grade.id, grade: `${grade.name}${grade.stream ? ` ${grade.stream}` : ""}`, guardianName: importTextValue(row, "guardianName", "parentGuardianName", "parentName", "guardian") || null, guardianIdNumber: importTextValue(row, "guardianIdNumber", "parentGuardianId", "parentId", "guardianId") || null, guardianPhone: importTextValue(row, "guardianPhone", "parentGuardianPhone", "parentPhone", "guardianPhoneNumber") || null, status });
     } else {
