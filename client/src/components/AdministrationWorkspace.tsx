@@ -36,6 +36,22 @@ function AllocationEditor({ value, onChange, catalog }: { value: Alloc[]; onChan
   </div>;
 }
 
+function ClassesStreamsPanel({ catalog }: { catalog: Catalog }) {
+  const utils = trpc.useUtils();
+  const [name, setName] = useState("");
+  const [stream, setStream] = useState("");
+  const create = trpc.smis.settings.createGrade.useMutation({
+    onSuccess: () => { toast.success("Class and stream created"); setName(""); setStream(""); void utils.smis.administration.catalog.invalidate(); void utils.smis.people.catalog.invalidate(); void utils.smis.allocations.catalog.invalidate(); },
+    onError: e => toast.error(errText(e.message)),
+  });
+  const submit = (event: React.FormEvent) => { event.preventDefault(); if (!name.trim()) return; create.mutate({ name: name.trim(), stream: stream.trim() || null }); };
+  return <div className="space-y-5 p-5">
+    <div><p className="eyebrow">Academic structure</p><h2 className="mt-1 text-lg font-bold text-[#28483f]">Classes & Streams</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-[#718077]">Create exact class options used by Add Learner, bulk imports, attendance, assessments, reports and teacher allocation. For example, create <b>Grade 7</b> with stream <b>Blue</b> to produce <b>Grade 7 · Blue</b>.</p></div>
+    <form onSubmit={submit} className="grid gap-3 rounded-xl border border-[#d8ddd4] bg-[#fbfaf5] p-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end"><label className={label}>Grade / class name<Input required value={name} onChange={e => setName(e.target.value)} placeholder="Grade 7" className="mt-1" /></label><label className={label}>Stream <span className="font-normal normal-case">(optional)</span><Input value={stream} onChange={e => setStream(e.target.value)} placeholder="Blue" className="mt-1" /></label><button className="action-button justify-center" disabled={create.isPending}><Plus size={15} />{create.isPending ? "Creating…" : "Create class"}</button></form>
+    <div><p className="mb-2 text-xs font-bold uppercase tracking-wide text-[#718077]">Existing classes · {catalog.grades.length}</p><div className="flex flex-wrap gap-2">{catalog.grades.map(g => <span key={g.id} className="rounded-full bg-[#e6f0e7] px-3 py-1.5 text-xs font-bold text-[#1d6a57]">{g.name}</span>)}</div></div>
+  </div>;
+}
+
 function SetupLinkDialog({ link, name, onClose }: { link: { setupToken: string; expiresAt: Date | string } | null; name: string; onClose: () => void }) {
   const url = link ? `${window.location.origin}/?reset=${link.setupToken}` : "";
   return <Dialog open={!!link} onOpenChange={o => !o && onClose()}><DialogContent>
@@ -173,7 +189,7 @@ const CONFIRM_TEXT = { activate: ["Activate account", "The user will be able to 
 export function AdministrationWorkspace() {
   const utils = trpc.useUtils();
   const perms = trpc.smis.users.effectivePermissions.useQuery(); const catalogQ = trpc.smis.administration.catalog.useQuery();
-  const [tab, setTab] = useState<"users" | "matrix" | "audit">("users");
+  const [tab, setTab] = useState<"users" | "matrix" | "classes" | "audit">("users");
   const [f, setF] = useState({ search: "", role: "", status: "" });
   const list = trpc.smis.administration.list.useQuery({ search: f.search || undefined, role: f.role || undefined, status: (f.status || undefined) as any });
   const overview = trpc.smis.administration.overview.useQuery();
@@ -200,7 +216,7 @@ export function AdministrationWorkspace() {
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-5">{[["Accounts", stats?.total], ["Active", stats?.active], ["Pending setup", stats?.pending], ["Suspended", stats?.suspended], ["Locked", stats?.locked]].map(([k, v]) => <div key={String(k)} className="rounded-xl bg-white/10 px-4 py-3"><p className="text-[0.66rem] font-bold uppercase tracking-wider text-[#d2e2d9]">{k}</p><p className="mt-1 text-2xl font-bold">{v ?? "—"}</p></div>)}</div>
     </section>
 
-    <div className="flex gap-2 border-b border-[#d8ddd4]" role="tablist">{([["users", "Users & Credentials", Users], ["matrix", "Permission Matrix", ShieldCheck], ["audit", "Audit Trail", History]] as const).map(([k, t, Icon]) =>
+    <div className="flex flex-wrap gap-2 border-b border-[#d8ddd4]" role="tablist">{([["users", "Users & Credentials", Users], ["matrix", "Permission Matrix", ShieldCheck], ...(has("settings.edit") ? [["classes", "Classes & Streams", Plus] as const] : []), ["audit", "Audit Trail", History]] as const).map(([k, t, Icon]) =>
       <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className={`-mb-px inline-flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-bold ${tab === k ? "border-[#1d6a57] text-[#1d6a57]" : "border-transparent text-[#718077] hover:text-[#28483f]"}`}><Icon size={15} />{t}</button>)}</div>
 
     <section className="soft-card paper-noise rounded-[1.1rem]">
@@ -225,6 +241,7 @@ export function AdministrationWorkspace() {
                 <DropdownMenuItem onClick={() => setActivityRow(u)}><History size={14} />View user activity</DropdownMenuItem></DropdownMenuContent></DropdownMenu></td></tr>)}
             {!list.isLoading && !rows.length && <tr><td colSpan={13} className="px-4 py-12 text-center text-[#718077]">No users match your search.</td></tr>}</tbody></table></div></>}
       {tab === "matrix" && <MatrixTab users={rows} isSuper={isSuper} />}
+      {tab === "classes" && catalog && <ClassesStreamsPanel catalog={catalog} />}
       {tab === "audit" && <><AuditFilters withUser value={auditF} onChange={v => { setAuditF(v); setAuditPage(0); }} /><AuditTable filters={toQuery(auditF)} page={auditPage} onPage={setAuditPage} /></>}
     </section>
 
