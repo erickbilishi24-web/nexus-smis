@@ -13,7 +13,7 @@ import { clockIn, getClockingSetup, saveSchoolLocation } from "./clocking";
 import { listMessageGrades, listMessageRecipients, listNexusMessages, previewMessageRecipients, queueNexusMessage } from "./messages";
 import { getCurriculumSetup, saveCurriculumSelections, saveEnabledSchoolLevels } from "./curriculum";
 import { listNexusAiTransactions } from "./ai-payments";
-import { approveRollover, listAcademicStructure, listRollover, previewRollover, reverseRollover, saveAcademicTerm, saveAcademicYear } from "./academic";
+import { approveRollover, excludeRolloverItem, listAcademicStructure, listRollover, previewRollover, reverseRollover, saveAcademicTerm, saveAcademicYear } from "./academic";
 import { addLibraryBook, batchCheckoutLibraryBooks, checkoutLibraryBook, libraryLookups, libraryOverview, listLibraryBooks, listLibraryLoans, renewLibraryLoan, returnLibraryBook } from "./library";
 import {
   archiveLearner,
@@ -325,6 +325,7 @@ export const appRouter = router({
       saveTerm: adminProcedure.input(z.object({ academicYearId: z.number().int().positive(), name: z.enum(["Term 1", "Term 2", "Term 3"]), startsOn: z.string().date(), endsOn: z.string().date(), isActive: z.boolean() })).mutation(({ input }) => saveAcademicTerm(input)),
       previewRollover: adminProcedure.input(z.object({ fromYear: z.number().int(), toYear: z.number().int() })).mutation(({ input, ctx }) => previewRollover(input, currentUserId(ctx.user))),
       items: adminProcedure.input(z.object({ runId: z.number().int().positive() })).query(({ input }) => listRollover(input.runId)),
+      excludeRolloverItem: adminProcedure.input(z.object({ runId: z.number().int().positive(), itemId: z.number().int().positive(), reason: z.string().max(255).optional() })).mutation(({ input, ctx }) => excludeRolloverItem(input, currentUserId(ctx.user))),
       approveRollover: adminProcedure.input(z.object({ runId: z.number().int().positive() })).mutation(({ input, ctx }) => approveRollover(input.runId, currentUserId(ctx.user))),
       reverseRollover: adminProcedure.input(z.object({ runId: z.number().int().positive() })).mutation(({ input, ctx }) => reverseRollover(input.runId, currentUserId(ctx.user))),
     }),

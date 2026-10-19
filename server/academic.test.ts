@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nextGrade } from "./academic";
+import { nextGrade, nextGradeLabel } from "./academic";
 
 describe("academic progression rules", () => {
   it("advances Grades 1 through 8 by one grade", () => {
@@ -10,5 +10,7 @@ describe("academic progression rules", () => {
   it("requires an approved destination beyond Grade 9", () => {
     expect(nextGrade("Grade 9")).toBeNull();
     expect(nextGrade("PP1")).toBeNull();
+    expect(nextGradeLabel("PP1")).toBe("PP2");
+    expect(nextGradeLabel("PP2")).toBe("Grade 1");
   });
 });
