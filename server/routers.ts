@@ -135,10 +135,10 @@ export const appRouter = router({
         throw new TRPCError({ code: code === "ACCOUNT_LOCKED" || code === "ACCOUNT_DISABLED" ? "FORBIDDEN" : "UNAUTHORIZED", message: code });
       }
     }),
-    logout: publicProcedure.mutation(({ ctx }) => {
-      void logoutIam(ctx.req, ctx.res);
+    logout: publicProcedure.mutation(async ({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      await logoutIam(ctx.req, ctx.res);
       return { success: true } as const;
     }),
     changePassword: protectedProcedure.input(z.object({ currentPassword: z.string().min(1), newPassword: z.string().min(10).max(200) })).mutation(async ({ input, ctx }) => {
