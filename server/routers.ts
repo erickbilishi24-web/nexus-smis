@@ -13,6 +13,7 @@ import { clockIn, getClockingSetup, saveSchoolLocation } from "./clocking";
 import { listMessageGrades, listMessageRecipients, listNexusMessages, previewMessageRecipients, queueNexusMessage } from "./messages";
 import { getCurriculumSetup, saveCurriculumSelections, saveEnabledSchoolLevels } from "./curriculum";
 import { listNexusAiTransactions } from "./ai-payments";
+import { approveRollover, listAcademicStructure, listRollover, previewRollover, reverseRollover, saveAcademicTerm, saveAcademicYear } from "./academic";
 import { addLibraryBook, batchCheckoutLibraryBooks, checkoutLibraryBook, libraryLookups, libraryOverview, listLibraryBooks, listLibraryLoans, renewLibraryLoan, returnLibraryBook } from "./library";
 import {
   archiveLearner,
@@ -317,6 +318,15 @@ export const appRouter = router({
       saveCurriculum: permissionProcedure("settings.edit").input(z.object({ selections: z.array(z.object({ level: z.string().max(40), grade: z.string().max(40), pathway: z.string().max(100).nullable().optional(), area: z.string().max(160), offered: z.boolean() })) })).mutation(({ input, ctx }) => saveCurriculumSelections(input, currentUserId(ctx.user))),
       saveSchoolLevels: schoolLevelProcedure.input(z.object({ levels: z.array(z.enum(["ECDE", "Primary", "Junior School", "Senior School"])) })).mutation(({ input, ctx }) => saveEnabledSchoolLevels(input.levels, currentUserId(ctx.user))),
       update: adminProcedure.input(z.object({ schoolName: z.string().min(1).max(200), motto: z.string().max(255).nullable().optional(), currentTerm: z.string().min(1).max(40), academicYear: z.number().int().min(2000).max(2100), includeFeesOnReportCard: z.boolean(), showPercentagesOnReportCard: z.boolean().optional() })).mutation(({ input, ctx }) => saveSettings(input, currentUserId(ctx.user))),
+    }),
+    academic: router({
+      structure: adminProcedure.query(() => listAcademicStructure()),
+      saveYear: adminProcedure.input(z.object({ year: z.number().int().min(2000).max(2100), startsOn: z.string().date(), endsOn: z.string().date(), rolloverOn: z.string().date().nullable().optional(), isCurrent: z.boolean() })).mutation(({ input }) => saveAcademicYear(input)),
+      saveTerm: adminProcedure.input(z.object({ academicYearId: z.number().int().positive(), name: z.enum(["Term 1", "Term 2", "Term 3"]), startsOn: z.string().date(), endsOn: z.string().date(), isActive: z.boolean() })).mutation(({ input }) => saveAcademicTerm(input)),
+      previewRollover: adminProcedure.input(z.object({ fromYear: z.number().int(), toYear: z.number().int() })).mutation(({ input, ctx }) => previewRollover(input, currentUserId(ctx.user))),
+      items: adminProcedure.input(z.object({ runId: z.number().int().positive() })).query(({ input }) => listRollover(input.runId)),
+      approveRollover: adminProcedure.input(z.object({ runId: z.number().int().positive() })).mutation(({ input, ctx }) => approveRollover(input.runId, currentUserId(ctx.user))),
+      reverseRollover: adminProcedure.input(z.object({ runId: z.number().int().positive() })).mutation(({ input, ctx }) => reverseRollover(input.runId, currentUserId(ctx.user))),
     }),
     reports: router({
       reportCard: permissionProcedure("reports.view").input(z.object({ learnerId: z.number().int().positive(), academicYear: z.number().int().min(2000).max(2100), term: z.string().min(1).max(40), assessmentType: z.enum(["mid_term", "end_term"]) })).query(({ input, ctx }) => getAssessmentReportCard(input, currentUserId(ctx.user))),

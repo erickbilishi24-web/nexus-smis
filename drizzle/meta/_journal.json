@@ -183,6 +183,13 @@
       "when": 1792249028611,
       "tag": "0025_real_arclight",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "5",
+      "when": 1792402820305,
+      "tag": "0026_glorious_barracuda",
+      "breakpoints": true
     }
   ]
 }
