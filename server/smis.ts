@@ -763,6 +763,7 @@ export async function setStaffStatus(input: { staffProfileId: number; status: Pe
 
 export type PeopleImportKind = "learners" | "staff";
 export type PeopleImportRow = Record<string, unknown>;
+export type PeopleImportOptions = { autoCreateMissingClasses?: boolean };
 
 function textValue(row: PeopleImportRow, key: string) {
   const value = row[key]; return value == null ? "" : String(value).trim();
@@ -795,7 +796,33 @@ export function resolveImportGrade(gradeRows: Array<{ id: number; name: string; 
   });
   return candidates.length === 1 ? candidates[0] : undefined;
 }
-export async function previewPeopleImport(input: { kind: PeopleImportKind; rows: PeopleImportRow[]; rowOffset?: number }) {
+function deriveMissingClassParts(gradeRows: Array<{ name: string; stream: string | null }>, gradeName: string, stream: string) {
+  const cleanName = gradeName.trim().replace(/\s+/g, " ");
+  const matchingBase = gradeRows.map(row => row.name.trim()).filter(name => cleanName.toLowerCase().startsWith(`${name.toLowerCase()} `)).sort((a, b) => b.length - a.length)[0];
+  if (matchingBase) return { name: matchingBase, stream: cleanName.slice(matchingBase.length).trim() || stream.trim().replace(/\s+/g, " ") || null };
+  if (stream.trim()) return { name: cleanName, stream: stream.trim().replace(/\s+/g, " ") };
+  const parts = cleanName.split(" ");
+  return parts.length > 1 ? { name: parts.slice(0, -1).join(" "), stream: parts.at(-1) ?? null } : { name: cleanName, stream: null };
+}
+async function ensureImportedGrade(gradeName: string, stream: string, userId: number) {
+  const db = await requireDb();
+  const gradeRows = await db.select().from(grades);
+  const parts = deriveMissingClassParts(gradeRows, gradeName, stream);
+  const existing = (await db.select().from(grades).where(parts.stream
+    ? and(eq(grades.name, parts.name), eq(grades.stream, parts.stream))
+    : and(eq(grades.name, parts.name), sql`${grades.stream} IS NULL`)).limit(1))[0];
+  if (existing) return existing;
+  try {
+    const inserted = (await db.insert(grades).values({ name: parts.name, stream: parts.stream }).$returningId())[0];
+    await writeAudit(userId, "grade.create.import", "grade", inserted.id, { name: parts.name, stream: parts.stream, source: "learner_bulk_import" });
+  } catch {
+    // A concurrent import may have created the same class; use that canonical row.
+  }
+  return (await db.select().from(grades).where(parts.stream
+    ? and(eq(grades.name, parts.name), eq(grades.stream, parts.stream))
+    : and(eq(grades.name, parts.name), sql`${grades.stream} IS NULL`)).limit(1))[0];
+}
+export async function previewPeopleImport(input: { kind: PeopleImportKind; rows: PeopleImportRow[]; rowOffset?: number } & PeopleImportOptions) {
   const db = await requireDb();
   const errors: Array<{ row: number; message: string }> = [];
   const preview: Array<Record<string, unknown>> = [];
@@ -825,11 +852,12 @@ export async function previewPeopleImport(input: { kind: PeopleImportKind; rows:
       if (rawStatus && rawStatus !== "active" && rawStatus !== "inactive") errors.push({ row: rowNumber, message: "Status must be active or inactive." });
       if (!fullName) errors.push({ row: rowNumber, message: "Learner name is required." });
       if (!admissionNumber) errors.push({ row: rowNumber, message: "Admission number is required." });
+      if (!gradeName) errors.push({ row: rowNumber, message: "Grade/class is required." });
       if (seenAdmissions.has(admissionNumber)) errors.push({ row: rowNumber, message: `Duplicate admission number in workbook: ${admissionNumber}.` });
       if (admissionNumber && existingAdmissions.has(admissionNumber)) errors.push({ row: rowNumber, message: `Admission number already exists: ${admissionNumber}.` });
-      if (!grade) errors.push({ row: rowNumber, message: `Grade/class not found: ${gradeName}${stream ? ` ${stream}` : ""}. Use an exact Grade/Class value from the Add Learner list.` });
+      if (!grade && !(input.kind === "learners" && input.autoCreateMissingClasses)) errors.push({ row: rowNumber, message: `Grade/class not found: ${gradeName}${stream ? ` ${stream}` : ""}. Use an exact Grade/Class value from the Add Learner list or enable automatic class creation.` });
       seenAdmissions.add(admissionNumber);
-      if (fullName && admissionNumber && grade) preview.push({ row: rowNumber, learnerName: fullName, admissionNumber, gradeId: grade.id, grade: `${grade.name}${grade.stream ? ` ${grade.stream}` : ""}`, guardianName: importTextValue(row, "guardianName", "parentGuardianName", "parentName", "guardian") || null, guardianIdNumber: importTextValue(row, "guardianIdNumber", "parentGuardianId", "parentId", "guardianId") || null, guardianPhone: importTextValue(row, "guardianPhone", "parentGuardianPhone", "parentPhone", "guardianPhoneNumber") || null, status });
+      if (fullName && admissionNumber && gradeName && (grade || (input.kind === "learners" && input.autoCreateMissingClasses))) preview.push({ row: rowNumber, learnerName: fullName, admissionNumber, gradeId: grade?.id ?? 0, grade: grade ? `${grade.name}${grade.stream ? ` ${grade.stream}` : ""}` : `${gradeName}${stream ? ` ${stream}` : ""}`, sourceGradeName: gradeName, sourceStream: stream || null, guardianName: importTextValue(row, "guardianName", "parentGuardianName", "parentName", "guardian") || null, guardianIdNumber: importTextValue(row, "guardianIdNumber", "parentGuardianId", "parentId", "guardianId") || null, guardianPhone: importTextValue(row, "guardianPhone", "parentGuardianPhone", "parentPhone", "guardianPhoneNumber") || null, status });
     } else {
       const displayName = importTextValue(row, "staffName", "displayName", "name", "teacherName");
       const role = (importTextValue(row, "role", "systemRole", "designationRole") || "teacher") as PeopleStaffRole;
@@ -847,7 +875,7 @@ export async function previewPeopleImport(input: { kind: PeopleImportKind; rows:
   return { kind: input.kind, total: input.rows.length, valid: preview.length, errors, preview };
 }
 
-export async function importPeopleRows(input: { kind: PeopleImportKind; rows: PeopleImportRow[] }, userId: number) {
+export async function importPeopleRows(input: { kind: PeopleImportKind; rows: PeopleImportRow[] } & PeopleImportOptions, userId: number) {
   const checked = await previewPeopleImport(input);
   if (checked.errors.length) throw new Error(`IMPORT_VALIDATION_FAILED:${JSON.stringify(checked.errors.slice(0, 10))}`);
   let created = 0;
@@ -856,7 +884,9 @@ export async function importPeopleRows(input: { kind: PeopleImportKind; rows: Pe
   const userIds: number[] = [];
   for (const row of checked.preview as Array<Record<string, unknown>>) {
     if (input.kind === "learners") {
-      const createdLearner = await createLearner({ fullName: String(row.learnerName), admissionNumber: String(row.admissionNumber), guardianName: row.guardianName ? String(row.guardianName) : null, guardianIdNumber: row.guardianIdNumber ? String(row.guardianIdNumber) : null, guardianPhone: row.guardianPhone ? String(row.guardianPhone) : null, gradeId: Number(row.gradeId), status: row.status === "inactive" ? "inactive" : "active" }, userId);
+      const grade = Number(row.gradeId) > 0 ? { id: Number(row.gradeId) } : await ensureImportedGrade(String(row.sourceGradeName ?? row.grade ?? ""), String(row.sourceStream ?? ""), userId);
+      if (!grade) throw new Error("IMPORT_CLASS_CREATION_FAILED");
+      const createdLearner = await createLearner({ fullName: String(row.learnerName), admissionNumber: String(row.admissionNumber), guardianName: row.guardianName ? String(row.guardianName) : null, guardianIdNumber: row.guardianIdNumber ? String(row.guardianIdNumber) : null, guardianPhone: row.guardianPhone ? String(row.guardianPhone) : null, gradeId: grade.id, status: row.status === "inactive" ? "inactive" : "active" }, userId);
       learnerIds.push(createdLearner.id);
     } else {
       const createdStaff = await createStaff({ displayName: String(row.displayName), title: row.title ? String(row.title) : null, designation: row.designation ? String(row.designation) : null, phone: row.phone ? String(row.phone) : null, email: row.email ? String(row.email) : null, role: String(row.role) as PeopleStaffRole, status: row.status === "inactive" ? "inactive" : "active" }, userId);
