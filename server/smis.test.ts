@@ -50,8 +50,9 @@ describe("Kenyan SMIS backend rules", () => {
   it("resolves legacy combined learner class labels only when unambiguous", () => {
     const classes = [{ id: 2, name: "Grade 7", stream: "Green" }, { id: 1, name: "Grade 8", stream: "Blue" }, { id: 90001, name: "Grade 9", stream: "Red" }];
     expect(resolveImportGrade(classes, "GRADE 7 Blue", "")?.stream).toBe("Green");
+    expect(resolveImportGrade(classes, "GRADE 7", "Blue")?.stream).toBe("Green");
     expect(resolveImportGrade(classes, "Grade 7", "Green")?.name).toBe("Grade 7");
-    expect(resolveImportGrade(classes, "Grade 7 Blue", "Other")).toBeUndefined();
+    expect(resolveImportGrade(classes, "Grade 7 Blue", "Other")?.stream).toBe("Green");
     expect(resolveImportGrade([{ id: 1, name: "Grade 7", stream: "Green" }, { id: 2, name: "Grade 7", stream: "Red" }], "Grade 7 Blue", "")).toBeUndefined();
   });
 

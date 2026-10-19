@@ -785,11 +785,14 @@ export function resolveImportGrade(gradeRows: Array<{ id: number; name: string; 
   const normalizedStream = normalizedClassPart(stream);
   const exact = gradeRows.find(item => normalizedClassPart(item.name) === normalizedName && normalizedClassPart(item.stream ?? "") === normalizedStream);
   if (exact) return exact;
-  if (stream) return undefined;
 
-  // Older workbooks sometimes combine the grade and stream in gradeName (for example, "Grade 7 Blue").
-  // If that grade has exactly one existing class, resolve to it; ambiguous grades remain errors.
-  const candidates = gradeRows.filter(item => normalizedName.startsWith(`${normalizedClassPart(item.name)} `));
+  // Older workbooks may combine grade and stream in one field, or carry a stale
+  // stream label in a separate field. If the grade has exactly one existing
+  // class, resolve to that class; ambiguous grades remain validation errors.
+  const candidates = gradeRows.filter(item => {
+    const base = normalizedClassPart(item.name);
+    return normalizedName === base || normalizedName.startsWith(`${base} `);
+  });
   return candidates.length === 1 ? candidates[0] : undefined;
 }
 export async function previewPeopleImport(input: { kind: PeopleImportKind; rows: PeopleImportRow[]; rowOffset?: number }) {
