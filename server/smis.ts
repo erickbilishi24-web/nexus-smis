@@ -39,10 +39,10 @@ import {
 export const permissionsByRole: Record<string, string[]> = {
   super_admin: ["*"],
   admin: ["dashboard.view", "learners.view", "learners.add", "learners.edit", "learners.deactivate", "attendance.view", "attendance.edit", "assessments.view", "assessments.edit", "reports.view", "finance.view", "finance.edit", "store.view", "store.edit", "timetable.view", "timetable.edit", "communication.edit", "alumni.edit", "users.edit", "settings.edit", "audit.view", "allocations.view", "allocations.create", "allocations.edit", "allocations.deactivate", "allocations.replace", "allocations.bulk"],
-  teacher: ["dashboard.view", "learners.view", "attendance.view", "attendance.edit", "assessments.view", "assessments.edit", "reports.view", "timetable.view", "allocations.view"],
-  class_teacher: ["dashboard.view", "learners.view", "attendance.view", "attendance.edit", "assessments.view", "assessments.edit", "reports.view", "timetable.view", "allocations.view"],
-  finance: ["dashboard.view", "learners.view", "finance.view", "finance.edit", "reports.view"],
-  storekeeper: ["dashboard.view", "store.view", "store.edit", "reports.view"],
+  teacher: ["dashboard.view", "attendance.view", "attendance.edit", "assessments.view", "assessments.edit", "timetable.view", "allocations.view"],
+  class_teacher: ["dashboard.view", "attendance.view", "attendance.edit", "assessments.view", "assessments.edit", "reports.view", "timetable.view", "allocations.view"],
+  finance: ["dashboard.view", "finance.view", "finance.edit"],
+  storekeeper: ["dashboard.view", "store.view", "store.edit"],
   other: ["dashboard.view"],
 };
 
@@ -101,16 +101,17 @@ export async function getSettings() {
   return row ?? { id: 0, schoolName: "Ebunangwe Junior School", motto: "Learn. Lead. Serve.", currentTerm: "Term 2", academicYear: 2026, includeFeesOnReportCard: 1, showPercentagesOnReportCard: 0, logoPath: null, principalSignaturePath: null, classTeacherSignaturePath: null };
 }
 
-export async function getDashboardSnapshot() {
+export async function getDashboardSnapshot(userId?: number, accountRole?: string) {
   const db = await requireDb();
+  const canViewFinance = userId == null ? true : await userCan(userId, accountRole ?? "user", "finance.view");
   const trendStart = new Date(); trendStart.setHours(0, 0, 0, 0); trendStart.setDate(trendStart.getDate() - 6);
   const [settings, learnerRows, attendanceRows, trendRows, paymentRows, paymentTrendRows, assessmentRows, staffRows, staffClockingRows, lowStockRows] = await Promise.all([
     getSettings(),
     db.select({ learner: learners, grade: grades }).from(learners).leftJoin(grades, eq(grades.id, learners.gradeId)).where(eq(learners.status, "active")),
     db.select().from(attendances).orderBy(desc(attendances.id)).limit(100),
     db.select({ attendanceDate: attendances.attendanceDate, status: attendances.status }).from(attendances).where(gte(attendances.attendanceDate, trendStart)),
-    db.select().from(payments).orderBy(desc(payments.paidAt)).limit(100),
-    db.select({ amount: payments.amount, paidAt: payments.paidAt }).from(payments).where(gte(payments.paidAt, trendStart)),
+    canViewFinance ? db.select().from(payments).orderBy(desc(payments.paidAt)).limit(100) : Promise.resolve([]),
+    canViewFinance ? db.select({ amount: payments.amount, paidAt: payments.paidAt }).from(payments).where(gte(payments.paidAt, trendStart)) : Promise.resolve([]),
     db.select().from(assessments).where(sql`${assessments.status} <> 'approved'`),
     db.select().from(staffProfiles).where(eq(staffProfiles.status, "active")),
     db.select({ userId: staffClockings.userId }).from(staffClockings).where(eq(staffClockings.clockDate, new Date(new Date().toISOString().slice(0, 10)))),
@@ -142,10 +143,10 @@ export async function getDashboardSnapshot() {
   }
   return {
     school: settings,
-    counts: { learners: learnerRows.length, staff: staffRows.length, assessmentsPending: assessmentRows.length, collections, staffOnDuty },
+    counts: { learners: learnerRows.length, staff: staffRows.length, assessmentsPending: assessmentRows.length, collections: canViewFinance ? collections : 0, staffOnDuty },
     attendance: { today: attendanceToday.length, present, rate: attendanceRate },
     attendanceTrend,
-    collectionTrend,
+    collectionTrend: canViewFinance ? collectionTrend : [],
     learnerDistribution,
     genderDistribution,
     newEnrollmentsThisMonth,

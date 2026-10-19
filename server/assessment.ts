@@ -119,6 +119,23 @@ export async function listAssessmentScopes(userId: number) {
   }));
 }
 
+/** Learners available to the report-card selector, scoped to the signed-in report role. */
+export async function listReportLearners(userId: number) {
+  const db = await requireDb();
+  const access = await actorAccess(userId);
+  const rows = await db.select({ learner: learners, grade: grades })
+    .from(learners)
+    .leftJoin(grades, eq(grades.id, learners.gradeId))
+    .where(access.isAdmin
+      ? eq(learners.status, "active")
+      : and(eq(learners.status, "active"), eq(grades.classTeacherUserId, userId)))
+    .orderBy(learners.fullName);
+  return rows.map(({ learner, grade }) => ({
+    ...learner,
+    grade: grade ? `${grade.name}${grade.stream ? ` ${grade.stream}` : ""}` : "",
+  }));
+}
+
 export async function ensureAssessment(scope: AssessmentScope, userId: number) {
   const db = await requireDb();
   const access = await actorAccess(userId);

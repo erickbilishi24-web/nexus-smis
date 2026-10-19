@@ -22,7 +22,7 @@ export function IntegratedReportCardView({ canReview = false }: { canReview?: bo
   const settings = trpc.smis.settings.get.useQuery();
   const commentAccess = trpc.smis.assessments.commentAccess.useQuery();
   const mayComment = canReview || commentAccess.data === true;
-  const learners = trpc.smis.learners.list.useQuery({});
+  const learners = trpc.smis.reports.learners.useQuery();
   const catalog = trpc.smis.people.catalog.useQuery();
   const [learnerId, setLearnerId] = useState<number | null>(null);
   const [gradeId, setGradeId] = useState<number | null>(null);

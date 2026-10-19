@@ -18,7 +18,13 @@ describe("NEXUS-SMIS permission model", () => {
 
   it("keeps role defaults least-privilege by default", () => {
     expect(permissionsByRole.teacher).not.toContain("finance.view");
+    expect(permissionsByRole.teacher).not.toContain("learners.view");
+    expect(permissionsByRole.teacher).not.toContain("reports.view");
+    expect(permissionsByRole.class_teacher).toContain("reports.view");
+    expect(permissionsByRole.class_teacher).not.toContain("learners.view");
     expect(permissionsByRole.finance).toContain("finance.view");
+    expect(permissionsByRole.finance).not.toContain("reports.view");
     expect(permissionsByRole.storekeeper).toContain("store.edit");
+    expect(permissionsByRole.storekeeper).not.toContain("finance.view");
   });
 });
