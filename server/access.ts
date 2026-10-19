@@ -15,7 +15,7 @@ export const MATRIX_KEYS: string[] = [...MODULES.flatMap(([module]) => ACTIONS.m
 
 export const ROLE_LABELS: Record<string, string> = {
   super_admin: "Super Administrator", admin: "Administrator", head_teacher: "Administrator", deputy_head: "Administrator",
-  teacher: "Teacher", senior_teacher: "Teacher", class_teacher: "Class Teacher", finance: "Bursar", storekeeper: "Support Staff", other: "Support Staff",
+  teacher: "Teacher", senior_teacher: "Teacher", class_teacher: "Class Teacher", finance: "Accounts Officer", storekeeper: "Support Staff", other: "Support Staff",
 };
 /** Roles offered when creating or changing a user (stored in staff_profiles.role). */
 export const ASSIGNABLE_ROLES = ["super_admin", "admin", "teacher", "class_teacher", "finance", "other"] as const;
@@ -65,6 +65,13 @@ export async function computePermissions(userId: number, accountRole: string) {
   for (const key of Array.from(matrix)) expand(key).forEach(k => result.add(k));
   for (const o of await db.select().from(userPermissions).where(eq(userPermissions.userId, userId))) {
     for (const k of expand(o.permissionKey)) o.allowed ? result.add(k) : result.delete(k);
+  }
+  // Attendance is role-bound: Teachers are view-only; the other selectable
+  // staff roles can capture attendance regardless of stale per-user grants.
+  if (role === "teacher") result.delete("attendance.edit");
+  if (["admin", "class_teacher", "finance"].includes(role)) {
+    result.add("attendance.view");
+    result.add("attendance.edit");
   }
   return Array.from(result);
 }

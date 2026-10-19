@@ -39,9 +39,9 @@ import {
 export const permissionsByRole: Record<string, string[]> = {
   super_admin: ["*"],
   admin: ["dashboard.view", "learners.view", "learners.add", "learners.edit", "learners.deactivate", "attendance.view", "attendance.edit", "assessments.view", "assessments.edit", "reports.view", "finance.view", "finance.edit", "store.view", "store.edit", "timetable.view", "timetable.edit", "communication.edit", "alumni.edit", "users.edit", "settings.edit", "audit.view", "allocations.view", "allocations.create", "allocations.edit", "allocations.deactivate", "allocations.replace", "allocations.bulk"],
-  teacher: ["dashboard.view", "attendance.view", "attendance.edit", "assessments.view", "assessments.edit", "timetable.view", "allocations.view"],
+  teacher: ["dashboard.view", "attendance.view", "assessments.view", "assessments.edit", "timetable.view", "allocations.view"],
   class_teacher: ["dashboard.view", "attendance.view", "attendance.edit", "assessments.view", "assessments.edit", "reports.view", "timetable.view", "allocations.view"],
-  finance: ["dashboard.view", "finance.view", "finance.edit"],
+  finance: ["dashboard.view", "finance.view", "finance.edit", "attendance.view", "attendance.edit"],
   storekeeper: ["dashboard.view", "store.view", "store.edit"],
   other: ["dashboard.view"],
 };
@@ -158,7 +158,7 @@ export async function getDashboardSnapshot(userId?: number, accountRole?: string
 
 export type LearnerStatus = "active" | "inactive";
 export type PeopleStaffStatus = "active" | "inactive";
-export type PeopleStaffRole = "teacher" | "class_teacher" | "senior_teacher" | "deputy_head" | "head_teacher" | "finance" | "storekeeper" | "other";
+export type PeopleStaffRole = "admin" | "teacher" | "class_teacher" | "finance";
 
 export async function listLearners(search?: string) {
   const db = await requireDb();
@@ -240,12 +240,12 @@ export async function listAttendance(date?: string, userId?: number, session: At
   if (!userId) return rows.map(row => ({ ...row.attendance, learner: row.learner, grade: row.grade }));
   const actor = (await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1))[0];
   if (actor?.role !== "user") return rows.map(row => ({ ...row.attendance, learner: row.learner, grade: row.grade }));
-  const allowedGrades = new Set(await classTeacherGradeIds(userId));
+  const allowedGrades = new Set(await attendanceVisibleGradeIds(userId));
   return rows.filter(row => allowedGrades.has(row.learner.gradeId)).map(row => ({ ...row.attendance, learner: row.learner, grade: row.grade }));
 }
 
 export function isAttendanceAdmin(userRole?: string | null, staffRole?: string | null) {
-  return userRole === "admin" || staffRole === "admin" || staffRole === "super_admin" || staffRole === "deputy_head" || staffRole === "head_teacher";
+  return userRole === "admin" || staffRole === "admin" || staffRole === "super_admin" || staffRole === "finance" || staffRole === "deputy_head" || staffRole === "head_teacher";
 }
 
 export function canAccessAttendanceGrade(userRole: string | null | undefined, staffRole: string | null | undefined, allocatedGradeIds: number[], gradeId: number) {
@@ -263,6 +263,14 @@ async function classTeacherGradeIds(userId: number) {
   ));
   return Array.from(new Set(allocations.map(row => row.gradeId)));
 }
+async function attendanceVisibleGradeIds(userId: number) {
+  const db = await requireDb();
+  const allocations = await db.select({ gradeId: teacherAllocations.gradeId }).from(teacherAllocations).where(and(
+    eq(teacherAllocations.teacherUserId, userId),
+    eq(teacherAllocations.status, "active"),
+  ));
+  return Array.from(new Set(allocations.map(row => row.gradeId)));
+}
 export async function getAttendanceRegister(date: string, userId: number, session: AttendanceSession = "morning") {
   const db = await requireDb();
   const actor = (await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1))[0];
@@ -270,7 +278,7 @@ export async function getAttendanceRegister(date: string, userId: number, sessio
   const isAdmin = isAttendanceAdmin(actor?.role, staff?.role);
   let allowedGradeIds: number[] | null = null;
   if (!isAdmin) {
-    const profileGradeIds = await classTeacherGradeIds(userId);
+    const profileGradeIds = await attendanceVisibleGradeIds(userId);
     allowedGradeIds = profileGradeIds;
     if (!allowedGradeIds.length) return [];
   }
@@ -326,7 +334,7 @@ export async function getAttendanceSummary(input: { period: AttendanceSummaryPer
   const db = await requireDb();
   const actor = (await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1))[0];
   const staff = (await db.select({ role: staffProfiles.role }).from(staffProfiles).where(eq(staffProfiles.userId, userId)).limit(1))[0];
-  const allowed = isAttendanceAdmin(actor?.role, staff?.role) ? null : new Set(await classTeacherGradeIds(userId));
+  const allowed = isAttendanceAdmin(actor?.role, staff?.role) ? null : new Set(await attendanceVisibleGradeIds(userId));
   if (!allowed && !isAttendanceAdmin(actor?.role, staff?.role)) return { period: input.period, rows: [], totals: { present: 0, absent: 0, late: 0, excused: 0, sessions: 0 } };
   const window = dateWindow(input.period);
   const learnerRows = await db.select({ learner: learners, grade: grades }).from(learners).leftJoin(grades, eq(grades.id, learners.gradeId)).where(eq(learners.status, "active"));
@@ -861,7 +869,7 @@ export async function previewPeopleImport(input: { kind: PeopleImportKind; rows:
     } else {
       const displayName = importTextValue(row, "staffName", "displayName", "name", "teacherName");
       const role = (importTextValue(row, "role", "systemRole", "designationRole") || "teacher") as PeopleStaffRole;
-      const allowedRoles: PeopleStaffRole[] = ["teacher", "class_teacher", "senior_teacher", "deputy_head", "head_teacher", "finance", "storekeeper", "other"];
+      const allowedRoles: PeopleStaffRole[] = ["admin", "class_teacher", "teacher", "finance"];
       if (!displayName) errors.push({ row: rowNumber, message: "Staff name is required." });
       if (!allowedRoles.includes(role)) errors.push({ row: rowNumber, message: `Unknown staff role: ${role}.` });
       const rawStatus = importTextValue(row, "status", "state").toLowerCase();
@@ -956,7 +964,7 @@ export async function undoLastPeopleImport(userId: number) {
   return { ok: true, kind: batch.kind, rows: batch.rows };
 }
 
-export type StaffRole = "teacher" | "class_teacher" | "senior_teacher" | "deputy_head" | "head_teacher" | "finance" | "storekeeper" | "other";
+export type StaffRole = "admin" | "teacher" | "class_teacher" | "finance";
 
 export async function updateStaffRole(input: { staffProfileId: number; role: StaffRole }, userId: number) {
   const db = await requireDb();

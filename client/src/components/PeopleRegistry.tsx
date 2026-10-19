@@ -9,7 +9,7 @@ const fieldClass = "mt-1 w-full rounded-lg border border-[#d8ded7] bg-[#fbfaf5] 
 const labelClass = "text-[.68rem] font-bold uppercase tracking-[.08em] text-[#53675d]";
 type Tab = "learners" | "staff";
 type Status = "active" | "inactive";
-type StaffRole = "teacher" | "class_teacher" | "senior_teacher" | "deputy_head" | "head_teacher" | "finance" | "storekeeper" | "other";
+type StaffRole = "admin" | "teacher" | "class_teacher" | "finance";
 type LearnerForm = { learnerId?: number; fullName: string; admissionNumber: string; guardianName: string; guardianIdNumber: string; guardianPhone: string; gradeId: string; status: Status };
 type StaffForm = { staffProfileId?: number; displayName: string; title: string; designation: string; phone: string; email: string; role: StaffRole; status: Status };
 type ImportKind = "learners" | "staff";
@@ -19,9 +19,8 @@ const emptyLearner: LearnerForm = { fullName: "", admissionNumber: "", guardianN
 const emptyStaff: StaffForm = { displayName: "", title: "", designation: "", phone: "", email: "", role: "teacher", status: "active" };
 const titles = ["Mr", "Mrs", "Ms", "Miss", "Dr", "Prof", "Rev", "Eng", "Other"];
 const roles: Array<{ value: StaffRole; label: string }> = [
-  { value: "teacher", label: "Teacher" }, { value: "class_teacher", label: "Class Teacher" }, { value: "senior_teacher", label: "Senior Teacher" },
-  { value: "deputy_head", label: "Deputy Head" }, { value: "head_teacher", label: "Head Teacher" }, { value: "finance", label: "Finance / Bursar" },
-  { value: "storekeeper", label: "Storekeeper" }, { value: "other", label: "Other" },
+  { value: "admin", label: "Administrator" }, { value: "class_teacher", label: "Class Teacher" },
+  { value: "teacher", label: "Teacher" }, { value: "finance", label: "Accounts Officer" },
 ];
 
 function downloadImportErrors(kind: ImportKind, errors: Array<{ row: number; message: string }>) { const workbook = XLSX.utils.book_new(); const rows = errors.map(error => ({ row: error.row, error: error.message })); XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), "Validation errors"); XLSX.writeFile(workbook, `NEXUS-${kind}-validation-errors.xlsx`); }
@@ -32,7 +31,7 @@ function downloadTemplate(kind: ImportKind) {
     : [{ staffName: "Joseph Otieno", title: "Mr", designation: "English Teacher", phone: "+254700000001", email: "joseph@example.com", role: "teacher", status: "active" }];
   const instructions = kind === "learners"
     ? [["Learners template instructions"], ["Required: learnerName, admissionNumber, gradeName"], ["Use the exact Grade/Class shown in Add Learner, split across gradeName and stream (for example: Grade 7 | Green)."], ["Legacy combined values such as Grade 7 Blue map to the only existing Grade 7 class when unambiguous; they never override an exact existing class."], ["Status must be active or inactive. Admission numbers must be unique."]]
-    : [["Staff template instructions"], ["Required: staffName"], ["Staff Code is generated automatically by NEXUS and must not be supplied."], ["role values: teacher, class_teacher, senior_teacher, deputy_head, head_teacher, finance, storekeeper, other"], ["Status must be active or inactive."]];
+    : [["Staff template instructions"], ["Required: staffName"], ["Staff Code is generated automatically by NEXUS and must not be supplied."], ["role values: admin (Administrator), class_teacher (Class Teacher), teacher (Teacher), finance (Accounts Officer)"], ["Status must be active or inactive."]];
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(sample), kind === "learners" ? "Learners" : "Staff");
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(instructions), "Instructions");
