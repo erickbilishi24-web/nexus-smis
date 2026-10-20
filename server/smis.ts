@@ -1076,7 +1076,7 @@ export async function saveTeacherAllocation(input: { teacherUserId: number; grad
   if (!teacher || !grade) throw new Error("ALLOCATION_CONTEXT_NOT_FOUND");
   const active = await db.select().from(teacherAllocations).where(and(eq(teacherAllocations.gradeId, input.gradeId), eq(teacherAllocations.academicYear, input.academicYear), eq(teacherAllocations.term, input.term), eq(teacherAllocations.status, "active")));
   const conflict = active.find(row => allocationContextConflict(input, row));
-  if (conflict && conflict.teacherUserId !== input.teacherUserId) throw new Error(input.allocationType === "class_teacher" ? "CLASS_TEACHER_CONFLICT" : "LEARNING_AREA_CONFLICT");
+  if (conflict && conflict.teacherUserId !== input.teacherUserId) throw new Error(input.allocationType === "class_teacher" ? "CLASS_TEACHER_CONFLICT" : "Subject already allocated.");
   const existing = (await db.select().from(teacherAllocations).where(and(eq(teacherAllocations.teacherUserId, input.teacherUserId), eq(teacherAllocations.gradeId, input.gradeId), eq(teacherAllocations.subjectId, input.subjectId), eq(teacherAllocations.academicYear, input.academicYear), eq(teacherAllocations.term, input.term), eq(teacherAllocations.allocationType, input.allocationType))).limit(1))[0];
   const values = { ...input, startsOn: input.startsOn ? new Date(input.startsOn) : null, endsOn: input.endsOn ? new Date(input.endsOn) : null, status: "active" as const };
   if (existing) await db.update(teacherAllocations).set(values).where(eq(teacherAllocations.id, existing.id));
