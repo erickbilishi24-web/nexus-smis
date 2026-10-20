@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, like, or } from "drizzle-orm";
 import { alumni, behaviourRecords, counsellingCases, counsellingFollowUps, counsellingNotes, feeStructures, grades, learnerEnrolments, learnerExits, learners, payments, reportCards } from "../drizzle/schema";
 import { getDb } from "./db";
 import { writeAudit } from "./smis";
+import { getAccessProfile } from "./access";
 
 const dbOrThrow = async () => { const db = await getDb(); if (!db) throw new Error("DATABASE_NOT_CONFIGURED"); return db; };
 
@@ -49,17 +50,20 @@ export async function getArchiveFinance(learnerId: number) {
   return { learnerId, billed, paid, balance: billed - paid, payments: learnerPayments };
 }
 
-export async function listCounsellingCases(includeArchived: boolean) {
+export async function listCounsellingCases(includeArchived: boolean, userId?: number) {
   const db = await dbOrThrow();
   const filters = includeArchived ? undefined : or(eq(counsellingCases.status, "open"), eq(counsellingCases.status, "in_progress"));
   const rows = await db.select({ case: counsellingCases, learner: learners }).from(counsellingCases).innerJoin(learners, eq(learners.id, counsellingCases.learnerId)).where(filters).orderBy(desc(counsellingCases.updatedAt));
-  return rows.map(row => ({ ...row.case, learner: row.learner }));
+  const profile = userId ? await getAccessProfile(userId) : null;
+  return rows.filter(row => !profile || profile.level !== "class" || profile.gradeIds.includes(row.learner.gradeId ?? -1)).map(row => ({ ...row.case, learner: row.learner }));
 }
 
 export async function createCounsellingCase(input: { learnerId: number; concern: string; referralSource?: string; assignedCounsellorUserId?: number; reviewDate?: string }, userId: number) {
   const db = await dbOrThrow();
   const learner = (await db.select().from(learners).where(eq(learners.id, input.learnerId)).limit(1))[0];
   if (!learner) throw new Error("LEARNER_NOT_FOUND");
+  const profile = await getAccessProfile(userId);
+  if (profile.level === "class" && !profile.gradeIds.includes(learner.gradeId ?? -1)) throw new Error("COUNSELLING_SCOPE_FORBIDDEN");
   const result = (await db.insert(counsellingCases).values({ learnerId: input.learnerId, concern: input.concern.trim(), referralSource: input.referralSource?.trim() || "staff", assignedCounsellorUserId: input.assignedCounsellorUserId ?? null, reviewDate: input.reviewDate ? new Date(input.reviewDate) : null, createdByUserId: userId }).$returningId())[0];
   await writeAudit(userId, "counselling.case.created", "counselling_case", result.id, { learnerId: input.learnerId });
   return result;

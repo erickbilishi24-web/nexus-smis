@@ -573,10 +573,7 @@ export async function updateTeacherCode(input: { staffProfileId: number; teacher
   const current = (await db.select().from(staffProfiles).where(eq(staffProfiles.id, input.staffProfileId)).limit(1))[0];
   if (!current) throw new Error("TEACHER_NOT_FOUND");
   const other = (await db.select().from(staffProfiles).where(eq(staffProfiles.teacherCode, input.teacherCode)).limit(1))[0];
-  if (other && other.id !== input.staffProfileId) {
-    await db.update(staffProfiles).set({ teacherCode: null }).where(eq(staffProfiles.id, input.staffProfileId));
-    await db.update(staffProfiles).set({ teacherCode: current.teacherCode }).where(eq(staffProfiles.id, other.id));
-  }
+  if (other && other.id !== input.staffProfileId) throw new Error("TEACHER_CODE_ALREADY_IN_USE");
   await db.update(staffProfiles).set({ teacherCode: input.teacherCode }).where(eq(staffProfiles.id, input.staffProfileId));
   await writeAudit(userId, "timetable.teacher_code.update", "staff_profile", input.staffProfileId, input);
   return { ok: true };
@@ -730,17 +727,25 @@ function staffUsername(name: string) {
   return base || `staff.${Date.now()}`;
 }
 
-export async function createStaff(input: { displayName: string; title?: string | null; designation?: string | null; phone?: string | null; email?: string | null; role: PeopleStaffRole; status: PeopleStaffStatus }, userId: number) {
+export async function createStaff(input: { displayName: string; title?: string | null; designation?: string | null; phone?: string | null; email?: string | null; teacherCode?: number | null; assignedGradeId?: number | null; role: PeopleStaffRole; status: PeopleStaffStatus }, userId: number) {
   const db = await requireDb();
   const displayName = input.displayName.trim();
   if (!displayName) throw new Error("STAFF_NAME_REQUIRED");
-  const code = await nextStaffCode();
+  const code = input.teacherCode ?? await nextStaffCode();
+  if (code < 1 || code > 999) throw new Error("INVALID_TEACHER_CODE");
+  if ((await db.select({ id: staffProfiles.id }).from(staffProfiles).where(eq(staffProfiles.teacherCode, code)).limit(1)).length) throw new Error("TEACHER_CODE_ALREADY_IN_USE");
   const base = staffUsername(displayName);
   let username = base; let suffix = 2;
   while ((await db.select({ id: users.id }).from(users).where(eq(users.username, username)).limit(1)).length) username = `${base}.${suffix++}`;
   const userRow = (await db.insert(users).values({ openId: `people-staff-${randomUUID()}`, username, name: displayName, email: input.email?.trim() || null, role: "user", accountStatus: input.status === "active" ? "active" : "disabled", loginMethod: "people_registry", lastSignedIn: new Date() }).$returningId())[0];
   try {
     const staffRow = (await db.insert(staffProfiles).values({ userId: userRow.id, teacherCode: code, title: input.title?.trim() || null, displayName, designation: input.designation?.trim() || null, email: input.email?.trim() || null, phone: input.phone?.trim() || null, role: input.role, status: input.status === "active" ? "active" : "disabled" }).$returningId())[0];
+    if (input.role === "class_teacher" && input.assignedGradeId) {
+      const grade = (await db.select().from(grades).where(eq(grades.id, input.assignedGradeId)).limit(1))[0];
+      if (!grade) throw new Error("GRADE_NOT_FOUND");
+      if (grade.classTeacherUserId && grade.classTeacherUserId !== userRow.id) throw new Error("CLASS_TEACHER_ALREADY_ASSIGNED");
+      await db.update(grades).set({ classTeacherUserId: userRow.id }).where(eq(grades.id, input.assignedGradeId));
+    }
     await writeAudit(userId, "staff.create", "staff_profile", staffRow.id, { userId: userRow.id, teacherCode: code, role: input.role, status: input.status });
     return { ok: true, id: staffRow.id, userId: userRow.id, teacherCode: code, username };
   } catch (error) {
@@ -750,12 +755,24 @@ export async function createStaff(input: { displayName: string; title?: string |
   }
 }
 
-export async function updateStaff(input: { staffProfileId: number; displayName: string; title?: string | null; designation?: string | null; phone?: string | null; email?: string | null; role: PeopleStaffRole; status: PeopleStaffStatus }, userId: number) {
+export async function updateStaff(input: { staffProfileId: number; displayName: string; title?: string | null; designation?: string | null; phone?: string | null; email?: string | null; teacherCode?: number | null; assignedGradeId?: number | null; role: PeopleStaffRole; status: PeopleStaffStatus }, userId: number) {
   const db = await requireDb();
   const current = (await db.select().from(staffProfiles).where(eq(staffProfiles.id, input.staffProfileId)).limit(1))[0];
   if (!current) throw new Error("STAFF_NOT_FOUND");
   const displayName = input.displayName.trim(); if (!displayName) throw new Error("STAFF_NAME_REQUIRED");
-  await db.update(staffProfiles).set({ displayName, title: input.title?.trim() || null, designation: input.designation?.trim() || null, email: input.email?.trim() || null, phone: input.phone?.trim() || null, role: input.role, status: input.status === "active" ? "active" : "disabled" }).where(eq(staffProfiles.id, input.staffProfileId));
+  if (input.teacherCode != null) {
+    if (input.teacherCode < 1 || input.teacherCode > 999) throw new Error("INVALID_TEACHER_CODE");
+    const other = (await db.select({ id: staffProfiles.id }).from(staffProfiles).where(eq(staffProfiles.teacherCode, input.teacherCode)).limit(1))[0];
+    if (other && other.id !== input.staffProfileId) throw new Error("TEACHER_CODE_ALREADY_IN_USE");
+  }
+  await db.update(staffProfiles).set({ displayName, teacherCode: input.teacherCode ?? current.teacherCode, title: input.title?.trim() || null, designation: input.designation?.trim() || null, email: input.email?.trim() || null, phone: input.phone?.trim() || null, role: input.role, status: input.status === "active" ? "active" : "disabled" }).where(eq(staffProfiles.id, input.staffProfileId));
+  if (input.assignedGradeId) {
+    const grade = (await db.select().from(grades).where(eq(grades.id, input.assignedGradeId)).limit(1))[0];
+    if (!grade) throw new Error("GRADE_NOT_FOUND");
+    if (grade.classTeacherUserId && grade.classTeacherUserId !== current.userId) throw new Error("CLASS_TEACHER_ALREADY_ASSIGNED");
+    await db.update(grades).set({ classTeacherUserId: null }).where(eq(grades.classTeacherUserId, current.userId));
+    await db.update(grades).set({ classTeacherUserId: current.userId }).where(eq(grades.id, input.assignedGradeId));
+  }
   await db.update(users).set({ name: displayName, email: input.email?.trim() || null, accountStatus: input.status === "active" ? "active" : "disabled" }).where(eq(users.id, current.userId));
   await writeAudit(userId, "staff.update", "staff_profile", input.staffProfileId, { role: input.role, status: input.status });
   return { ok: true };
