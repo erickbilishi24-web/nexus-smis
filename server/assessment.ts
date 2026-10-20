@@ -12,6 +12,7 @@ export type AssessmentScope = {
   gradeId: number;
   subjectId: number;
   teacherUserId?: number;
+  customTitle?: string;
 };
 
 export function assessmentScopeKey(scope: Omit<AssessmentScope, "teacherUserId">) {
@@ -149,7 +150,7 @@ export async function ensureAssessment(scope: AssessmentScope, userId: number) {
   const grade = (await db.select().from(grades).where(eq(grades.id, scope.gradeId)).limit(1))[0];
   const subject = (await db.select().from(subjects).where(eq(subjects.id, scope.subjectId)).limit(1))[0];
   if (!grade || !subject) throw new Error("ASSESSMENT_MASTER_RECORD_NOT_FOUND");
-  const title = `${grade.name}${grade.stream ? ` ${grade.stream}` : ""} · ${subject.name} · ${scope.assessmentType.replace("_", " ")}`;
+  const title = scope.customTitle?.trim() || `${grade.name}${grade.stream ? ` ${grade.stream}` : ""} · ${subject.name} · ${scope.assessmentType.replace("_", " ")}`;
   try {
     const inserted = (await db.insert(assessments).values({
       title,

@@ -25,6 +25,7 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
   const [newSubject, setNewSubject] = useState("");
   const [newSubjectCode, setNewSubjectCode] = useState("");
   const [assessmentType, setAssessmentType] = useState<AssessmentType>("mid_term");
+  const [customTitle, setCustomTitle] = useState("");
   const [marklistType, setMarklistType] = useState<MarklistType>("mid_term");
   const [selectedScopeKey, setSelectedScopeKey] = useState("");
   const [assessmentId, setAssessmentId] = useState<number | null>(null);
@@ -107,7 +108,7 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
   const selectScope = (value: string) => { setSelectedScopeKey(value); setAssessmentId(null); setDraftScores({}); };
   const openSelected = () => {
     if (!scope) return;
-    openAssessment.mutate({ academicYear: scope.academicYear, term: scope.term, assessmentType, gradeId: scope.gradeId, subjectId: scope.subjectId });
+    openAssessment.mutate({ academicYear: scope.academicYear, term: scope.term, assessmentType, gradeId: scope.gradeId, subjectId: scope.subjectId, customTitle: customTitle.trim() || undefined });
   };
   const persistRows = () => {
     if (!entry.data) return;
@@ -123,8 +124,8 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
     if (!marklist.data || !printRows) return;
     const XLSX = await import("xlsx");
     const data = marklist.data;
-    const headings = ["S.No.", "ADM No.", "STUDENT NAME", "ASS NO", "STREAM", "STREAM POS", "OVERALL POS", "PRV STR POS", "PRV OVR POS", ...data.subjects.map(subject => subject.code || subject.name), "SUB. ENTRY", "TOTAL MARKS", "AVG MARKS", "TOTAL POINTS", "AVG POINTS", "LEVEL"];
-    const rows = printRows.map(({ learner, position, totalPoints, averagePoints, level }, index) => [index + 1, learner.admissionNumber, learner.fullName, "", data.grade.stream || "—", position ?? "", position ?? "", "—", "—", ...learner.marks.map(mark => mark.score === null ? "X" : `${formatNumber(mark.score)} ${levelForScore(mark.score)}`), learner.enteredCount, learner.total ?? "—", learner.average ?? "—", totalPoints, averagePoints ?? "—", level ?? "—"]);
+    const headings = ["S.No.", "ASS NO", "STUDENT NAME", "STREAM", "STREAM POS", "OVERALL POS", "PRV STR POS", "PRV OVR POS", ...data.subjects.map(subject => subject.code || subject.name), "SUB. ENTRY", "TOTAL MARKS", "AVG MARKS", "TOTAL POINTS", "AVG POINTS", "LEVEL"];
+    const rows = printRows.map(({ learner, position, totalPoints, averagePoints, level }, index) => [index + 1, learner.admissionNumber, learner.fullName, data.grade.stream || "—", position ?? "", position ?? "", "—", "—", ...learner.marks.map(mark => mark.score === null ? "X" : `${formatNumber(mark.score)} ${levelForScore(mark.score)}`), learner.enteredCount, learner.total ?? "—", learner.average ?? "—", totalPoints, averagePoints ?? "—", level ?? "—"]);
     const summaryMarks = Array(15 + data.subjects.length).fill("");
     const summaryPoints = Array(15 + data.subjects.length).fill("");
     summaryMarks[0] = "SUBJECT AVG. MARKS";
@@ -175,12 +176,13 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
       <div><p className="eyebrow">Assessments · single source of truth</p><h1 className="mt-1 font-editorial text-3xl text-[#193d32]">Mark entry & class marklist</h1><p className="mt-2 max-w-3xl text-sm leading-6 text-[#69796f]">Marks are linked to year, term, assessment type, class, subject and allocated teacher. Report cards read directly from these records.</p></div>
       <div className="flex gap-2"><button type="button" className={`quiet-button ${mode === "entry" ? "bg-[#e7f0e7] text-[#1d6a57]" : ""}`} onClick={() => setMode("entry")}>Teacher entry</button><button type="button" className={`quiet-button ${mode === "marklist" ? "bg-[#e7f0e7] text-[#1d6a57]" : ""}`} onClick={() => setMode("marklist")}>Class marklist</button></div>
     </header>
-    <section className="soft-card grid gap-3 rounded-xl p-4 sm:grid-cols-[1fr_10rem_auto] sm:items-end">
+    <section className="soft-card grid gap-3 rounded-xl p-4 sm:grid-cols-[1fr_10rem_1.2fr_auto] sm:items-end">
       <label className="text-xs font-bold text-[#53675d]">Allocated class & subject<select value={selectedScopeKey} onChange={event => selectScope(event.target.value)} className="mt-2 w-full rounded-lg border border-[#d8ded7] bg-[#fffefa] px-3 py-2.5 text-sm">
         {!scopes.data?.length && <option value="">No active teacher allocations</option>}
         {scopes.data?.map(row => <option key={scopeKey(row)} value={scopeKey(row)}>{row.gradeName}{row.gradeStream ? ` ${row.gradeStream}` : ""} · {row.subjectName} · {row.term} {row.academicYear} · {row.teacherName}</option>)}
       </select></label>
       {mode === "entry" ? <label className="text-xs font-bold text-[#53675d]">Assessment type<select value={assessmentType} onChange={event => { setAssessmentType(event.target.value as AssessmentType); setAssessmentId(null); }} className="mt-2 w-full rounded-lg border border-[#d8ded7] bg-[#fffefa] px-3 py-2.5 text-sm"><option value="mid_term">Mid-Term</option><option value="end_term">End-Term</option></select></label> : <div className="text-xs text-[#718077]">Choose Mid-Term, End-Term, or Average below.</div>}
+      {mode === "entry" && <label className="text-xs font-bold text-[#53675d]">Create New Assessment<input value={customTitle} onChange={event => setCustomTitle(event.target.value)} maxLength={120} placeholder="Optional custom title" className="mt-2 w-full rounded-lg border border-[#d8ded7] bg-[#fffefa] px-3 py-2.5 text-sm" /></label>}
       {mode === "entry" && <button type="button" onClick={openSelected} disabled={!scope || openAssessment.isPending} className="action-button justify-center disabled:opacity-50">{openAssessment.isPending ? "Loading…" : "Load learner roster"}</button>}
     </section>
     {!scopes.isLoading && !scopes.data?.length && <section className="rounded-xl border border-dashed border-[#ccd8ce] bg-[#f7f8f3] p-5">
@@ -237,13 +239,13 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
         <table className="w-full min-w-[1380px] border-collapse text-[10px] leading-tight">
           <thead className="bg-[#e9e8e2] text-[#333]">
             <tr>
-              <th className="border border-[#a9a89f] px-1 py-1.5">S.No</th><th className="border border-[#a9a89f] px-1 py-1.5">ADM No.</th><th className="min-w-40 border border-[#a9a89f] px-1.5 py-1.5 text-left">STUDENT NAME</th><th className="border border-[#a9a89f] px-1 py-1.5">ASS NO</th><th className="border border-[#a9a89f] px-1 py-1.5">STREAM</th><th className="border border-[#a9a89f] px-1 py-1.5">STREAM POS</th><th className="border border-[#a9a89f] px-1 py-1.5">OVERALL POS</th><th className="border border-[#a9a89f] px-1 py-1.5">PRV STR POS</th><th className="border border-[#a9a89f] px-1 py-1.5">PRV OVR POS</th>
+              <th className="border border-[#a9a89f] px-1 py-1.5">S.No</th><th className="border border-[#a9a89f] px-1 py-1.5">ASS NO</th><th className="min-w-40 border border-[#a9a89f] px-1.5 py-1.5 text-left">STUDENT NAME</th><th className="border border-[#a9a89f] px-1 py-1.5">STREAM</th><th className="border border-[#a9a89f] px-1 py-1.5">STREAM POS</th><th className="border border-[#a9a89f] px-1 py-1.5">OVERALL POS</th><th className="border border-[#a9a89f] px-1 py-1.5">PRV STR POS</th><th className="border border-[#a9a89f] px-1 py-1.5">PRV OVR POS</th>
               {marklist.data.subjects.map(subject => <th key={subject.id} title={subject.name} className="min-w-[48px] border border-[#a9a89f] px-1 py-1.5">{subject.code || subject.name}</th>)}
               <th className="border border-[#a9a89f] px-1 py-1.5">SUB.<br/>ENTRY</th><th className="border border-[#a9a89f] px-1 py-1.5">TOTAL<br/>MARKS</th><th className="border border-[#a9a89f] px-1 py-1.5">AVG<br/>MARKS</th><th className="border border-[#a9a89f] px-1 py-1.5">TOTAL<br/>POINTS</th><th className="border border-[#a9a89f] px-1 py-1.5">AVG<br/>POINTS</th><th className="border border-[#a9a89f] px-1 py-1.5">LEVEL</th>
             </tr>
           </thead>
           <tbody>{printRows.map(({ learner, position, totalPoints, averagePoints, level }, index) => <tr key={learner.learnerId} className="even:bg-[#f8f7f3]">
-            <td className="border border-[#c9c8bf] px-1 py-1 text-center">{index + 1}</td><td className="border border-[#c9c8bf] px-1 py-1 text-center font-mono">{learner.admissionNumber}</td><td className="border border-[#c9c8bf] px-2 py-1 font-semibold">{learner.fullName}</td><td className="border border-[#c9c8bf] px-1 py-1 text-center">—</td><td className="border border-[#c9c8bf] px-1 py-1 text-center">{marklist.data!.grade.stream || "—"}</td>
+            <td className="border border-[#c9c8bf] px-1 py-1 text-center">{index + 1}</td><td className="border border-[#c9c8bf] px-1 py-1 text-center font-mono">{learner.admissionNumber}</td><td className="border border-[#c9c8bf] px-2 py-1 font-semibold">{learner.fullName}</td><td className="border border-[#c9c8bf] px-1 py-1 text-center">{marklist.data!.grade.stream || "—"}</td>
             <td className="border border-[#c9c8bf] px-1 py-1 text-center">{position ?? "—"}</td><td className="border border-[#c9c8bf] px-1 py-1 text-center">{position ?? "—"}</td><td className="border border-[#c9c8bf] px-1 py-1 text-center">—</td><td className="border border-[#c9c8bf] px-1 py-1 text-center">—</td>
             {learner.marks.map(mark => <td key={mark.subjectId} className="border border-[#c9c8bf] px-1 py-1 text-center">{mark.score === null ? "X" : `${formatNumber(mark.score)} ${levelForScore(mark.score)}`}</td>)}
             <td className="border border-[#c9c8bf] px-1 py-1 text-center">{learner.enteredCount}</td><td className="border border-[#c9c8bf] px-1 py-1 text-center">{formatNumber(learner.total)}</td><td className="border border-[#c9c8bf] px-1 py-1 text-center">{formatNumber(learner.average)}</td><td className="border border-[#c9c8bf] px-1 py-1 text-center">{totalPoints}</td><td className="border border-[#c9c8bf] px-1 py-1 text-center">{formatNumber(averagePoints)}</td><td className="border border-[#c9c8bf] px-1 py-1 text-center font-bold">{level ?? "—"}</td>

@@ -632,14 +632,16 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
   const unplaced: Array<{ grade: string; subject: string; missing: number }> = []; let placed = 0;
   for (const row of requirements) {
     const key = `${row.requirement.gradeId}:${row.requirement.subjectId}`; const needed = Math.max(0, row.requirement.periodsPerWeek - (counts.get(key) ?? 0)); const teachers = Array.from(new Set(eligibleByGradeSubject.get(key) ?? [])); let missing = needed;
+    const mustBeBeforeLunch = /\b(english|kiswahili|french|arabic|german|mandarin|physical education|pe|games)\b/i.test(row.subject.name);
+    const latestAllowedPeriod = mustBeBeforeLunch ? Math.min(6, periodsPerDay) : periodsPerDay;
     for (let lesson = 0; lesson < needed; lesson += 1) {
       let best: { teacherId: number; day: number; period: number; load: number } | null = null;
-      for (let day = 1; day <= days; day += 1) for (let period = 1; period <= periodsPerDay; period += 1) { if (occupied.has(`${row.requirement.gradeId}:${day}:${period}`)) continue; for (const teacherId of teachers) { if (teacherBusy.has(`${teacherId}:${day}:${period}`)) continue; const load = teacherLoad.get(teacherId) ?? 0; if (!best || load < best.load) best = { teacherId, day, period, load }; } }
+      for (let day = 1; day <= days; day += 1) for (let period = 1; period <= latestAllowedPeriod; period += 1) { if (occupied.has(`${row.requirement.gradeId}:${day}:${period}`)) continue; for (const teacherId of teachers) { if (teacherBusy.has(`${teacherId}:${day}:${period}`)) continue; const load = teacherLoad.get(teacherId) ?? 0; if (!best || load < best.load) best = { teacherId, day, period, load }; } }
       if (!best) continue;
       await db.insert(timetableEntries).values({ gradeId: row.requirement.gradeId, subjectId: row.requirement.subjectId, teacherUserId: best.teacherId, dayOfWeek: best.day, period: best.period, room: null });
       occupied.add(`${row.requirement.gradeId}:${best.day}:${best.period}`); teacherBusy.add(`${best.teacherId}:${best.day}:${best.period}`); teacherLoad.set(best.teacherId, best.load + 1); placed += 1; missing -= 1;
     }
-    if (missing > 0) unplaced.push({ grade: row.grade.name, subject: row.subject.name, missing });
+    if (missing > 0) unplaced.push({ grade: row.grade.name, subject: `${row.subject.name}${mustBeBeforeLunch ? " (pre-lunch constraint)" : ""}`, missing });
   }
   await writeAudit(userId, "timetable.generate.automatic", "timetable", null, { academicYear, placed, unplaced, regenerate: input.regenerate });
   return { placed, unplaced, regenerated: input.regenerate, requirements: requirements.length, slots: days * periodsPerDay };
