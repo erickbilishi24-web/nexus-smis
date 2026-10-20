@@ -13,6 +13,7 @@ import { clockIn, getClockingSetup, saveSchoolLocation } from "./clocking";
 import { listMessageGrades, listMessageRecipients, listNexusMessages, previewMessageRecipients, queueNexusMessage } from "./messages";
 import { getCurriculumSetup, saveCurriculumSelections, saveEnabledSchoolLevels } from "./curriculum";
 import { listNexusAiTransactions } from "./ai-payments";
+import { addCounsellingNote, completeLearner, createBehaviourRecord, createCounsellingCase, createFollowUp, getArchiveFinance, listAlumniRecords, listArchiveLearners, listCounsellingCases, listApprovedBehaviour } from "./archives";
 import { approveRollover, excludeRolloverItem, listAcademicStructure, listRollover, previewRollover, reverseRollover, saveAcademicTerm, saveAcademicYear } from "./academic";
 import { addLibraryBook, batchCheckoutLibraryBooks, checkoutLibraryBook, libraryLookups, libraryOverview, listLibraryBooks, listLibraryLoans, renewLibraryLoan, returnLibraryBook } from "./library";
 import {
@@ -215,6 +216,20 @@ export const appRouter = router({
       catalog: permissionProcedure("assessments.view").query(() => listAcademicCatalog()),
       guardians: permissionProcedure("learners.view").input(z.object({ search: z.string().optional() }).optional()).query(({ input }) => listGuardians(input?.search)),
       addGuardian: permissionProcedure("learners.add").input(z.object({ fullName: z.string().min(1).max(160), phone: z.string().max(40).nullable().optional(), email: z.string().email().nullable().optional(), communicationPreference: z.enum(["sms", "email", "phone"]), learnerId: z.number().int().positive().optional(), relationship: z.string().max(80).optional() })).mutation(({ input, ctx }) => saveGuardian(input, currentUserId(ctx.user))),
+    }),
+    archives: router({
+      list: permissionProcedure("archives.view").input(z.object({ search: z.string().max(160).optional(), year: z.number().int().optional(), status: z.string().max(30).optional() }).optional()).query(({ input }) => listArchiveLearners(input ?? {})),
+      alumni: permissionProcedure("archives.view").input(z.object({ year: z.number().int().optional(), search: z.string().max(160).optional() }).optional()).query(({ input }) => listAlumniRecords(input ?? {})),
+      finance: permissionProcedure("finance.view").input(z.object({ learnerId: z.number().int().positive() })).query(({ input }) => getArchiveFinance(input.learnerId)),
+      exit: permissionProcedure("archives.edit").input(z.object({ learnerId: z.number().int().positive(), status: z.enum(["completed", "graduated", "transferred", "withdrawn", "other"]), effectiveDate: z.string().date(), reason: z.string().trim().min(3).max(255), finalGradeId: z.number().int().positive().optional(), notes: z.string().max(4000).optional(), destination: z.string().max(160).optional() })).mutation(({ input, ctx }) => completeLearner(input, currentUserId(ctx.user))),
+      behaviour: permissionProcedure("archives.view").input(z.object({ learnerId: z.number().int().positive() })).query(({ input }) => listApprovedBehaviour(input.learnerId)),
+      addBehaviour: permissionProcedure("archives.edit").input(z.object({ learnerId: z.number().int().positive(), category: z.string().min(2).max(80), summary: z.string().min(2).max(500), outcome: z.string().max(500).optional(), isApprovedForReport: z.boolean().optional() })).mutation(({ input, ctx }) => createBehaviourRecord(input, currentUserId(ctx.user))),
+    }),
+    counselling: router({
+      list: permissionProcedure("counselling.view").input(z.object({ includeArchived: z.boolean().optional() }).optional()).query(({ input }) => listCounsellingCases(input?.includeArchived ?? false)),
+      create: permissionProcedure("counselling.submit").input(z.object({ learnerId: z.number().int().positive(), concern: z.string().trim().min(3).max(255), referralSource: z.string().max(80).optional(), assignedCounsellorUserId: z.number().int().positive().optional(), reviewDate: z.string().date().optional() })).mutation(({ input, ctx }) => createCounsellingCase(input, currentUserId(ctx.user))),
+      addNote: permissionProcedure("counselling.edit").input(z.object({ caseId: z.number().int().positive(), note: z.string().trim().min(3).max(10000) })).mutation(({ input, ctx }) => addCounsellingNote(input, currentUserId(ctx.user))),
+      followUp: permissionProcedure("counselling.edit").input(z.object({ caseId: z.number().int().positive(), scheduledFor: z.string().date(), action: z.string().trim().min(3).max(255) })).mutation(({ input, ctx }) => createFollowUp(input, currentUserId(ctx.user))),
     }),
     notifications: router({
       list: permissionProcedure("communication.edit").query(() => listNotifications()),

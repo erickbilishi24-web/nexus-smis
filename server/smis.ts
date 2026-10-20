@@ -38,9 +38,9 @@ import {
 
 export const permissionsByRole: Record<string, string[]> = {
   super_admin: ["*"],
-  admin: ["dashboard.view", "learners.view", "learners.add", "learners.edit", "learners.deactivate", "attendance.view", "attendance.edit", "assessments.view", "assessments.edit", "reports.view", "finance.view", "finance.edit", "store.view", "store.edit", "timetable.view", "timetable.edit", "communication.edit", "alumni.edit", "users.edit", "settings.edit", "audit.view", "allocations.view", "allocations.create", "allocations.edit", "allocations.deactivate", "allocations.replace", "allocations.bulk"],
-  teacher: ["dashboard.view", "attendance.view", "assessments.view", "assessments.edit", "timetable.view", "allocations.view"],
-  class_teacher: ["dashboard.view", "attendance.view", "attendance.edit", "assessments.view", "assessments.edit", "reports.view", "timetable.view", "allocations.view"],
+  admin: ["dashboard.view", "learners.view", "learners.add", "learners.edit", "learners.deactivate", "attendance.view", "attendance.edit", "assessments.view", "assessments.edit", "reports.view", "finance.view", "finance.edit", "store.view", "store.edit", "timetable.view", "timetable.edit", "communication.edit", "alumni.edit", "archives.view", "archives.edit", "counselling.submit", "users.edit", "settings.edit", "audit.view", "allocations.view", "allocations.create", "allocations.edit", "allocations.deactivate", "allocations.replace", "allocations.bulk"],
+  teacher: ["dashboard.view", "attendance.view", "assessments.view", "assessments.edit", "counselling.submit", "timetable.view", "allocations.view"],
+  class_teacher: ["dashboard.view", "attendance.view", "attendance.edit", "assessments.view", "assessments.edit", "reports.view", "counselling.submit", "timetable.view", "allocations.view"],
   finance: ["dashboard.view", "finance.view", "finance.edit", "attendance.view", "attendance.edit"],
   storekeeper: ["dashboard.view", "store.view", "store.edit"],
   other: ["dashboard.view"],
@@ -50,7 +50,7 @@ export const permissionCatalog = [
   ["learners.view", "View learners"], ["learners.add", "Add learners"], ["learners.edit", "Edit learners"], ["learners.deactivate", "Deactivate learners"],
   ["attendance.view", "View attendance"], ["attendance.edit", "Enter and edit attendance"], ["assessments.view", "View marks"], ["assessments.edit", "Enter and edit marks"],
   ["reports.view", "View reports"], ["finance.view", "View finance"], ["finance.edit", "Record payments and expenditure"], ["store.view", "View inventory"], ["store.edit", "Manage inventory"],
-  ["timetable.view", "View timetable"], ["timetable.edit", "Edit timetable"], ["allocations.view", "View teacher allocations"], ["allocations.create", "Create allocations"], ["allocations.edit", "Edit allocations"], ["allocations.deactivate", "Deactivate allocations"], ["allocations.replace", "Replace teachers"], ["allocations.bulk", "Bulk allocation"], ["communication.edit", "Manage communication"], ["alumni.edit", "Manage alumni"], ["users.edit", "Manage users"], ["settings.edit", "Manage settings"], ["ai.access", "Access NEXUS AI"], ["audit.view", "View audit logs"],
+  ["timetable.view", "View timetable"], ["timetable.edit", "Edit timetable"], ["allocations.view", "View teacher allocations"], ["allocations.create", "Create allocations"], ["allocations.edit", "Edit allocations"], ["allocations.deactivate", "Deactivate allocations"], ["allocations.replace", "Replace teachers"], ["allocations.bulk", "Bulk allocation"], ["communication.edit", "Manage communication"], ["alumni.edit", "Manage alumni"], ["archives.view", "View academic archives and alumni"], ["archives.edit", "Process learner exits"], ["counselling.submit", "Submit counselling referrals"], ["counselling.view", "View confidential counselling cases"], ["counselling.edit", "Manage confidential counselling cases"], ["users.edit", "Manage users"], ["settings.edit", "Manage settings"], ["ai.access", "Access NEXUS AI"], ["audit.view", "View audit logs"],
 ] as const;
 
 export async function effectivePermissions(userId: number, role: string) {

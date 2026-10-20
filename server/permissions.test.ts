@@ -26,5 +26,10 @@ describe("NEXUS-SMIS permission model", () => {
     expect(permissionsByRole.finance).not.toContain("reports.view");
     expect(permissionsByRole.storekeeper).toContain("store.edit");
     expect(permissionsByRole.storekeeper).not.toContain("finance.view");
+    expect(permissionsByRole.teacher).toContain("counselling.submit");
+    expect(permissionsByRole.teacher).not.toContain("counselling.view");
+    expect(permissionsByRole.admin).toContain("archives.view");
+    expect(permissionsByRole.admin).toContain("archives.edit");
+    expect(permissionsByRole.admin).not.toContain("counselling.view");
   });
 });

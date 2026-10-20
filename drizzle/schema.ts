@@ -289,9 +289,67 @@ export const alumni = mysqlTable("alumni", {
   id: int("id").autoincrement().primaryKey(),
   learnerId: int("learnerId").notNull().unique(),
   completionYear: int("completionYear").notNull(),
+  finalGradeId: int("finalGradeId"),
+  finalClassName: varchar("finalClassName", { length: 120 }),
+  completionStatus: mysqlEnum("completionStatus", ["completed", "graduated", "transferred", "withdrawn", "other"]).notNull().default("completed"),
+  completionDate: date("completionDate"),
   destination: varchar("destination", { length: 160 }),
+  contactPhone: varchar("contactPhone", { length: 40 }),
+  engagementNotes: text("engagementNotes"),
   archivedAt: timestamp("archivedAt").defaultNow().notNull(),
   archivedByUserId: int("archivedByUserId").notNull(),
+});
+export const learnerExits = mysqlTable("learner_exits", {
+  id: int("id").autoincrement().primaryKey(),
+  learnerId: int("learnerId").notNull(),
+  status: mysqlEnum("status", ["completed", "graduated", "transferred", "withdrawn", "other"]).notNull(),
+  effectiveDate: date("effectiveDate").notNull(),
+  reason: varchar("reason", { length: 255 }).notNull(),
+  finalGradeId: int("finalGradeId"),
+  notes: text("notes"),
+  processedByUserId: int("processedByUserId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => ({ learnerExitDateUnique: uniqueIndex("learner_exit_date_unique").on(table.learnerId, table.effectiveDate) }));
+export const counsellingCases = mysqlTable("counselling_cases", {
+  id: int("id").autoincrement().primaryKey(),
+  learnerId: int("learnerId").notNull(),
+  referralSource: varchar("referralSource", { length: 80 }).notNull().default("staff"),
+  concern: varchar("concern", { length: 255 }).notNull(),
+  status: mysqlEnum("status", ["open", "in_progress", "closed", "archived"]).notNull().default("open"),
+  assignedCounsellorUserId: int("assignedCounsellorUserId"),
+  interventionPlan: text("interventionPlan"),
+  closureOutcome: text("closureOutcome"),
+  reviewDate: date("reviewDate"),
+  createdByUserId: int("createdByUserId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export const counsellingNotes = mysqlTable("counselling_notes", {
+  id: int("id").autoincrement().primaryKey(),
+  caseId: int("caseId").notNull(),
+  note: text("note").notNull(),
+  createdByUserId: int("createdByUserId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export const counsellingFollowUps = mysqlTable("counselling_follow_ups", {
+  id: int("id").autoincrement().primaryKey(),
+  caseId: int("caseId").notNull(),
+  scheduledFor: date("scheduledFor").notNull(),
+  action: varchar("action", { length: 255 }).notNull(),
+  status: mysqlEnum("status", ["pending", "completed", "cancelled"]).notNull().default("pending"),
+  completedAt: timestamp("completedAt"),
+  createdByUserId: int("createdByUserId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export const behaviourRecords = mysqlTable("behaviour_records", {
+  id: int("id").autoincrement().primaryKey(),
+  learnerId: int("learnerId").notNull(),
+  category: varchar("category", { length: 80 }).notNull(),
+  summary: varchar("summary", { length: 500 }).notNull(),
+  outcome: varchar("outcome", { length: 500 }),
+  isApprovedForReport: int("isApprovedForReport").notNull().default(0),
+  recordedByUserId: int("recordedByUserId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
 export const auditLogs = mysqlTable("smis_audit_logs", {
