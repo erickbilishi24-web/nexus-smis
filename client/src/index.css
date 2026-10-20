@@ -159,6 +159,26 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgb(29 106 87 / 2
   }
 }
 
+.marklist-print {
+  max-width: 100%;
+}
+
+.marklist-print table {
+  table-layout: fixed;
+}
+
+.marklist-print th,
+.marklist-print td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.marklist-print th:nth-child(3),
+.marklist-print td:nth-child(3) {
+  width: 18%;
+}
+
 @media print {
   body * { visibility: hidden !important; }
   .personal-timetable-paper, .personal-timetable-paper * { visibility: visible !important; }
@@ -205,7 +225,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgb(29 106 87 / 2
   .assessment-workspace .marklist-print table {
     width: 100%;
     min-width: 0 !important;
-    table-layout: auto;
+    table-layout: fixed;
     font-size: 6.5pt;
   }
 

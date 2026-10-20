@@ -10,6 +10,14 @@ type ViewMode = "entry" | "marklist";
 const assessmentLabel = (type: AssessmentType) => type === "mid_term" ? "Mid-Term" : "End-Term";
 const marklistLabel = (type: MarklistType) => type === "average" ? "Average" : assessmentLabel(type);
 const scopeKey = (scope: { academicYear: number; term: string; gradeId: number; subjectId: number }) => `${scope.academicYear}:${scope.term}:${scope.gradeId}:${scope.subjectId}`;
+const subjectAbbreviation = (name: string, code?: string | null) => {
+  const normalized = name.trim().toLowerCase().replace(/\s+/g, " ");
+  const known: Record<string, string> = { english: "ENG", kiswahili: "KIS", "integrated science": "INT SCI", "integrated sciences": "INT SCI", "social studies": "SST", "social studies and life skills": "SST", mathematics: "MATH", math: "MATH", "creative arts and sports": "CAS", "creative arts": "CA", agriculture: "AGRI", "religious education": "RE", "christian religious education": "CRE", "islamic religious education": "IRE", "business studies": "BST", "computer studies": "COMP", "life skills": "LIFE", "physical education": "PE", science: "SCI" };
+  if (known[normalized]) return known[normalized];
+  const compactCode = code?.trim().toUpperCase().replace(/[^A-Z0-9 ]/g, " ").replace(/\s+/g, " ");
+  if (compactCode && compactCode.length <= 8) return compactCode;
+  return name.trim().split(/\s+/).map(word => word[0]).join("").toUpperCase().slice(0, 6) || "SUBJ";
+};
 const LEVEL_POINTS: Record<string, number> = { EE1: 8, EE2: 7, ME1: 6, ME2: 5, AE1: 4, AE2: 3, BE1: 2, BE2: 1 };
 const levelPoints = (level: string | null) => level ? LEVEL_POINTS[level] ?? null : null;
 const levelForScore = (score: number | null) => score === null ? null : score >= 90 ? "EE1" : score >= 75 ? "EE2" : score >= 58 ? "ME1" : score >= 41 ? "ME2" : score >= 31 ? "AE1" : score >= 21 ? "AE2" : score >= 11 ? "BE1" : "BE2";
@@ -124,7 +132,7 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
     if (!marklist.data || !printRows) return;
     const XLSX = await import("xlsx");
     const data = marklist.data;
-    const headings = ["S.No.", "ASS NO", "STUDENT NAME", "STREAM", "STREAM POS", "OVERALL POS", "PRV STR POS", "PRV OVR POS", ...data.subjects.map(subject => subject.code || subject.name), "SUB. ENTRY", "TOTAL MARKS", "AVG MARKS", "TOTAL POINTS", "AVG POINTS", "LEVEL"];
+    const headings = ["S.No.", "ASS NO", "STUDENT NAME", "STREAM", "STREAM POS", "OVERALL POS", "PRV STR POS", "PRV OVR POS", ...data.subjects.map(subject => subjectAbbreviation(subject.name, subject.code)), "SUB. ENTRY", "TOTAL MARKS", "AVG MARKS", "TOTAL POINTS", "AVG POINTS", "LEVEL"];
     const rows = printRows.map(({ learner, position, totalPoints, averagePoints, level }, index) => [index + 1, learner.admissionNumber, learner.fullName, data.grade.stream || "—", position ?? "", position ?? "", "—", "—", ...learner.marks.map(mark => mark.score === null ? "X" : `${formatNumber(mark.score)} ${levelForScore(mark.score)}`), learner.enteredCount, learner.total ?? "—", learner.average ?? "—", totalPoints, averagePoints ?? "—", level ?? "—"]);
     const summaryMarks = Array(15 + data.subjects.length).fill("");
     const summaryPoints = Array(15 + data.subjects.length).fill("");
@@ -236,11 +244,11 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
         </div>
       </section>
       {marklist.data && printRows && <div className="marklist-print overflow-x-auto rounded-xl border border-[#e7e2d7] bg-white">
-        <table className="w-full min-w-[1380px] border-collapse text-[10px] leading-tight">
+        <table className="w-full min-w-0 border-collapse text-[9px] leading-tight">
           <thead className="bg-[#e9e8e2] text-[#333]">
             <tr>
               <th className="border border-[#a9a89f] px-1 py-1.5">S.No</th><th className="border border-[#a9a89f] px-1 py-1.5">ASS NO</th><th className="min-w-40 border border-[#a9a89f] px-1.5 py-1.5 text-left">STUDENT NAME</th><th className="border border-[#a9a89f] px-1 py-1.5">STREAM</th><th className="border border-[#a9a89f] px-1 py-1.5">STREAM POS</th><th className="border border-[#a9a89f] px-1 py-1.5">OVERALL POS</th><th className="border border-[#a9a89f] px-1 py-1.5">PRV STR POS</th><th className="border border-[#a9a89f] px-1 py-1.5">PRV OVR POS</th>
-              {marklist.data.subjects.map(subject => <th key={subject.id} title={subject.name} className="min-w-[48px] border border-[#a9a89f] px-1 py-1.5">{subject.code || subject.name}</th>)}
+              {marklist.data.subjects.map(subject => <th key={subject.id} title={subject.name} className="min-w-[42px] border border-[#a9a89f] px-1 py-1.5">{subjectAbbreviation(subject.name, subject.code)}</th>)}
               <th className="border border-[#a9a89f] px-1 py-1.5">SUB.<br/>ENTRY</th><th className="border border-[#a9a89f] px-1 py-1.5">TOTAL<br/>MARKS</th><th className="border border-[#a9a89f] px-1 py-1.5">AVG<br/>MARKS</th><th className="border border-[#a9a89f] px-1 py-1.5">TOTAL<br/>POINTS</th><th className="border border-[#a9a89f] px-1 py-1.5">AVG<br/>POINTS</th><th className="border border-[#a9a89f] px-1 py-1.5">LEVEL</th>
             </tr>
           </thead>
@@ -253,7 +261,7 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
         </table>
         <div className="marklist-summary mt-4 flex flex-wrap items-end justify-between gap-4">
           <table className="border-collapse text-[10px]">
-            <thead><tr><th className="border border-[#a9a89f] px-2 py-1.5 text-left">SUBJECT</th>{subjectSummary.map(row => <th key={row.subject.id} className="border border-[#a9a89f] px-2 py-1.5">{row.subject.code || row.subject.name}</th>)}</tr></thead>
+            <thead><tr><th className="border border-[#a9a89f] px-2 py-1.5 text-left">SUBJECT</th>{subjectSummary.map(row => <th key={row.subject.id} title={row.subject.name} className="border border-[#a9a89f] px-2 py-1.5">{subjectAbbreviation(row.subject.name, row.subject.code)}</th>)}</tr></thead>
             <tbody>
               <tr><th className="border border-[#a9a89f] px-2 py-1.5 text-left">AVG. MARKS</th>{subjectSummary.map(row => <td key={row.subject.id} className="border border-[#a9a89f] px-2 py-1.5 text-center">{row.averageMark === null ? "—" : `${formatNumber(row.averageMark)}%`}</td>)}</tr>
               <tr><th className="border border-[#a9a89f] px-2 py-1.5 text-left">AVG. POINTS</th>{subjectSummary.map(row => <td key={row.subject.id} className="border border-[#a9a89f] px-2 py-1.5 text-center">{row.averagePoints === null ? "—" : `${formatNumber(row.averagePoints, 4)} ${levelForScore(row.averageMark) ?? ""}`}</td>)}</tr>
