@@ -1094,9 +1094,10 @@ export function allocationContextConflict(input: { gradeId: number; subjectId: n
   if (existing.status !== "active" || existing.gradeId !== input.gradeId) return false;
   if (input.allocationType === "class_teacher") return existing.allocationType === "class_teacher";
   if (existing.allocationType === "class_teacher" || existing.subjectId !== input.subjectId) return false;
-  const start = input.startsOn ?? null; const end = input.endsOn ?? null;
-  const existingStart = existing.startsOn ? String(existing.startsOn).slice(0, 10) : null; const existingEnd = existing.endsOn ? String(existing.endsOn).slice(0, 10) : null;
-  return (!existingStart || !end || existingStart <= end) && (!existingEnd || !start || existingEnd >= start);
+  // A subject belongs to one teacher per grade, academic year and term.
+  // Date fields describe the assignment period; they must not create a second
+  // active owner for the same subject when an administrator enters different dates.
+  return true;
 }
 
 export async function saveTeacherAllocation(input: { teacherUserId: number; gradeId: number; subjectId: number; academicYear: number; term: string; allocationType: AllocationType; startsOn?: string | null; endsOn?: string | null }, userId: number) {
