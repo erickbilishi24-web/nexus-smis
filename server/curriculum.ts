@@ -4,7 +4,7 @@ import { requireDb, writeAudit } from "./smis";
 
 export const KICD_CURRICULUM_SOURCE = "https://kicd.ac.ke/wp-content/uploads/2017/10/CURRICULUMFRAMEWORK.pdf";
 export const KICD_DESIGNS_SOURCE = "https://kicd.ac.ke/cbc-materials/curriculum-designs/";
-export const SCHOOL_LEVELS = ["ECDE", "Primary", "Junior School", "Senior School"] as const;
+export const SCHOOL_LEVELS = ["ECDE", "Lower Primary", "Upper Primary", "Junior School", "Senior School"] as const;
 const DEFAULT_LEVELS = [...SCHOOL_LEVELS];
 
 type Entry = { level: string; grade: string; area: string; pathway?: string };
@@ -24,8 +24,8 @@ const senior: Record<string, string[]> = {
 export function curriculumCatalogue(): Entry[] {
   const rows: Entry[] = [];
   for (const grade of ["PP1", "PP2"]) for (const area of ["Language Activities", "Mathematical Activities", "Environmental Activities", "Psychomotor and Creative Activities", "Religious Activities"]) rows.push({ level: "ECDE", grade, area });
-  for (const grade of ["Grade 1", "Grade 2", "Grade 3"]) for (const area of sharedPrimary) rows.push({ level: "Primary", grade, area });
-  for (const grade of ["Grade 4", "Grade 5", "Grade 6"]) for (const area of upperPrimary) rows.push({ level: "Primary", grade, area });
+  for (const grade of ["Grade 1", "Grade 2", "Grade 3"]) for (const area of sharedPrimary) rows.push({ level: "Lower Primary", grade, area });
+  for (const grade of ["Grade 4", "Grade 5", "Grade 6"]) for (const area of upperPrimary) rows.push({ level: "Upper Primary", grade, area });
   for (const grade of ["Grade 7", "Grade 8", "Grade 9"]) for (const area of junior) rows.push({ level: "Junior School", grade, area });
   for (const grade of ["Grade 10", "Grade 11", "Grade 12"]) for (const [pathway, areas] of Object.entries(senior)) for (const area of areas) rows.push({ level: "Senior School", grade, pathway, area });
   return rows;
@@ -34,13 +34,14 @@ export function curriculumCatalogue(): Entry[] {
 export async function getCurriculumSetup() {
   const db = await requireDb();
   const [saved, settings] = await Promise.all([db.select().from(curriculumOfferings).orderBy(asc(curriculumOfferings.level), asc(curriculumOfferings.gradeLabel), asc(curriculumOfferings.pathway), asc(curriculumOfferings.learningArea)), db.select({ enabledSchoolLevels: schoolSettings.enabledSchoolLevels }).from(schoolSettings).limit(1)]);
-  const levels = settings[0]?.enabledSchoolLevels?.split(",").filter(level => SCHOOL_LEVELS.includes(level as typeof SCHOOL_LEVELS[number])) ?? DEFAULT_LEVELS;
+  const storedLevels = settings[0]?.enabledSchoolLevels?.split(",") ?? [];
+  const levels = storedLevels.flatMap(level => level === "Primary" ? ["Lower Primary", "Upper Primary"] : level).filter(level => SCHOOL_LEVELS.includes(level as typeof SCHOOL_LEVELS[number]));
   return { source: KICD_CURRICULUM_SOURCE, designsSource: KICD_DESIGNS_SOURCE, catalogue: curriculumCatalogue(), saved, enabledSchoolLevels: levels };
 }
 
 export async function saveEnabledSchoolLevels(levels: string[], userId: number) {
   const db = await requireDb();
-  const selected = Array.from(new Set(levels.filter(level => SCHOOL_LEVELS.includes(level as typeof SCHOOL_LEVELS[number]))));
+  const selected = Array.from(new Set(levels.flatMap(level => level === "Primary" ? ["Lower Primary", "Upper Primary"] : level).filter(level => SCHOOL_LEVELS.includes(level as typeof SCHOOL_LEVELS[number]))));
   if (!selected.length) throw new Error("SCHOOL_LEVEL_REQUIRED");
   const current = (await db.select({ id: schoolSettings.id }).from(schoolSettings).limit(1))[0];
   if (!current) throw new Error("SCHOOL_SETTINGS_REQUIRED");

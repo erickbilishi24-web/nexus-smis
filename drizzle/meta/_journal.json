@@ -204,6 +204,13 @@
       "when": 1792571421992,
       "tag": "0028_harsh_bushwacker",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "5",
+      "when": 1792595745076,
+      "tag": "0029_fearless_vision",
+      "breakpoints": true
     }
   ]
 }

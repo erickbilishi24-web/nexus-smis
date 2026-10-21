@@ -543,7 +543,7 @@ export async function getPersonalTimetable(userId: number) {
   const profile = (await db.select({ displayName: staffProfiles.displayName, teacherCode: staffProfiles.teacherCode }).from(staffProfiles).where(eq(staffProfiles.userId, userId)).limit(1))[0];
   const user = (await db.select({ name: users.name, username: users.username }).from(users).where(eq(users.id, userId)).limit(1))[0];
   const settings = (await db.select({ enabledSchoolLevels: schoolSettings.enabledSchoolLevels }).from(schoolSettings).limit(1))[0];
-  const enabledLevels = new Set((settings?.enabledSchoolLevels || "ECDE,Primary,Junior School,Senior School").split(","));
+  const enabledLevels = new Set((settings?.enabledSchoolLevels || "ECDE,Lower Primary,Upper Primary,Junior School,Senior School").split(",").flatMap(level => level === "Primary" ? ["Lower Primary", "Upper Primary"] : level));
   const relevantAreas = new Set(curriculumCatalogue().filter(row => enabledLevels.has(row.level)).map(row => row.area.toLowerCase()));
   const entries = await db.select({ entry: timetableEntries, grade: grades, subject: subjects })
     .from(timetableEntries)
@@ -553,7 +553,7 @@ export async function getPersonalTimetable(userId: number) {
     .orderBy(timetableEntries.dayOfWeek, timetableEntries.period);
   const visibleEntries = entries.filter(row => {
     const grade = row.grade?.name?.toLowerCase() ?? "";
-    const levelVisible = (enabledLevels.has("ECDE") && /^(pp|pre-primary)/i.test(grade)) || (enabledLevels.has("Primary") && /^grade [1-6]$/i.test(grade)) || (enabledLevels.has("Junior School") && /^grade [7-9]$/i.test(grade)) || (enabledLevels.has("Senior School") && /^grade (10|11|12)$/i.test(grade));
+    const levelVisible = (enabledLevels.has("ECDE") && /^(pp|pre-primary)/i.test(grade)) || ((enabledLevels.has("Lower Primary") && /^grade [1-3]$/i.test(grade)) || (enabledLevels.has("Upper Primary") && /^grade [4-6]$/i.test(grade))) || (enabledLevels.has("Junior School") && /^grade [7-9]$/i.test(grade)) || (enabledLevels.has("Senior School") && /^grade (10|11|12)$/i.test(grade));
     return levelVisible && (!row.subject || relevantAreas.has(row.subject.name.toLowerCase()));
   });
   return { teacherName: profile?.displayName ?? user?.name ?? user?.username ?? "Teacher", teacherCode: profile?.teacherCode ?? null, entries: visibleEntries };
@@ -1002,7 +1002,7 @@ export async function updateStaffRole(input: { staffProfileId: number; role: Sta
 export async function listAcademicCatalog() {
   const db = await requireDb();
   const [allGradeRows, existingSubjects, settings] = await Promise.all([db.select().from(grades).orderBy(grades.name, grades.stream), db.select().from(subjects).orderBy(subjects.name), db.select({ enabledSchoolLevels: schoolSettings.enabledSchoolLevels }).from(schoolSettings).limit(1)]);
-  const enabledLevels = new Set((settings[0]?.enabledSchoolLevels || "ECDE,Primary,Junior School,Senior School").split(","));
+  const enabledLevels = new Set((settings[0]?.enabledSchoolLevels || "ECDE,Lower Primary,Upper Primary,Junior School,Senior School").split(",").flatMap(level => level === "Primary" ? ["Lower Primary", "Upper Primary"] : level));
   const existingNames = new Set(existingSubjects.map(subject => subject.name.toLowerCase()));
   const existingCodes = new Set(existingSubjects.map(subject => subject.code.toLowerCase()));
   const missing = Array.from(new Set(curriculumCatalogue().map(row => row.area))).filter(name => !existingNames.has(name.toLowerCase())).map((name, index) => {
@@ -1019,7 +1019,7 @@ export async function listAcademicCatalog() {
   const subjectsByLevel = Object.fromEntries(Array.from(enabledLevels).map(level => [level, subjectRows.filter(subject => new Set(catalogue.filter(row => row.level === level).map(row => row.area.toLowerCase())).has(subject.name.toLowerCase()))]));
   const gradeRows = allGradeRows.filter(row => {
     const name = row.name.toLowerCase();
-    return (enabledLevels.has("ECDE") && /^(pp|pre-primary)/i.test(name)) || (enabledLevels.has("Primary") && /^grade [1-6]$/i.test(name)) || (enabledLevels.has("Junior School") && /^grade [7-9]$/i.test(name)) || (enabledLevels.has("Senior School") && /^grade (10|11|12)$/i.test(name));
+    return (enabledLevels.has("ECDE") && /^(pp|pre-primary)/i.test(name)) || (enabledLevels.has("Lower Primary") && /^grade [1-3]$/i.test(name)) || (enabledLevels.has("Upper Primary") && /^grade [4-6]$/i.test(name)) || (enabledLevels.has("Primary") && /^grade [1-6]$/i.test(name)) || (enabledLevels.has("Junior School") && /^grade [7-9]$/i.test(name)) || (enabledLevels.has("Senior School") && /^grade (10|11|12)$/i.test(name));
   });
   return { grades: gradeRows, subjects: subjectRows.filter(subject => relevantAreas.has(subject.name.toLowerCase())), subjectsByLevel };
 }
