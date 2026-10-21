@@ -1014,12 +1014,14 @@ export async function listAcademicCatalog() {
   });
   if (missing.length) await db.insert(subjects).values(missing);
   const subjectRows = missing.length ? await db.select().from(subjects).orderBy(subjects.name) : existingSubjects;
-  const relevantAreas = new Set(curriculumCatalogue().filter(row => enabledLevels.has(row.level)).map(row => row.area.toLowerCase()));
+  const catalogue = curriculumCatalogue();
+  const relevantAreas = new Set(catalogue.filter(row => enabledLevels.has(row.level)).map(row => row.area.toLowerCase()));
+  const subjectsByLevel = Object.fromEntries(Array.from(enabledLevels).map(level => [level, subjectRows.filter(subject => new Set(catalogue.filter(row => row.level === level).map(row => row.area.toLowerCase())).has(subject.name.toLowerCase()))]));
   const gradeRows = allGradeRows.filter(row => {
     const name = row.name.toLowerCase();
     return (enabledLevels.has("ECDE") && /^(pp|pre-primary)/i.test(name)) || (enabledLevels.has("Primary") && /^grade [1-6]$/i.test(name)) || (enabledLevels.has("Junior School") && /^grade [7-9]$/i.test(name)) || (enabledLevels.has("Senior School") && /^grade (10|11|12)$/i.test(name));
   });
-  return { grades: gradeRows, subjects: subjectRows.filter(subject => relevantAreas.has(subject.name.toLowerCase())) };
+  return { grades: gradeRows, subjects: subjectRows.filter(subject => relevantAreas.has(subject.name.toLowerCase())), subjectsByLevel };
 }
 
 export async function canManageSchoolLevels(userId: number) {
