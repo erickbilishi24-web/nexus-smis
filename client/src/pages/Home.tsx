@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 
 const assets = {
-  logo: "/manus-storage/kenyan-smis-logo_8e4bf012.png",
+  logo: "/manus-storage/NexusSoftwareEducationBadge_3aeddf86.png",
   hero: "/manus-storage/kenyan-smis-hero_e16e729d.jpg",
   attendance: "/manus-storage/kenyan-smis-attendance_9369f5b6.jpg",
   finance: "/manus-storage/kenyan-smis-finance_0a900b57.jpg",
