@@ -7,6 +7,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { ResourceHubWorkspace } from "@/components/ResourceHubWorkspace";
+import { CommentBankAdminPanel } from "@/components/CommentBankAdminPanel";
 
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "../../../server/routers";
@@ -189,7 +190,7 @@ const CONFIRM_TEXT = { activate: ["Activate account", "The user will be able to 
 export function AdministrationWorkspace() {
   const utils = trpc.useUtils();
   const perms = trpc.smis.users.effectivePermissions.useQuery(); const catalogQ = trpc.smis.administration.catalog.useQuery();
-  const [tab, setTab] = useState<"users" | "matrix" | "classes" | "audit">("users");
+  const [tab, setTab] = useState<"users" | "matrix" | "classes" | "comments" | "audit">("users");
   const [f, setF] = useState({ search: "", role: "", status: "" });
   const list = trpc.smis.administration.list.useQuery({ search: f.search || undefined, role: f.role || undefined, status: (f.status || undefined) as any });
   const overview = trpc.smis.administration.overview.useQuery();
@@ -216,7 +217,7 @@ export function AdministrationWorkspace() {
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-5">{[["Accounts", stats?.total], ["Active", stats?.active], ["Pending setup", stats?.pending], ["Suspended", stats?.suspended], ["Locked", stats?.locked]].map(([k, v]) => <div key={String(k)} className="rounded-xl bg-white/10 px-4 py-3"><p className="text-[0.66rem] font-bold uppercase tracking-wider text-[#d2e2d9]">{k}</p><p className="mt-1 text-2xl font-bold">{v ?? "—"}</p></div>)}</div>
     </section>
 
-    <div className="flex flex-wrap gap-2 border-b border-[#d8ddd4]" role="tablist">{([["users", "Users & Credentials", Users], ["matrix", "Permission Matrix", ShieldCheck], ...(has("settings.edit") ? [["classes", "Classes & Streams", Plus] as const] : []), ["audit", "Audit Trail", History]] as const).map(([k, t, Icon]) =>
+    <div className="flex flex-wrap gap-2 border-b border-[#d8ddd4]" role="tablist">{([["users", "Users & Credentials", Users], ["matrix", "Permission Matrix", ShieldCheck], ...(has("settings.edit") ? [["classes", "Classes & Streams", Plus] as const, ["comments", "Report Comments", Pencil] as const] : []), ["audit", "Audit Trail", History]] as const).map(([k, t, Icon]) =>
       <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className={`-mb-px inline-flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-bold ${tab === k ? "border-[#1d6a57] text-[#1d6a57]" : "border-transparent text-[#718077] hover:text-[#28483f]"}`}><Icon size={15} />{t}</button>)}</div>
 
     <section className="soft-card paper-noise rounded-[1.1rem]">
@@ -242,6 +243,7 @@ export function AdministrationWorkspace() {
             {!list.isLoading && !rows.length && <tr><td colSpan={13} className="px-4 py-12 text-center text-[#718077]">No users match your search.</td></tr>}</tbody></table></div></>}
       {tab === "matrix" && <MatrixTab users={rows} isSuper={isSuper} />}
       {tab === "classes" && catalog && <ClassesStreamsPanel catalog={catalog} />}
+      {tab === "comments" && has("settings.edit") && <CommentBankAdminPanel />}
       {tab === "audit" && <><AuditFilters withUser value={auditF} onChange={v => { setAuditF(v); setAuditPage(0); }} /><AuditTable filters={toQuery(auditF)} page={auditPage} onPage={setAuditPage} /></>}
     </section>
 

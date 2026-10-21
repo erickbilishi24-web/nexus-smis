@@ -474,6 +474,8 @@ export async function getAssessmentReportCard(input: { learnerId: number; academ
   )).limit(1))[0] ?? null;
   const statuses = marksheet.map(row => row.assessmentStatus);
   const assessmentStatus = statuses.includes("missing") ? "incomplete" : statuses.includes("draft") ? "draft" : statuses.includes("submitted") ? "submitted" : statuses.includes("approved") ? "approved" : "locked";
+  const levels = marksheet.map(row => row.cbcLevel).filter((level): level is NonNullable<typeof level> => level !== null);
+  const overall = levels.length ? (levels.filter(level => level.startsWith("EE")).length >= Math.ceil(levels.length / 2) ? "EE" : levels.filter(level => level.startsWith("ME")).length >= Math.ceil(levels.length / 2) ? "ME" : levels.filter(level => level.startsWith("BE")).length >= Math.ceil(levels.length / 2) ? "BE" : "AE") : null;
   const settings = await getSettings();
   return {
     learner: learnerRow.learner,
@@ -485,6 +487,7 @@ export async function getAssessmentReportCard(input: { learnerId: number; academ
     marksheet,
     missingCount: marksheet.filter(row => row.score === null).length,
     assessmentStatus,
+    overall,
     attendance: { openingDays: attendanceRows.length, present, absent },
     classTeacher,
     report,

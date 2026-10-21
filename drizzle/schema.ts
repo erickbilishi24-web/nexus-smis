@@ -441,6 +441,16 @@ export const reportCards = mysqlTable("report_cards", {
   generatedAt: timestamp("generatedAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, table => ({ reportCardPeriodUnique: uniqueIndex("report_card_period_unique").on(table.learnerId, table.academicYear, table.term, table.assessmentType) }));
+export const commentBank = mysqlTable("report_card_comment_bank", {
+  id: int("id").autoincrement().primaryKey(),
+  role: mysqlEnum("role", ["class_teacher", "principal"]).notNull(),
+  category: mysqlEnum("category", ["BE", "AE", "ME", "EE"]).notNull(),
+  position: int("position").notNull(),
+  text: text("text").notNull(),
+  active: int("active").notNull().default(1),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => ({ commentUnique: uniqueIndex("comment_bank_role_category_position").on(table.role, table.category, table.position) }));
 export const nexusFeedback = mysqlTable("nexus_feedback", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),
