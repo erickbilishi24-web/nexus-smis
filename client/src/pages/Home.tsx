@@ -51,7 +51,7 @@ const navigation: { label: View; icon: typeof LayoutDashboard; group: string }[]
   { label: "Finance & Resources", icon: WalletCards, group: "Workspace" },
   { label: "Resource Hub", icon: Globe2, group: "Workspace" },
     { label: "Library", icon: BookOpen, group: "Workspace" },
-  { label: "Timetable Generator", icon: CalendarDays, group: "School Operations" },
+  { label: "Teacher Allocations", icon: UserCog, group: "School Operations" },
   { label: "Reports", icon: FileText, group: "Workspace" },
   { label: "Academic Archives & Alumni", icon: Archive, group: "Records" },
   { label: "Guidance & Counselling", icon: HeartHandshake, group: "Safeguarding" },
@@ -59,7 +59,7 @@ const navigation: { label: View; icon: typeof LayoutDashboard; group: string }[]
   { label: "Messages", icon: MessageSquareText, group: "Workspace" },
   { label: "Curriculum Setup", icon: BookOpen, group: "Administration" },
   { label: "Resource Links", icon: Globe2, group: "Administration" },
-  { label: "Teacher Allocations", icon: UserCog, group: "School Operations" },
+  { label: "Timetable Generator", icon: CalendarDays, group: "School Operations" },
   { label: "NEXUS AI", icon: Activity, group: "Workspace" },
   { label: "Feedback", icon: MessageSquareText, group: "Super Admin" },
 ];
