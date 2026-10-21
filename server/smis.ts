@@ -613,12 +613,17 @@ export async function setTimetableRequirement(input: { gradeId: number; subjectI
   await writeAudit(userId, "timetable.requirement.set", "timetable_requirement", `${input.gradeId}:${input.subjectId}:${input.academicYear}`, input);
 }
 
-export async function generateAutomaticTimetable(input: { academicYear?: number; regenerate: boolean; days?: number; periodsPerDay?: number }, userId: number) {
+export async function generateAutomaticTimetable(input: { academicYear?: number; regenerate: boolean; days?: number; periodsPerDay?: number; classLessonTotals?: Array<{ gradeId: number; totalLessonsPerWeek: number }> }, userId: number) {
   const db = await requireDb();
   const academicYear = input.academicYear ?? Number((await getSettings()).academicYear);
   const days = input.days ?? 5; const periodsPerDay = input.periodsPerDay ?? 9;
   if (input.regenerate) await db.delete(timetableEntries);
   const requirements = await db.select({ requirement: timetableRequirements, grade: grades, subject: subjects }).from(timetableRequirements).innerJoin(grades, eq(grades.id, timetableRequirements.gradeId)).innerJoin(subjects, eq(subjects.id, timetableRequirements.subjectId)).where(eq(timetableRequirements.academicYear, academicYear));
+  for (const requested of input.classLessonTotals ?? []) {
+    const configured = requirements.filter(row => row.requirement.gradeId === requested.gradeId).reduce((sum, row) => sum + row.requirement.periodsPerWeek, 0);
+    if (requested.totalLessonsPerWeek < configured) throw new Error("No. of lessons not complete");
+    if (requested.totalLessonsPerWeek > configured) throw new Error("No. of lessons is Excess");
+  }
   const allocations = await db.select().from(teacherAllocations).where(and(eq(teacherAllocations.academicYear, academicYear), eq(teacherAllocations.status, "active")));
   const eligibleByGradeSubject = new Map<string, number[]>();
   for (const allocation of allocations) { const key = `${allocation.gradeId}:${allocation.subjectId}`; eligibleByGradeSubject.set(key, [...(eligibleByGradeSubject.get(key) ?? []), allocation.teacherUserId]); }
@@ -1036,6 +1041,34 @@ export async function createGradeClass(input: { name: string; stream?: string | 
   return { ok: true };
 }
 
+export async function updateGradeClass(input: { id: number; name: string; stream?: string | null }, userId: number) {
+  const db = await requireDb();
+  const name = input.name.trim();
+  const stream = input.stream?.trim() || null;
+  if (!name) throw new Error("GRADE_NAME_REQUIRED");
+  const current = (await db.select().from(grades).where(eq(grades.id, input.id)).limit(1))[0];
+  if (!current) throw new Error("GRADE_CLASS_NOT_FOUND");
+  const duplicates = await db.select({ id: grades.id }).from(grades).where(and(eq(grades.name, name), stream ? eq(grades.stream, stream) : sql`${grades.stream} IS NULL`)).limit(2);
+  if (duplicates.some(row => row.id !== input.id)) throw new Error("GRADE_CLASS_ALREADY_EXISTS");
+  await db.update(grades).set({ name, stream }).where(eq(grades.id, input.id));
+  await writeAudit(userId, "grade.update", "grade", input.id, { from: current, name, stream });
+  return { ok: true };
+}
+export async function deleteGradeClass(id: number, userId: number) {
+  const db = await requireDb();
+  const current = (await db.select().from(grades).where(eq(grades.id, id)).limit(1))[0];
+  if (!current) throw new Error("GRADE_CLASS_NOT_FOUND");
+  const [learnerUse, allocationUse, timetableUse, requirementUse] = await Promise.all([
+    db.select({ id: learners.id }).from(learners).where(eq(learners.gradeId, id)).limit(1),
+    db.select({ id: teacherAllocations.id }).from(teacherAllocations).where(eq(teacherAllocations.gradeId, id)).limit(1),
+    db.select({ id: timetableEntries.id }).from(timetableEntries).where(eq(timetableEntries.gradeId, id)).limit(1),
+    db.select({ id: timetableRequirements.id }).from(timetableRequirements).where(eq(timetableRequirements.gradeId, id)).limit(1),
+  ]);
+  if (learnerUse.length || allocationUse.length || timetableUse.length || requirementUse.length) throw new Error("GRADE_CLASS_IN_USE_ARCHIVE_OR_REASSIGN_FIRST");
+  await db.delete(grades).where(eq(grades.id, id));
+  await writeAudit(userId, "grade.delete", "grade", id, { name: current.name, stream: current.stream });
+  return { ok: true };
+}
 export async function createLearningArea(input: { name: string; code: string }, userId: number) {
   const db = await requireDb();
   const name = input.name.trim();
@@ -1085,13 +1118,21 @@ export async function saveTeacherAllocation(input: { teacherUserId: number; grad
   return { ok: true, id: existing?.id ?? null };
 }
 
-export async function changeTeacherAllocationStatus(input: { allocationId: number; status: AllocationStatus; replacedByUserId?: number | null }, userId: number) {
+export async function changeTeacherAllocationStatus(input: { allocationId: number; status: AllocationStatus | "active"; replacedByUserId?: number | null }, userId: number) {
   const db = await requireDb();
   const current = (await db.select().from(teacherAllocations).where(eq(teacherAllocations.id, input.allocationId)).limit(1))[0];
   if (!current) throw new Error("ALLOCATION_NOT_FOUND");
   if (input.status === "replaced" && !input.replacedByUserId) throw new Error("REPLACEMENT_TEACHER_REQUIRED");
   await db.update(teacherAllocations).set({ status: input.status, replacedByUserId: input.replacedByUserId ?? null }).where(eq(teacherAllocations.id, input.allocationId));
   await writeAudit(userId, `allocation.${input.status}`, "teacher_allocation", input.allocationId, input);
+  return { ok: true };
+}
+export async function deleteTeacherAllocation(id: number, userId: number) {
+  const db = await requireDb();
+  const current = (await db.select().from(teacherAllocations).where(eq(teacherAllocations.id, id)).limit(1))[0];
+  if (!current) throw new Error("ALLOCATION_NOT_FOUND");
+  await db.delete(teacherAllocations).where(eq(teacherAllocations.id, id));
+  await writeAudit(userId, "allocation.delete", "teacher_allocation", id, { teacherUserId: current.teacherUserId, gradeId: current.gradeId, subjectId: current.subjectId });
   return { ok: true };
 }
 

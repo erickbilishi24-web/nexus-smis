@@ -31,7 +31,7 @@ export async function adminCatalog() {
   const settings = await getSettings();
   return {
     roles: ASSIGNABLE_ROLES.map(value => ({ value, label: ROLE_LABELS[value] })),
-    grades: (await db.select().from(grades).orderBy(grades.name)).map(g => ({ id: g.id, name: `${g.name}${g.stream ? ` ${g.stream}` : ""}` })),
+    grades: (await db.select().from(grades).orderBy(grades.name)).map(g => ({ id: g.id, name: `${g.name}${g.stream ? ` ${g.stream}` : ""}`, baseName: g.name, stream: g.stream })),
     subjects: await db.select({ id: subjects.id, name: subjects.name, code: subjects.code }).from(subjects).orderBy(subjects.name),
     academicYear: settings.academicYear, term: settings.currentTerm,
     departments: Array.from(new Set((await db.select({ d: staffProfiles.department }).from(staffProfiles)).map(r => r.d).filter(Boolean))) as string[],
