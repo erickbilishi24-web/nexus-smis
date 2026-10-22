@@ -16,6 +16,8 @@ Phase 1 hardening now scopes dashboard aggregates, learner and staff registry re
 
 The latest verification passed `pnpm run check`, all 62 automated tests across 16 test files, `pnpm run build`, and `git diff --check`. A live two-school destructive/cross-school workflow was not run against production data; it remains a release gate for a disposable staging database.
 
+Phase 2 adds an encrypted backup/restore foundation under `ops/`, with protected configuration, lock protection, retention cleanup, optional separate S3-compatible storage, archive and internal checksums, explicit restore confirmation, and a documented runbook. Shell syntax and an AES-256 encryption/decryption round-trip were tested locally. A real database dump, object-storage upload, and restore remain pending because this sandbox has no deployment credentials or disposable two-school staging database.
+
 ## Important rollout limitation
 
 The remaining work is to update every domain read, write, update, and delete path to require the actor's `schoolId`, add school-aware composite indexes and uniqueness rules, and route all new uploads through the school-prefixed storage helpers. Because legacy modules still contain single-school query paths, the application is **not yet a complete data-isolated multi-tenant SaaS**. Do not onboard a second school's production records until those query-path changes and cross-school integration tests are complete.
