@@ -5,7 +5,7 @@ import { trpc } from "@/lib/trpc";
 
 type Tab = "studio" | "assistant" | "documents" | "activity" | "settings";
 type Doc = { id: string; title: string; type: string; grade: string; subject: string; term: string; topic: string; body: string; createdAt: string };
-const tabs: Array<[Tab, string, typeof WandSparkles]> = [["studio", "AI Document Studio", WandSparkles], ["assistant", "AI School Assistant", Sparkles], ["documents", "My AI Documents", FileText], ["activity", "AI Activity", ShieldCheck], ["settings", "AI Settings", Settings2]];
+const tabs: Array<[Tab, string, typeof WandSparkles]> = [["studio", "PROFESSIONAL DOCUMENT STUDIO", WandSparkles], ["assistant", "AI School Assistant", Sparkles], ["documents", "My AI Documents", FileText], ["activity", "AI Activity", ShieldCheck], ["settings", "AI Settings", Settings2]];
 const types = ["Scheme of Work", "Lesson Plan", "Lesson Notes", "Assessment", "Quiz", "Homework", "Worksheet"];
 const subjects = ["Mathematics", "English", "Kiswahili", "Integrated Science", "Social Studies", "Agriculture and Nutrition", "Pre-Technical Studies", "CRE", "Creative Arts and Sports"];
 const stored = <T,>(key: string, fallback: T): T => { try { return JSON.parse(localStorage.getItem(key) ?? "null") ?? fallback; } catch { return fallback; } };
