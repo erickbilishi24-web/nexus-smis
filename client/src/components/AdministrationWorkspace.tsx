@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { ClipboardCopy, History, KeyRound, Lock, LockOpen, MoreHorizontal, Pencil, Plus, Search, ShieldCheck, ShieldOff, UserCheck, UserCog, UserPlus, Users, Trash2, Eye } from "lucide-react";
+import { ClipboardCopy, History, KeyRound, Lock, LockOpen, MoreHorizontal, Pencil, Plus, Search, ShieldCheck, ShieldOff, UserCheck, UserCog, UserPlus, Users, Trash2, Eye, School } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -53,18 +53,25 @@ function ClassesStreamsPanel({ catalog }: { catalog: Catalog }) {
     <div><p className="mb-2 text-xs font-bold uppercase tracking-wide text-[#718077]">Existing classes · {catalog.grades.length}</p><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{catalog.grades.map(g => <div key={g.id} className="flex items-center justify-between rounded-lg border border-[#d8ddd4] bg-[#fffefa] px-3 py-2"><span className="text-xs font-bold text-[#1d6a57]">{g.name}{g.stream ? ` · ${g.stream}` : ""}</span><span className="flex gap-1"><button type="button" className={ghost} aria-label={`Edit ${g.name} ${g.stream ?? ""}`} onClick={() => { setEditing(g.id); setName(g.baseName); setStream(g.stream ?? ""); }}><Pencil size={13} /></button><button type="button" className={`${ghost} text-[#9c4038]`} aria-label={`Delete ${g.name} ${g.stream ?? ""}`} onClick={() => { if (window.confirm(`Delete ${g.name}${g.stream ? ` ${g.stream}` : ""}? Classes with learners or linked records must be reassigned first.`)) remove.mutate({ id: g.id }); }} disabled={remove.isPending}><Trash2 size={13} /></button></span></div>)}</div></div>
   </div>;
 }
-function SetupLinkDialog({ link, name, onClose }: { link: { setupToken: string; expiresAt: Date | string } | null; name: string; onClose: () => void }) {
-  const url = link ? `${window.location.origin}/?reset=${link.setupToken}` : "";
+function SchoolRegistryPanel() {
+  const utils = trpc.useUtils(); const [code, setCode] = useState(""); const [name, setName] = useState(""); const [status, setStatus] = useState<"active" | "pending_activation">("active");
+  const schools = trpc.smis.administration.schools.useQuery();
+  const create = trpc.smis.administration.createSchool.useMutation({ onSuccess: () => { toast.success("School registered"); setCode(""); setName(""); void utils.smis.administration.invalidate(); }, onError: e => toast.error(errText(e.message)) });
+  return <div className="space-y-5 p-5"><div><p className="eyebrow">Platform tenancy</p><h2 className="mt-1 text-lg font-bold text-[#28483f]">School registry</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-[#718077]">Register each customer school once. School administrators and their users are kept inside their assigned school; the Platform Super Admin remains cross-school.</p></div><form onSubmit={e => { e.preventDefault(); create.mutate({ schoolCode: code, schoolName: name, status }); }} className="grid gap-3 rounded-xl border border-[#d8ddd4] bg-[#fbfaf5] p-4 sm:grid-cols-[1fr_1.6fr_auto_auto] sm:items-end"><label className={label}>School code<Input required value={code} onChange={e => setCode(e.target.value.toUpperCase())} placeholder="SCHOOL-001" className="mt-1" /></label><label className={label}>School name<Input required value={name} onChange={e => setName(e.target.value)} placeholder="Ebunangwe Junior School" className="mt-1" /></label><label className={label}>Status<select className={field} value={status} onChange={e => setStatus(e.target.value as typeof status)}><option value="active">Active</option><option value="pending_activation">Pending</option></select></label><button className="action-button justify-center" disabled={create.isPending}><Plus size={15} />Register school</button></form><div className="overflow-x-auto"><table className="w-full min-w-[560px] text-left text-sm"><thead><tr className="border-b border-[#e2e6dc] text-[0.68rem] uppercase tracking-wide text-[#718077]"><th className="px-3 py-3">Code</th><th className="px-3 py-3">School</th><th className="px-3 py-3">Status</th><th className="px-3 py-3">Registered</th></tr></thead><tbody>{schools.data?.map(s => <tr key={s.id} className="border-b border-[#eef0e8]"><td className="px-3 py-3 font-mono text-xs text-[#1d6a57]">{s.schoolCode}</td><td className="px-3 py-3 font-semibold text-[#28483f]">{s.schoolName}</td><td className="px-3 py-3"><StatusPill status={s.status === "pending_activation" ? "pending" : s.status} /></td><td className="px-3 py-3 text-xs text-[#718077]">{fmt(s.createdAt)}</td></tr>)}{!schools.isLoading && !schools.data?.length && <tr><td colSpan={4} className="px-3 py-8 text-center text-[#718077]">No schools registered.</td></tr>}</tbody></table></div></div>;
+}
+function CredentialDialog({ link, name, onClose }: { link: { setupToken?: string; expiresAt?: Date | string; temporaryPassword?: string } | null; name: string; onClose: () => void }) {
+  const url = link?.setupToken ? `${window.location.origin}/?reset=${link.setupToken}` : "";
+  const temporary = link?.temporaryPassword;
   return <Dialog open={!!link} onOpenChange={o => !o && onClose()}><DialogContent>
-    <DialogHeader><DialogTitle>Password setup link for {name}</DialogTitle><DialogDescription>Share this single-use link with the user through a trusted channel. They will choose their own password. It expires {fmt(link?.expiresAt)} and cannot be shown again.</DialogDescription></DialogHeader>
-    <input readOnly value={url} onFocus={e => e.currentTarget.select()} className={field} />
-    <DialogFooter><button className="action-button" onClick={() => { navigator.clipboard.writeText(url).then(() => toast.success("Setup link copied")); }}><ClipboardCopy size={15} />Copy link</button></DialogFooter>
+    <DialogHeader><DialogTitle>{temporary ? `Temporary password · ${name}` : `Password setup link for ${name}`}</DialogTitle><DialogDescription>{temporary ? "This password is shown once only. The user must change it immediately after signing in. It has not been written to the audit trail or logs." : `Share this single-use link through a trusted channel. It expires ${fmt(link?.expiresAt)} and cannot be shown again.`}</DialogDescription></DialogHeader>
+    <input readOnly type={temporary ? "text" : "url"} value={temporary ?? url} onFocus={e => e.currentTarget.select()} className={field} />
+    <DialogFooter><button className="action-button" onClick={() => { navigator.clipboard.writeText(temporary ?? url).then(() => toast.success(temporary ? "Temporary password copied" : "Setup link copied")); }}><ClipboardCopy size={15} />Copy</button></DialogFooter>
   </DialogContent></Dialog>;
 }
 
-function UserDialog({ mode, row, catalog, onClose, onLink }: { mode: "create" | "edit" | null; row?: Row; catalog: Catalog; onClose: () => void; onLink: (l: { setupToken: string; expiresAt: Date | string }, name: string) => void }) {
+function UserDialog({ mode, row, catalog, isSuper, onClose, onLink }: { mode: "create" | "edit" | null; row?: Row; catalog: Catalog; isSuper: boolean; onClose: () => void; onLink: (l: { setupToken: string; expiresAt: Date | string }, name: string) => void }) {
   const utils = trpc.useUtils();
-  const [f, setF] = useState(() => ({ fullName: row?.fullName ?? "", username: row?.username ?? "", staffId: row?.staffId ?? "", role: (row?.role === "head_teacher" || row?.role === "deputy_head" ? "admin" : row?.role === "senior_teacher" ? "teacher" : row?.role === "storekeeper" ? "other" : row?.role ?? "teacher") as Role, department: row?.department ?? "", email: row?.email ?? "", phone: row?.phone ?? "", classGradeId: 0, subjects: [] as Alloc[], status: "pending_activation" as "active" | "pending_activation" | "disabled" }));
+  const [f, setF] = useState(() => ({ fullName: row?.fullName ?? "", username: row?.username ?? "", staffId: row?.staffId ?? "", role: (row?.role === "head_teacher" || row?.role === "deputy_head" ? "admin" : row?.role === "senior_teacher" ? "teacher" : row?.role === "storekeeper" ? "other" : row?.role ?? "teacher") as Role, department: row?.department ?? "", email: row?.email ?? "", phone: row?.phone ?? "", schoolId: catalog.schools[0]?.id ?? null, classGradeId: 0, subjects: [] as Alloc[], status: "pending_activation" as "active" | "pending_activation" | "disabled" }));
   const done = () => { utils.smis.administration.invalidate(); onClose(); };
   const onError = (e: { message: string }) => toast.error(errText(e.message));
   const create = trpc.smis.administration.create.useMutation({ onSuccess: r => { toast.success("User created"); done(); onLink(r, f.fullName); }, onError });
@@ -75,7 +82,7 @@ function UserDialog({ mode, row, catalog, onClose, onLink }: { mode: "create" | 
     e.preventDefault();
     const base = { fullName: f.fullName, username: f.username, staffId: f.staffId, department: f.department || null, email: f.email, phone: f.phone || null };
     if (mode === "edit" && row) update.mutate({ userId: row.userId, ...base });
-    else create.mutate({ ...base, role: f.role, classGradeId: teaching && f.classGradeId ? f.classGradeId : null, subjectAllocations: teaching ? f.subjects : [], status: f.status });
+    else create.mutate({ ...base, schoolId: isSuper ? f.schoolId : undefined, role: f.role, classGradeId: teaching && f.classGradeId ? f.classGradeId : null, subjectAllocations: teaching ? f.subjects : [], status: f.status });
   };
   return <Dialog open={!!mode} onOpenChange={o => !o && onClose()}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
     <DialogHeader><DialogTitle>{mode === "edit" ? "Edit user" : "Create user"}</DialogTitle><DialogDescription>{mode === "edit" ? "Update identity and contact details. Role and assignments are changed separately." : "A single-use setup link is generated so the user chooses their own password."}</DialogDescription></DialogHeader>
@@ -89,6 +96,7 @@ function UserDialog({ mode, row, catalog, onClose, onLink }: { mode: "create" | 
       {mode === "create" && <>
         <div><label className={label}>Role</label><select className={field} value={f.role} onChange={e => set("role", e.target.value)}>{catalog.roles.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}</select></div>
         <div><label className={label}>Account status</label><select className={field} value={f.status} onChange={e => set("status", e.target.value)}><option value="pending_activation">Pending (until password is set)</option><option value="active">Active</option><option value="disabled">Suspended</option></select></div>
+        {isSuper && <div className="sm:col-span-2"><label className={label}>School</label><select className={field} required value={f.schoolId ?? ""} onChange={e => set("schoolId", e.target.value ? Number(e.target.value) : null)}><option value="">— Choose school —</option>{catalog.schools.map(s => <option key={s.id} value={s.id}>{s.schoolName} · {s.schoolCode}</option>)}</select></div>}
         {teaching && <div className="sm:col-span-2"><label className={label}>{f.role === "class_teacher" ? "Class (required)" : "Class teacher of (optional)"}</label><select className={field} value={f.classGradeId} onChange={e => set("classGradeId", Number(e.target.value))}><option value={0}>— None —</option>{catalog.grades.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}</select></div>}
         {teaching && <div className="sm:col-span-2"><label className={label}>Subjects taught · {catalog.academicYear} {catalog.term}</label><div className="mt-1"><AllocationEditor value={f.subjects} onChange={v => set("subjects", v)} catalog={catalog} /></div></div>}
       </>}
@@ -190,17 +198,17 @@ const CONFIRM_TEXT = { activate: ["Activate account", "The user will be able to 
 export function AdministrationWorkspace() {
   const utils = trpc.useUtils();
   const perms = trpc.smis.users.effectivePermissions.useQuery(); const catalogQ = trpc.smis.administration.catalog.useQuery();
-  const [tab, setTab] = useState<"users" | "matrix" | "classes" | "comments" | "audit">("users");
+  const [tab, setTab] = useState<"users" | "matrix" | "classes" | "comments" | "schools" | "audit">("users");
   const [f, setF] = useState({ search: "", role: "", status: "" });
   const list = trpc.smis.administration.list.useQuery({ search: f.search || undefined, role: f.role || undefined, status: (f.status || undefined) as any });
   const overview = trpc.smis.administration.overview.useQuery();
   const [dialog, setDialog] = useState<{ mode: "create" | "edit"; row?: Row } | null>(null);
   const [roleRow, setRoleRow] = useState<Row | null>(null); const [assignRow, setAssignRow] = useState<Row | null>(null); const [activityRow, setActivityRow] = useState<Row | null>(null);
   const [viewRow, setViewRow] = useState<Row | null>(null); const [confirm, setConfirm] = useState<Confirm>(null); const [reason, setReason] = useState("");
-  const [link, setLink] = useState<{ link: { setupToken: string; expiresAt: Date | string }; name: string } | null>(null);
+  const [link, setLink] = useState<{ link: { setupToken?: string; expiresAt?: Date | string; temporaryPassword?: string }; name: string } | null>(null);
   const [auditF, setAuditF] = useState<Record<string, string>>({}); const [auditPage, setAuditPage] = useState(0);
   const setState = trpc.smis.administration.setState.useMutation({ onSuccess: () => { toast.success("Account updated"); utils.smis.administration.invalidate(); setConfirm(null); setReason(""); }, onError: e => toast.error(errText(e.message)) });
-  const reset = trpc.smis.administration.resetPassword.useMutation({ onSuccess: (r, v) => setLink({ link: r, name: list.data?.find(u => u.userId === v.userId)?.fullName ?? "user" }), onError: e => toast.error(errText(e.message)) });
+  const reset = trpc.smis.administration.resetPassword.useMutation({ onSuccess: (r, v) => { setLink({ link: r, name: list.data?.find(u => u.userId === v.userId)?.fullName ?? "user" }); toast.success("Temporary password issued; password change required at next login"); }, onError: e => toast.error(errText(e.message)) });
   const has = (k: string) => !!perms.data && (perms.data.includes("*") || perms.data.includes(k));
   const isSuper = !!perms.data?.includes("administration.manage_permissions");
   const forbidden = list.error?.data?.code === "FORBIDDEN";
@@ -217,7 +225,7 @@ export function AdministrationWorkspace() {
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-5">{[["Accounts", stats?.total], ["Active", stats?.active], ["Pending setup", stats?.pending], ["Suspended", stats?.suspended], ["Locked", stats?.locked]].map(([k, v]) => <div key={String(k)} className="rounded-xl bg-white/10 px-4 py-3"><p className="text-[0.66rem] font-bold uppercase tracking-wider text-[#d2e2d9]">{k}</p><p className="mt-1 text-2xl font-bold">{v ?? "—"}</p></div>)}</div>
     </section>
 
-    <div className="flex flex-wrap gap-2 border-b border-[#d8ddd4]" role="tablist">{([["users", "Users & Credentials", Users], ["matrix", "Permission Matrix", ShieldCheck], ...(has("settings.edit") ? [["classes", "Classes & Streams", Plus] as const, ["comments", "Report Comments", Pencil] as const] : []), ["audit", "Audit Trail", History]] as const).map(([k, t, Icon]) =>
+    <div className="flex flex-wrap gap-2 border-b border-[#d8ddd4]" role="tablist">{([["users", "Users & Credentials", Users], ["matrix", "Permission Matrix", ShieldCheck], ...(has("settings.edit") ? [["classes", "Classes & Streams", Plus] as const, ["comments", "Report Comments", Pencil] as const] : []), ...(isSuper ? [["schools", "School Registry", School] as const] : []), ["audit", "Audit Trail", History]] as const).map(([k, t, Icon]) =>
       <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className={`-mb-px inline-flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-bold ${tab === k ? "border-[#1d6a57] text-[#1d6a57]" : "border-transparent text-[#718077] hover:text-[#28483f]"}`}><Icon size={15} />{t}</button>)}</div>
 
     <section className="soft-card paper-noise rounded-[1.1rem]">
@@ -234,7 +242,7 @@ export function AdministrationWorkspace() {
             <td className="px-3 py-3"><DropdownMenu><DropdownMenuTrigger asChild><button aria-label={`Actions for ${u.fullName}`} className={ghost}><MoreHorizontal size={15} /></button></DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56"><DropdownMenuLabel>{u.fullName}</DropdownMenuLabel>
                 <DropdownMenuItem onClick={() => setViewRow(u)}><Eye size={14} />View</DropdownMenuItem>
-                {has("administration.edit") && <><DropdownMenuItem onClick={() => setDialog({ mode: "edit", row: u })}><Pencil size={14} />Edit</DropdownMenuItem><DropdownMenuItem onClick={() => setRoleRow(u)}><UserCog size={14} />Change role</DropdownMenuItem><DropdownMenuItem onClick={() => setAssignRow(u)}><Users size={14} />Change assignment</DropdownMenuItem><DropdownMenuItem onClick={() => reset.mutate({ userId: u.userId })}><KeyRound size={14} />Reset password</DropdownMenuItem><DropdownMenuSeparator />
+                {has("administration.edit") && <><DropdownMenuItem onClick={() => setDialog({ mode: "edit", row: u })}><Pencil size={14} />Edit</DropdownMenuItem><DropdownMenuItem onClick={() => setRoleRow(u)}><UserCog size={14} />Change role</DropdownMenuItem><DropdownMenuItem onClick={() => setAssignRow(u)}><Users size={14} />Change assignment</DropdownMenuItem><>{isSuper && <DropdownMenuItem onClick={() => { if (window.confirm(`Reset ${u.fullName}'s password and revoke all active sessions? The temporary password will be shown once.`)) reset.mutate({ userId: u.userId }); }}><KeyRound size={14} />Reset password</DropdownMenuItem>}</><DropdownMenuSeparator />
                   {(u.status === "suspended") && <DropdownMenuItem onClick={() => setConfirm({ row: u, action: "activate" })}><UserCheck size={14} />Activate account</DropdownMenuItem>}
                   {(u.status === "active") && <DropdownMenuItem onClick={() => setConfirm({ row: u, action: "suspend" })}><ShieldOff size={14} />Suspend account</DropdownMenuItem>}
                   {(u.status === "active" || u.status === "suspended") && <DropdownMenuItem onClick={() => setConfirm({ row: u, action: "lock" })}><Lock size={14} />Lock account</DropdownMenuItem>}
@@ -244,15 +252,16 @@ export function AdministrationWorkspace() {
       {tab === "matrix" && <MatrixTab users={rows} isSuper={isSuper} />}
       {tab === "classes" && catalog && <ClassesStreamsPanel catalog={catalog} />}
       {tab === "comments" && has("settings.edit") && <CommentBankAdminPanel />}
+      {tab === "schools" && isSuper && <SchoolRegistryPanel />}
       {tab === "audit" && <><AuditFilters withUser value={auditF} onChange={v => { setAuditF(v); setAuditPage(0); }} /><AuditTable filters={toQuery(auditF)} page={auditPage} onPage={setAuditPage} /></>}
     </section>
 
     <section aria-label="Resource Hub link management" className="space-y-3"><div><p className="eyebrow">Super Admin configuration</p><h2 className="mt-1 text-lg font-bold text-[#28483f]">Resource Hub links</h2><p className="mt-1 text-xs text-[#718077]">Configure the external TPAD, school website, lesson, virtual lab, KEMIS and KNEC destinations used by your school.</p></div><ResourceHubWorkspace /></section>
-    {catalog && dialog && <UserDialog key={dialog.row?.userId ?? "new"} mode={dialog.mode} row={dialog.row} catalog={catalog} onClose={() => setDialog(null)} onLink={(l, name) => setLink({ link: l, name })} />}
+    {catalog && dialog && <UserDialog key={dialog.row?.userId ?? "new"} mode={dialog.mode} row={dialog.row} catalog={catalog} isSuper={isSuper} onClose={() => setDialog(null)} onLink={(l, name) => setLink({ link: l, name })} />}
     {catalog && roleRow && <RoleDialog key={roleRow.userId} row={roleRow} catalog={catalog} onClose={() => setRoleRow(null)} />}
     {catalog && assignRow && <AssignmentDialog key={assignRow.userId} row={assignRow} catalog={catalog} onClose={() => setAssignRow(null)} />}
     <ActivitySheet row={activityRow} onClose={() => setActivityRow(null)} />
-    <SetupLinkDialog link={link?.link ?? null} name={link?.name ?? ""} onClose={() => setLink(null)} />
+    <CredentialDialog link={link?.link ?? null} name={link?.name ?? ""} onClose={() => setLink(null)} />
     <Dialog open={!!confirm} onOpenChange={o => !o && setConfirm(null)}><DialogContent>{confirm && <><DialogHeader><DialogTitle>{CONFIRM_TEXT[confirm.action][0]} · {confirm.row.fullName}</DialogTitle><DialogDescription>{CONFIRM_TEXT[confirm.action][1]}</DialogDescription></DialogHeader>
       {(confirm.action === "suspend" || confirm.action === "lock") && <div><label className={label}>Reason (recorded in the audit trail)</label><Input value={reason} onChange={e => setReason(e.target.value)} className="mt-1" /></div>}
       <DialogFooter><button className={ghost} onClick={() => setConfirm(null)}>Cancel</button><button className="action-button" disabled={setState.isPending} onClick={() => setState.mutate({ userId: confirm.row.userId, action: confirm.action, reason: reason || undefined })}>{CONFIRM_TEXT[confirm.action][0]}</button></DialogFooter></>}</DialogContent></Dialog>

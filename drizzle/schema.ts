@@ -18,6 +18,7 @@ import {
 export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
   openId: varchar("openId", { length: 64 }).notNull().unique(),
+  schoolId: int("schoolId"),
   username: varchar("username", { length: 120 }).unique(),
   name: text("name"),
   email: varchar("email", { length: 320 }),
@@ -37,7 +38,15 @@ export const users = mysqlTable("users", {
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
-
+export const schools = mysqlTable("schools", {
+  id: int("id").autoincrement().primaryKey(),
+  schoolCode: varchar("schoolCode", { length: 40 }).notNull().unique(),
+  schoolName: varchar("schoolName", { length: 200 }).notNull(),
+  status: mysqlEnum("status", ["active", "pending_activation", "suspended", "disabled"]).notNull().default("pending_activation"),
+  createdByUserId: int("createdByUserId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
 export const schoolSettings = mysqlTable("school_settings", {
   id: int("id").autoincrement().primaryKey(),
   schoolName: varchar("schoolName", { length: 200 }).notNull(),

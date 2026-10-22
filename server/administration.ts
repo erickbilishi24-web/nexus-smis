@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import { and, desc, eq, gte, inArray, like, lte, or, sql, type SQL } from "drizzle-orm";
 import type { Request } from "express";
 import { getDb } from "./db";
-import { auditLogs, grades, iamPasswordResets, iamSessions, rolePermissions, staffProfiles, subjects, teacherAllocations, userPermissions, users } from "../drizzle/schema";
+import { auditLogs, grades, iamPasswordResets, iamSessions, rolePermissions, schools, staffProfiles, subjects, teacherAllocations, userPermissions, users } from "../drizzle/schema";
 import { ACTIONS, ASSIGNABLE_ROLES, MANAGE_PERMISSIONS, MATRIX_KEYS, MODULES, ROLE_LABELS, computePermissions, getAccessProfile, permissionRole, roleMatrix, type StaffRole } from "./access";
 import { getSettings, saveTeacherAllocation, writeAudit } from "./smis";
 
@@ -15,6 +15,7 @@ const hashToken = (token: string) => crypto.createHash("sha256").update(token).d
 const clientMeta = (req?: Request) => (req ? { ip: req.ip ?? null, userAgent: (req.get("user-agent") ?? "").slice(0, 160) } : {});
 const SECRET_KEYS = /pass|hash|token|secret/i;
 const clean = (value: Record<string, unknown>) => Object.fromEntries(Object.entries(value).filter(([k]) => !SECRET_KEYS.test(k)));
+const resetAttempts = new Map<number, number[]>();
 
 async function audit(actorId: number, action: string, targetUserId: number | null, details: Record<string, unknown>, req?: Request) {
   await writeAudit(actorId, action, "user", targetUserId, { ...clean(details), ...clientMeta(req) });
@@ -26,16 +27,40 @@ const stateOf = (u: { accountStatus: string; accountLocked: number }): AccountSt
 
 /* ------------------------------------------------------------------ Register */
 
-export async function adminCatalog() {
+export async function adminCatalog(actorUserId?: number) {
   const db = await requireDb();
   const settings = await getSettings();
+  const actorProfile = actorUserId ? await getAccessProfile(actorUserId) : null;
+  const actorSchoolId = actorUserId ? (await db.select({ schoolId: users.schoolId }).from(users).where(eq(users.id, actorUserId)).limit(1))[0]?.schoolId : null;
   return {
     roles: ASSIGNABLE_ROLES.map(value => ({ value, label: ROLE_LABELS[value] })),
     grades: (await db.select().from(grades).orderBy(grades.name)).map(g => ({ id: g.id, name: `${g.name}${g.stream ? ` ${g.stream}` : ""}`, baseName: g.name, stream: g.stream })),
     subjects: await db.select({ id: subjects.id, name: subjects.name, code: subjects.code }).from(subjects).orderBy(subjects.name),
+    schools: (await db.select({ id: schools.id, schoolCode: schools.schoolCode, schoolName: schools.schoolName, status: schools.status }).from(schools).orderBy(schools.schoolName)).filter(s => !actorProfile || actorProfile.level === "system" || s.id === actorSchoolId),
     academicYear: settings.academicYear, term: settings.currentTerm,
     departments: Array.from(new Set((await db.select({ d: staffProfiles.department }).from(staffProfiles)).map(r => r.d).filter(Boolean))) as string[],
   };
+}
+
+export async function listSchools(actor: Actor) {
+  const profile = await getAccessProfile(actor.id);
+  if (profile.level !== "system") fail("ONLY_PLATFORM_SUPER_ADMIN");
+  const db = await requireDb();
+  return db.select({ id: schools.id, schoolCode: schools.schoolCode, schoolName: schools.schoolName, status: schools.status, createdAt: schools.createdAt }).from(schools).orderBy(schools.schoolName);
+}
+
+export async function createSchool(input: { schoolCode: string; schoolName: string; status: "active" | "pending_activation" }, actor: Actor, req?: Request) {
+  const profile = await getAccessProfile(actor.id);
+  if (profile.level !== "system") fail("ONLY_PLATFORM_SUPER_ADMIN");
+  const db = await requireDb();
+  const schoolCode = normalizeSchoolCode(input.schoolCode);
+  const schoolName = input.schoolName.trim();
+  if (!isValidSchoolCode(schoolCode)) fail("SCHOOL_CODE_INVALID");
+  if (schoolName.length < 2) fail("SCHOOL_NAME_REQUIRED");
+  if ((await db.select({ id: schools.id }).from(schools).where(eq(schools.schoolCode, schoolCode)).limit(1))[0]) fail("SCHOOL_CODE_TAKEN");
+  const row = (await db.insert(schools).values({ schoolCode, schoolName, status: input.status, createdByUserId: actor.id }).$returningId())[0];
+  await audit(actor.id, "admin.school.create", null, { schoolCode, schoolName, status: input.status, schoolId: row.id }, req);
+  return { id: row.id, schoolCode, schoolName, status: input.status };
 }
 
 async function assignmentsByUser(userIds?: number[]) {
@@ -54,17 +79,19 @@ async function assignmentsByUser(userIds?: number[]) {
   return map;
 }
 
-export async function listAdminUsers(filter: { search?: string; role?: string; status?: AccountState } = {}) {
+export async function listAdminUsers(filter: { search?: string; role?: string; status?: AccountState } = {}, actorUserId?: number) {
   const db = await requireDb();
+  const actorProfile = actorUserId ? await getAccessProfile(actorUserId) : null;
+  const actor = actorUserId ? (await db.select({ schoolId: users.schoolId }).from(users).where(eq(users.id, actorUserId)).limit(1))[0] : null;
   const rows = await db.select({
-    id: users.id, username: users.username, name: users.name, email: users.email, accountStatus: users.accountStatus, accountLocked: users.accountLocked,
+    id: users.id, schoolId: users.schoolId, username: users.username, name: users.name, email: users.email, accountStatus: users.accountStatus, accountLocked: users.accountLocked,
     passwordChangedAt: users.passwordChangedAt, createdAt: users.createdAt, accountRole: users.role,
     profileId: staffProfiles.id, displayName: staffProfiles.displayName, staffId: staffProfiles.staffId, department: staffProfiles.department, role: staffProfiles.role, phone: staffProfiles.phone,
   }).from(users).leftJoin(staffProfiles, eq(staffProfiles.userId, users.id)).orderBy(users.id);
   const logins = new Map((await db.select({ userId: iamSessions.userId, last: sql<Date>`max(${iamSessions.loginAt})` }).from(iamSessions).groupBy(iamSessions.userId)).map(r => [r.userId, r.last]));
   const assignments = await assignmentsByUser();
   const term = filter.search?.trim().toLowerCase();
-  return rows.map(r => {
+  return rows.filter(r => !actorProfile || actorProfile.level === "system" || r.schoolId === actor?.schoolId).map(r => {
     const role = (r.role ?? "other") as StaffRole;
     const a = assignments.get(r.id);
     return {
@@ -76,8 +103,12 @@ export async function listAdminUsers(filter: { search?: string; role?: string; s
     && (!term || [u.fullName, u.username, u.staffId, u.department, u.roleLabel, u.email].some(v => v?.toLowerCase().includes(term))));
 }
 
-export async function getAdminUser(userId: number) {
-  const row = (await listAdminUsers()).find(u => u.userId === userId);
+export async function getAdminUser(userId: number, actorUserId?: number) {
+  if (actorUserId) {
+    const actorProfile = await getAccessProfile(actorUserId);
+    if (actorProfile.level !== "system") await assertCanManage({ id: actorUserId }, userId);
+  }
+  const row = (await listAdminUsers({}, actorUserId)).find(u => u.userId === userId);
   if (!row) return fail("USER_NOT_FOUND");
   const db = await requireDb();
   const sessions = await db.select({ loginAt: iamSessions.loginAt, logoutAt: iamSessions.logoutAt, ipAddress: iamSessions.ipAddress, status: iamSessions.status }).from(iamSessions).where(eq(iamSessions.userId, userId)).orderBy(desc(iamSessions.loginAt)).limit(5);
@@ -92,9 +123,14 @@ async function hasManagePermissions(role: string) { return (await roleMatrix(rol
 
 async function assertCanManage(actor: Actor, targetUserId: number) {
   const db = await requireDb();
-  if (!(await db.select({ id: users.id }).from(users).where(eq(users.id, targetUserId)).limit(1))[0]) fail("USER_NOT_FOUND");
+  const targetAccount = (await db.select({ id: users.id, schoolId: users.schoolId }).from(users).where(eq(users.id, targetUserId)).limit(1))[0];
+  if (!targetAccount) fail("USER_NOT_FOUND");
   const target = await getAccessProfile(targetUserId);
   const manager = await getAccessProfile(actor.id);
+  if (manager.level !== "system") {
+    const managerAccount = (await db.select({ schoolId: users.schoolId }).from(users).where(eq(users.id, actor.id)).limit(1))[0];
+    if (targetAccount.schoolId == null || targetAccount.schoolId !== managerAccount?.schoolId) fail("CROSS_SCHOOL_ACCESS_FORBIDDEN");
+  }
   if (target.level === "system" && manager.level !== "system") fail("ONLY_SUPER_ADMIN_MANAGES_SUPER_ADMIN");
   return target.role;
 }
@@ -112,11 +148,14 @@ async function assertNotLastPermissionManager(targetUserId: number) {
 export function assertStrongPassword(password: string) {
   if (password.length < 10 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) fail("PASSWORD_TOO_WEAK");
 }
+export const normalizeSchoolCode = (value: string) => value.trim().toUpperCase();
+export const isValidSchoolCode = (value: string) => /^[A-Z0-9][A-Z0-9_-]{2,39}$/.test(normalizeSchoolCode(value));
+export const generateTemporaryPassword = () => `Nexus-7-${crypto.randomBytes(12).toString("base64url")}`;
 
 /* ------------------------------------------------------------------- Create */
 
 const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{2,59}$/;
-export type CreateUserInput = { fullName: string; username: string; staffId: string; role: (typeof ASSIGNABLE_ROLES)[number]; department?: string | null; email?: string | null; phone?: string | null; classGradeId?: number | null; subjectAllocations?: { gradeId: number; subjectId: number }[]; status: "active" | "pending_activation" | "disabled" };
+export type CreateUserInput = { fullName: string; username: string; staffId: string; role: (typeof ASSIGNABLE_ROLES)[number]; department?: string | null; email?: string | null; phone?: string | null; classGradeId?: number | null; subjectAllocations?: { gradeId: number; subjectId: number }[]; status: "active" | "pending_activation" | "disabled"; schoolId?: number | null };
 
 async function assertUnique(input: { username?: string; staffId?: string | null }, exceptUserId?: number) {
   const db = await requireDb();
@@ -164,13 +203,17 @@ async function issueSetupToken(userId: number, hours: number) {
 
 export async function createAdminUser(input: CreateUserInput, actor: Actor, req?: Request) {
   const db = await requireDb();
+  const actorProfile = await getAccessProfile(actor.id);
+  const actorSchool = (await db.select({ schoolId: users.schoolId }).from(users).where(eq(users.id, actor.id)).limit(1))[0]?.schoolId ?? null;
+  const schoolId = actorProfile.level === "system" ? (input.schoolId ?? null) : actorSchool;
+  if (actorProfile.level !== "system" && input.schoolId != null && input.schoolId !== actorSchool) fail("CROSS_SCHOOL_ACCESS_FORBIDDEN");
   const fullName = input.fullName.trim(); if (!fullName) fail("NAME_REQUIRED");
   const username = input.username.trim().toLowerCase(); if (!USERNAME_RE.test(username)) fail("USERNAME_INVALID");
   const staffId = input.staffId.trim(); if (!staffId) fail("STAFF_ID_REQUIRED");
   if (await hasManagePermissions(input.role) && !await hasManagePermissions(await actorRole(actor))) fail("ONLY_SUPER_ADMIN_MANAGES_SUPER_ADMIN");
   await assertUnique({ username, staffId });
   const userRow = (await db.insert(users).values({
-    openId: `iam-${crypto.randomUUID()}`, username, name: fullName, email: input.email?.trim().toLowerCase() || null, role: await hasManagePermissions(input.role) || permissionRole(input.role) === "admin" ? "admin" : "user",
+    openId: `iam-${crypto.randomUUID()}`, schoolId, username, name: fullName, email: input.email?.trim().toLowerCase() || null, role: await hasManagePermissions(input.role) || permissionRole(input.role) === "admin" ? "admin" : "user",
     accountStatus: input.status, loginMethod: "password", mustChangePassword: 0,
   }).$returningId())[0];
   try {
@@ -266,11 +309,21 @@ export async function setAccountState(input: { userId: number; action: "activate
 /** Issues a single-use setup link code. The user chooses their own password; no password is ever generated, shown or stored in plaintext. */
 export async function resetAdminPassword(input: { userId: number }, actor: Actor, req?: Request) {
   const db = await requireDb();
+  const actorProfile = await getAccessProfile(actor.id);
+  if (actorProfile.level !== "system") fail("ONLY_PLATFORM_SUPER_ADMIN_RESETS_PASSWORDS");
   await assertCanManage(actor, input.userId);
+  const now = Date.now();
+  const recent = (resetAttempts.get(actor.id) ?? []).filter(t => now - t < 60 * 60 * 1000);
+  if (recent.length >= 5) fail("PASSWORD_RESET_RATE_LIMITED");
+  resetAttempts.set(actor.id, [...recent, now]);
+  const target = (await db.select({ id: users.id }).from(users).where(eq(users.id, input.userId)).limit(1))[0];
+  if (!target) fail("USER_NOT_FOUND");
+  const temporaryPassword = generateTemporaryPassword();
   await db.update(iamSessions).set({ status: "revoked", logoutAt: new Date() }).where(and(eq(iamSessions.userId, input.userId), eq(iamSessions.status, "active")));
-  const setup = await issueSetupToken(input.userId, 24);
-  await audit(actor.id, "admin.password.reset", input.userId, { method: "single_use_setup_link", expiresAt: setup.expiresAt }, req);
-  return setup;
+  await db.update(iamPasswordResets).set({ usedAt: new Date() }).where(and(eq(iamPasswordResets.userId, input.userId), sql`${iamPasswordResets.usedAt} is null`));
+  await db.update(users).set({ passwordHash: await bcrypt.hash(temporaryPassword, 12), mustChangePassword: 1, accountLocked: 0, failedLoginAttempts: 0, accountStatus: "active" }).where(eq(users.id, input.userId));
+  await audit(actor.id, "admin.password.reset", input.userId, { method: "one_time_temporary_password", sessionsRevoked: true }, req);
+  return { temporaryPassword };
 }
 
 /* ------------------------------------------------------------ Permission matrix */
@@ -347,8 +400,8 @@ export async function listAuditTrail(f: { actorUserId?: number; subjectUserId?: 
   };
 }
 
-export async function adminOverview() {
-  const list = await listAdminUsers();
+export async function adminOverview(actorUserId?: number) {
+  const list = await listAdminUsers({}, actorUserId);
   const count = (s: AccountState) => list.filter(u => u.status === s).length;
   return { total: list.length, active: count("active"), suspended: count("suspended"), locked: count("locked"), pending: count("pending") };
 }
