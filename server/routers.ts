@@ -18,7 +18,7 @@ import { getPayrollWorkspace, getMyPayrollSlips, savePayrollRules, savePayrollCo
 import { getTransportWorkspace, getTransportLearnerOptions, setTransportEnabled, saveTransportVehicle, setTransportVehicleStatus, saveTransportRoute, assignLearnerTransport, setLearnerTransportStatus, billTransportPeriod, recordTransportPayment, saveTransportAttendance, recordTransportTrip, recordTransportCost, recordTransportIncident, resolveTransportIncident } from "./transport";
 import { addCounsellingNote, completeLearner, createBehaviourRecord, createCounsellingCase, createFollowUp, getArchiveFinance, listAlumniRecords, listArchiveLearners, listCounsellingCases, listApprovedBehaviour } from "./archives";
 import { approveRollover, excludeRolloverItem, listAcademicStructure, listRollover, previewRollover, reverseRollover, saveAcademicTerm, saveAcademicYear } from "./academic";
-import { addLibraryBook, batchCheckoutLibraryBooks, checkoutLibraryBook, libraryLookups, libraryOverview, listLibraryBooks, listLibraryLoans, renewLibraryLoan, returnLibraryBook } from "./library";
+import { addLibraryBook, batchCheckoutLibraryBooks, checkoutLibraryBook, libraryLookups, libraryOverview, listLibraryBooks, listLibraryBooksPage, listLibraryLoans, listLibraryLoansPage, renewLibraryLoan, returnLibraryBook } from "./library";
 import {
   archiveLearner,
   canViewMasterTimetable,
@@ -89,6 +89,7 @@ import {
   financialSummary,
   getPermissionMatrix,
   listExpenditures,
+  listExpendituresPage,
   listGuardians,
   listNotifications,
   recordExpenditure,
@@ -217,6 +218,7 @@ export const appRouter = router({
       recordPayment: permissionProcedure("finance.edit").input(z.object({ learnerId: z.number().int().positive(), amount: z.number().positive(), paymentMethod: z.enum(["mpesa", "bank", "cash"]), reference: z.string().min(3).max(80) })).mutation(({ input, ctx }) => recordPayment(input, currentUserId(ctx.user))),
       summary: permissionProcedure("finance.view").query(() => financialSummary()),
       expenditures: permissionProcedure("finance.view").query(() => listExpenditures()),
+      expendituresPage: permissionProcedure("finance.view").input(z.object({ page: z.number().int().min(0).optional(), pageSize: z.number().int().min(10).max(100).optional() })).query(({ input }) => listExpendituresPage(input)),
       recordExpenditure: permissionProcedure("finance.edit").input(z.object({ expenditureDate: z.string(), amount: z.number().positive(), category: z.string().min(1).max(120), description: z.string().min(1).max(255), responsiblePerson: z.string().min(1).max(160) })).mutation(({ input, ctx }) => recordExpenditure(input, currentUserId(ctx.user))),
     }),
     people: router({
@@ -281,7 +283,9 @@ export const appRouter = router({
       overview: permissionProcedure("library.view").query(() => libraryOverview()),
       lookups: permissionProcedure("library.view").query(() => libraryLookups()),
       books: permissionProcedure("library.view").input(z.object({ search: z.string().optional() }).optional()).query(({ input }) => listLibraryBooks(input?.search)),
+      booksPage: permissionProcedure("library.view").input(z.object({ search: z.string().optional(), page: z.number().int().min(0).optional(), pageSize: z.number().int().min(10).max(100).optional() })).query(({ input }) => listLibraryBooksPage(input)),
       loans: permissionProcedure("library.view").input(z.object({ overdueOnly: z.boolean().optional() }).optional()).query(({ input }) => listLibraryLoans(input?.overdueOnly ?? false)),
+      loansPage: permissionProcedure("library.view").input(z.object({ overdueOnly: z.boolean().optional(), page: z.number().int().min(0).optional(), pageSize: z.number().int().min(10).max(100).optional() })).query(({ input }) => listLibraryLoansPage(input)),
       addBook: permissionProcedure("library.create").input(z.object({ title: z.string().min(1).max(200), author: z.string().max(160).nullable().optional(), isbn: z.string().max(40).nullable().optional(), publisher: z.string().max(160).nullable().optional(), pubYear: z.number().int().min(1800).max(2200).nullable().optional(), subject: z.string().max(120).nullable().optional(), categoryId: z.number().int().positive().nullable().optional(), copies: z.number().int().min(1).max(100), location: z.string().max(120).nullable().optional() })).mutation(({ input, ctx }) => addLibraryBook(input, ctx.user.id)),
       checkout: permissionProcedure("library.edit").input(z.object({ copyId: z.number().int().positive(), learnerId: z.number().int().positive().nullable().optional(), staffUserId: z.number().int().positive().nullable().optional(), dueDays: z.number().int().min(1).max(90) })).mutation(({ input, ctx }) => checkoutLibraryBook(input, ctx.user.id)),
       batchCheckout: permissionProcedure("library.edit").input(z.object({ copyIds: z.array(z.number().int().positive()).min(1).max(100), learnerIds: z.array(z.number().int().positive()).min(1).max(100), dueDays: z.number().int().min(1).max(90) })).mutation(({ input, ctx }) => batchCheckoutLibraryBooks(input, ctx.user.id)),

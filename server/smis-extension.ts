@@ -1,7 +1,7 @@
-import { desc, eq, like } from "drizzle-orm";
+import { desc, eq, like, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import { expenditures, guardians, learnerGuardians, notifications, permissions, userPermissions } from "../drizzle/schema";
-import { effectivePermissions, permissionCatalog, requireDb, writeAudit } from "./smis";
+import { effectivePermissions, peoplePageWindow, permissionCatalog, requireDb, writeAudit } from "./smis";
 import { attendances, learners, marks, feeStructures, payments, storeItems, storeMovements, subjects, grades } from "../drizzle/schema";
 
 export async function listGuardians(search?: string) {
@@ -20,6 +20,16 @@ export async function saveGuardian(input: { fullName: string; phone?: string | n
 export async function listExpenditures() {
   const db = await requireDb();
   return db.select().from(expenditures).orderBy(desc(expenditures.expenditureDate)).limit(100);
+}
+
+export async function listExpendituresPage(input: { page?: number; pageSize?: number }) {
+  const db = await requireDb();
+  const { page, pageSize, offset } = peoplePageWindow(input.page, input.pageSize);
+  const [rows, totalRows] = await Promise.all([
+    db.select().from(expenditures).orderBy(desc(expenditures.expenditureDate)).limit(pageSize).offset(offset),
+    db.select({ total: sql<number>`count(*)` }).from(expenditures),
+  ]);
+  return { rows, total: Number(totalRows[0]?.total ?? 0), page, pageSize };
 }
 
 export async function recordExpenditure(input: { expenditureDate: string; amount: number; category: string; description: string; responsiblePerson: string }, userId: number) {

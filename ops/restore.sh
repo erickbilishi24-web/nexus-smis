@@ -12,6 +12,14 @@ source "$CONFIG_FILE"
 : "${MYSQL_DATABASE:?MYSQL_DATABASE is required}"
 : "${MYSQL_USER:?MYSQL_USER is required}"
 : "${MYSQL_HOST:?MYSQL_HOST is required}"
+restore_error() {
+  local code=$?
+  if [[ -n "${RESTORE_ALERT_COMMAND:-}" ]]; then
+    RESTORE_ERROR_CODE="$code" RESTORE_ERROR_ARCHIVE="$ARCHIVE" bash -lc "$RESTORE_ALERT_COMMAND" || true
+  fi
+  exit "$code"
+}
+trap restore_error ERR
 CHECKSUM="$ARCHIVE.sha256"
 [[ -r "$CHECKSUM" ]] || { echo "Missing checksum file: $CHECKSUM" >&2; exit 3; }
 sha256sum --check "$CHECKSUM"

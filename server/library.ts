@@ -1,7 +1,7 @@
-import { and, desc, eq, isNull, lt, sql } from "drizzle-orm";
+import { and, count, desc, eq, isNull, like, lt, or, sql } from "drizzle-orm";
 import { grades, libraryBooks, libraryCategories, libraryCopies, libraryFines, libraryLoans, learners, staffProfiles, users } from "../drizzle/schema";
 import { getDb } from "./db";
-import { writeAudit } from "./smis";
+import { peoplePageWindow, writeAudit } from "./smis";
 
 async function requireDb() { const db = await getDb(); if (!db) throw new Error("DATABASE_UNAVAILABLE"); return db; }
 const dateOnly = (offset = 0) => { const d = new Date(); d.setUTCDate(d.getUTCDate() + offset); d.setUTCHours(0, 0, 0, 0); return d; };
@@ -24,14 +24,33 @@ export async function libraryLookups() { const db = await requireDb(); return { 
 
 export async function listLibraryBooks(search?: string) {
   const db = await requireDb(); const term = search?.trim();
-  const rows = await db.select({ book: libraryBooks, category: libraryCategories, copies: sql<number>`(select count(*) from library_copies c where c.bookId = library_books.id)`, available: sql<number>`(select count(*) from library_copies c where c.bookId = library_books.id and c.status = 'available')` }).from(libraryBooks).leftJoin(libraryCategories, eq(libraryCategories.id, libraryBooks.categoryId)).where(isNull(libraryBooks.deletedAt)).orderBy(libraryBooks.title);
-  return term ? rows.filter(r => `${r.book.title} ${r.book.author ?? ""} ${r.book.isbn ?? ""}`.toLowerCase().includes(term.toLowerCase())) : rows;
+  const rows = await db.select({ book: libraryBooks, category: libraryCategories, copies: sql<number>`(select count(*) from library_copies c where c.bookId = library_books.id)`, available: sql<number>`(select count(*) from library_copies c where c.bookId = library_books.id and c.status = 'available')` }).from(libraryBooks).leftJoin(libraryCategories, eq(libraryCategories.id, libraryBooks.categoryId)).where(and(isNull(libraryBooks.deletedAt), term ? or(like(libraryBooks.title, `%${term}%`), like(libraryBooks.author, `%${term}%`), like(libraryBooks.isbn, `%${term}%`)) : undefined)).orderBy(libraryBooks.title);
+  return rows;
+}
+
+export async function listLibraryBooksPage(input: { search?: string; page?: number; pageSize?: number }) {
+  const db = await requireDb(); const { page, pageSize, offset } = peoplePageWindow(input.page, input.pageSize); const term = input.search?.trim();
+  const where = and(isNull(libraryBooks.deletedAt), term ? or(like(libraryBooks.title, `%${term}%`), like(libraryBooks.author, `%${term}%`), like(libraryBooks.isbn, `%${term}%`)) : undefined);
+  const [rows, totalRows] = await Promise.all([
+    db.select({ book: libraryBooks, category: libraryCategories, copies: sql<number>`(select count(*) from library_copies c where c.bookId = library_books.id)`, available: sql<number>`(select count(*) from library_copies c where c.bookId = library_books.id and c.status = 'available')` }).from(libraryBooks).leftJoin(libraryCategories, eq(libraryCategories.id, libraryBooks.categoryId)).where(where).orderBy(libraryBooks.title).limit(pageSize).offset(offset),
+    db.select({ total: count(libraryBooks.id) }).from(libraryBooks).where(where),
+  ]);
+  return { rows, total: Number(totalRows[0]?.total ?? 0), page, pageSize };
 }
 
 export async function listLibraryLoans(overdueOnly = false) {
   const db = await requireDb();
   const rows = await db.select({ loan: libraryLoans, copy: libraryCopies, book: libraryBooks, learner: learners, staff: staffProfiles }).from(libraryLoans).innerJoin(libraryCopies, eq(libraryCopies.id, libraryLoans.copyId)).innerJoin(libraryBooks, eq(libraryBooks.id, libraryCopies.bookId)).leftJoin(learners, eq(learners.id, libraryLoans.learnerId)).leftJoin(staffProfiles, eq(staffProfiles.userId, libraryLoans.staffUserId)).where(overdueOnly ? and(isNull(libraryLoans.returnedOn), lt(libraryLoans.dueDate, dateOnly())) : undefined).orderBy(desc(libraryLoans.id));
   return rows;
+}
+
+export async function listLibraryLoansPage(input: { overdueOnly?: boolean; page?: number; pageSize?: number }) {
+  const db = await requireDb(); const { page, pageSize, offset } = peoplePageWindow(input.page, input.pageSize); const where = input.overdueOnly ? and(isNull(libraryLoans.returnedOn), lt(libraryLoans.dueDate, dateOnly())) : undefined;
+  const [rows, totalRows] = await Promise.all([
+    db.select({ loan: libraryLoans, copy: libraryCopies, book: libraryBooks, learner: learners, staff: staffProfiles }).from(libraryLoans).innerJoin(libraryCopies, eq(libraryCopies.id, libraryLoans.copyId)).innerJoin(libraryBooks, eq(libraryBooks.id, libraryCopies.bookId)).leftJoin(learners, eq(learners.id, libraryLoans.learnerId)).leftJoin(staffProfiles, eq(staffProfiles.userId, libraryLoans.staffUserId)).where(where).orderBy(desc(libraryLoans.id)).limit(pageSize).offset(offset),
+    db.select({ total: count(libraryLoans.id) }).from(libraryLoans).where(where),
+  ]);
+  return { rows, total: Number(totalRows[0]?.total ?? 0), page, pageSize };
 }
 
 export async function addLibraryBook(input: { title: string; author?: string | null; isbn?: string | null; publisher?: string | null; pubYear?: number | null; subject?: string | null; categoryId?: number | null; copies: number; location?: string | null }, userId: number) {
