@@ -48,7 +48,7 @@ import {
   listAttendance,
   listAuditLogs,
   listCommunications,
-  listLearners,
+  listLearners, listLearnersPage,
   createGradeClass,
   updateGradeClass,
   deleteGradeClass,
@@ -60,7 +60,7 @@ import {
   importPeopleRows,
   undoLastPeopleImport,
   listMarks,
-  listStaff,
+  listStaff, listStaffPage,
   createStaff,
   updateStaff,
   setStaffStatus,
@@ -178,6 +178,7 @@ export const appRouter = router({
     snapshot: permissionProcedure("dashboard.view").query(({ ctx }) => getDashboardSnapshot(ctx.user.id, ctx.user.role)),
     learners: router({
       list: permissionProcedure("learners.view").input(z.object({ search: z.string().optional() }).optional()).query(({ input, ctx }) => listLearners(input?.search, currentUserId(ctx.user))),
+      page: permissionProcedure("learners.view").input(z.object({ search: z.string().optional(), page: z.number().int().min(0).optional(), pageSize: z.number().int().min(10).max(100).optional() })).query(({ input, ctx }) => listLearnersPage(input, currentUserId(ctx.user))),
       create: permissionProcedure("learners.add").input(z.object({ fullName: z.string().min(1).max(160), admissionNumber: z.string().min(1).max(40), guardianName: z.string().max(160).nullable().optional(), guardianIdNumber: z.string().max(40).nullable().optional(), guardianPhone: z.string().max(40).nullable().optional(), gradeId: z.number().int().positive(), status: z.enum(["active", "inactive"]) })).mutation(({ input, ctx }) => createLearner(input, currentUserId(ctx.user))),
       update: permissionProcedure("learners.edit").input(z.object({ learnerId: z.number().int().positive(), fullName: z.string().min(1).max(160), admissionNumber: z.string().min(1).max(40), guardianName: z.string().max(160).nullable().optional(), guardianIdNumber: z.string().max(40).nullable().optional(), guardianPhone: z.string().max(40).nullable().optional(), gradeId: z.number().int().positive(), status: z.enum(["active", "inactive"]) })).mutation(({ input, ctx }) => updateLearner(input, currentUserId(ctx.user))),
       setStatus: permissionProcedure("learners.deactivate").input(z.object({ learnerId: z.number().int().positive(), status: z.enum(["active", "inactive"]) })).mutation(({ input, ctx }) => setLearnerStatus(input, currentUserId(ctx.user))),
@@ -347,6 +348,7 @@ export const appRouter = router({
     }),
     users: router({
       list: permissionProcedure("users.edit").input(z.object({ search: z.string().optional() }).optional()).query(({ input, ctx }) => listStaff(input?.search, currentUserId(ctx.user))),
+      page: permissionProcedure("users.edit").input(z.object({ search: z.string().optional(), page: z.number().int().min(0).optional(), pageSize: z.number().int().min(10).max(100).optional() })).query(({ input, ctx }) => listStaffPage(input, currentUserId(ctx.user))),
       lastImport: permissionProcedure("users.edit").query(() => getLastPeopleImport()),
       undoLastImport: permissionProcedure("users.edit").mutation(({ ctx }) => undoLastPeopleImport(currentUserId(ctx.user))),
       createStaff: permissionProcedure("users.edit").input(z.object({ displayName: z.string().min(1).max(160), title: z.string().max(30).nullable().optional(), designation: z.string().max(120).nullable().optional(), phone: z.string().max(40).nullable().optional(), email: z.string().email().nullable().optional(), teacherCode: z.number().int().min(1).max(999).nullable().optional(), assignedGradeId: z.number().int().positive().nullable().optional(), role: z.enum(["admin", "teacher", "class_teacher", "finance"]), status: z.enum(["active", "inactive"]) })).mutation(({ input, ctx }) => createStaff(input, currentUserId(ctx.user))),

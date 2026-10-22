@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, like, lte, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, like, lte, or, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db";
 import { computePermissions } from "./access";
@@ -171,6 +171,11 @@ export async function getDashboardSnapshot(userId?: number, accountRole?: string
 export type LearnerStatus = "active" | "inactive";
 export type PeopleStaffStatus = "active" | "inactive";
 export type PeopleStaffRole = "admin" | "teacher" | "class_teacher" | "finance";
+export function peoplePageWindow(page = 0, pageSize = 50) {
+  const safePage = Math.max(0, Math.floor(page));
+  const safePageSize = Math.min(100, Math.max(10, Math.floor(pageSize)));
+  return { page: safePage, pageSize: safePageSize, offset: safePage * safePageSize };
+}
 
 export async function listLearners(search?: string, userId?: number) {
   const db = await requireDb();
@@ -178,6 +183,19 @@ export async function listLearners(search?: string, userId?: number) {
   const schoolId = userId == null ? null : await actorSchoolId(userId);
   const rows = await db.select({ learner: learners, grade: grades }).from(learners).leftJoin(grades, eq(grades.id, learners.gradeId)).where(and(schoolId == null ? undefined : eq(learners.schoolId, schoolId), term ? or(like(learners.fullName, `%${term}%`), like(learners.admissionNumber, `%${term}%`), like(learners.guardianName, `%${term}%`), like(learners.status, `%${term}%`)) : undefined)).orderBy(learners.fullName);
   return rows.map(row => ({ ...row.learner, grade: row.grade ? `${row.grade.name}${row.grade.stream ? ` ${row.grade.stream}` : ""}` : "" }));
+}
+
+export async function listLearnersPage(input: { search?: string; page?: number; pageSize?: number }, userId: number) {
+  const db = await requireDb();
+  const schoolId = await actorSchoolId(userId);
+  const { page, pageSize, offset } = peoplePageWindow(input.page, input.pageSize);
+  const term = input.search?.trim();
+  const where = and(eq(learners.schoolId, schoolId), term ? or(like(learners.fullName, `%${term}%`), like(learners.admissionNumber, `%${term}%`), like(learners.guardianName, `%${term}%`), like(learners.status, `%${term}%`)) : undefined);
+  const [rows, totalRows] = await Promise.all([
+    db.select({ learner: learners, grade: grades }).from(learners).leftJoin(grades, eq(grades.id, learners.gradeId)).where(where).orderBy(learners.fullName).limit(pageSize).offset(offset),
+    db.select({ total: count(learners.id) }).from(learners).where(where),
+  ]);
+  return { rows: rows.map(row => ({ ...row.learner, grade: row.grade ? `${row.grade.name}${row.grade.stream ? ` ${row.grade.stream}` : ""}` : "" })), total: Number(totalRows[0]?.total ?? 0), page, pageSize };
 }
 
 async function resolveGrade(gradeId: number, schoolId?: number) {
@@ -736,6 +754,19 @@ export async function listStaff(search?: string, userId?: number) {
   const term = search?.trim();
   const schoolId = userId == null ? null : await actorSchoolId(userId);
   return db.select({ profile: staffProfiles, user: users }).from(staffProfiles).leftJoin(users, eq(users.id, staffProfiles.userId)).where(and(schoolId == null ? undefined : eq(staffProfiles.schoolId, schoolId), term ? or(like(staffProfiles.displayName, `%${term}%`), like(staffProfiles.email, `%${term}%`), like(staffProfiles.phone, `%${term}%`), like(staffProfiles.role, `%${term}%`), like(staffProfiles.status, `%${term}%`)) : undefined)).orderBy(staffProfiles.displayName);
+}
+
+export async function listStaffPage(input: { search?: string; page?: number; pageSize?: number }, userId: number) {
+  const db = await requireDb();
+  const schoolId = await actorSchoolId(userId);
+  const { page, pageSize, offset } = peoplePageWindow(input.page, input.pageSize);
+  const term = input.search?.trim();
+  const where = and(eq(staffProfiles.schoolId, schoolId), term ? or(like(staffProfiles.displayName, `%${term}%`), like(staffProfiles.email, `%${term}%`), like(staffProfiles.phone, `%${term}%`), like(staffProfiles.role, `%${term}%`), like(staffProfiles.status, `%${term}%`)) : undefined);
+  const [rows, totalRows] = await Promise.all([
+    db.select({ profile: staffProfiles, user: users }).from(staffProfiles).leftJoin(users, eq(users.id, staffProfiles.userId)).where(where).orderBy(staffProfiles.displayName).limit(pageSize).offset(offset),
+    db.select({ total: count(staffProfiles.id) }).from(staffProfiles).where(where),
+  ]);
+  return { rows, total: Number(totalRows[0]?.total ?? 0), page, pageSize };
 }
 
 async function nextStaffCode() {

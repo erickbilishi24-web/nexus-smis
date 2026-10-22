@@ -83,7 +83,7 @@ export const staffProfiles = mysqlTable("staff_profiles", {
   role: mysqlEnum("role", ["super_admin", "admin", "teacher", "class_teacher", "senior_teacher", "deputy_head", "head_teacher", "finance", "storekeeper", "other"]).notNull().default("other"),
   status: mysqlEnum("status", ["active", "disabled"]).notNull().default("active"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, table => ({ staffSchoolNameIdx: index("staff_school_name_idx").on(table.schoolId, table.displayName) }));
 
 export const grades = mysqlTable("grades", {
   id: int("id").autoincrement().primaryKey(),
@@ -114,7 +114,7 @@ export const learners = mysqlTable("learners", {
   gradeId: int("gradeId").notNull(),
   status: mysqlEnum("status", ["active", "inactive", "archived"]).notNull().default("active"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, table => ({ learnerSchoolNameIdx: index("learner_school_name_idx").on(table.schoolId, table.fullName) }));
 
 export const guardians = mysqlTable("guardians", {
   id: int("id").autoincrement().primaryKey(),
