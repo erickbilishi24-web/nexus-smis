@@ -58,6 +58,11 @@ function requireDb() {
   });
 }
 
+function ensureActorSchoolId(actor: User): number {
+  if (!actor.schoolId) throw new Error("SCHOOL_ASSIGNMENT_REQUIRED");
+  return actor.schoolId;
+}
+
 export async function ensureDefaultCategories(): Promise<ResourceCategory[]> {
   const db = await requireDb();
   const existing = await db.select().from(resourceCategories).orderBy(asc(resourceCategories.displayOrder));
@@ -70,18 +75,18 @@ export async function ensureDefaultCategories(): Promise<ResourceCategory[]> {
   return db.select().from(resourceCategories).orderBy(asc(resourceCategories.displayOrder), asc(resourceCategories.name));
 }
 
-export async function getResourceHubSnapshot() {
+export async function getResourceHubSnapshot(schoolId?: number | null) {
   const db = await requireDb();
   const categories = await ensureDefaultCategories();
-  const allResources = await db.select().from(resources).orderBy(asc(resources.displayOrder), desc(resources.updatedAt));
+  const allResources = await db.select().from(resources).where(schoolId == null ? undefined : eq(resources.schoolId, schoolId)).orderBy(asc(resources.displayOrder), desc(resources.updatedAt));
   const allVisibility = allResources.length
     ? await db.select().from(resourceRoleVisibility).where(inArray(resourceRoleVisibility.resourceId, allResources.map(resource => resource.id)))
     : [];
   return { categories, resources: allResources, visibility: allVisibility };
 }
 
-export async function getResourcesForRole(role: string) {
-  const snapshot = await getResourceHubSnapshot();
+export async function getResourcesForRole(role: string, schoolId: number) {
+  const snapshot = await getResourceHubSnapshot(schoolId);
   const categoryMap = new Map(snapshot.categories.map(category => [category.id, category]));
   const visibilityMap = new Map<number, string[]>();
   for (const item of snapshot.visibility) {
@@ -139,6 +144,7 @@ async function writeAudit(
 ) {
   const db = await requireDb();
   await db.insert(resourceAuditLogs).values({
+    schoolId: ensureActorSchoolId(actor),
     actorUserId: actor.id,
     action,
     resourceId,
@@ -148,14 +154,14 @@ async function writeAudit(
   });
 }
 
-export async function getAdminDashboard() {
-  const snapshot = await getResourceHubSnapshot();
+export async function getAdminDashboard(schoolId: number) {
+  const snapshot = await getResourceHubSnapshot(schoolId);
   const db = await requireDb();
-  const audit = await db.select().from(resourceAuditLogs).orderBy(desc(resourceAuditLogs.createdAt), desc(resourceAuditLogs.id)).limit(40);
+  const audit = await db.select().from(resourceAuditLogs).where(eq(resourceAuditLogs.schoolId, schoolId)).orderBy(desc(resourceAuditLogs.createdAt), desc(resourceAuditLogs.id)).limit(40);
   const managers = await db
     .select({ id: users.id, name: users.name, email: users.email, role: users.role, resourceHubManage: users.resourceHubManage })
     .from(users)
-    .where(eq(users.role, "admin"))
+    .where(and(eq(users.role, "admin"), eq(users.schoolId, schoolId)))
     .orderBy(asc(users.name), asc(users.email));
   const categoryMap = new Map(snapshot.categories.map(category => [category.id, category]));
   const visibilityMap = new Map<number, string[]>();
@@ -192,10 +198,12 @@ export async function createResource(input: {
   visibilityRoles: string[];
 }, actor: User) {
   const db = await requireDb();
+  const schoolId = ensureActorSchoolId(actor);
   const category = await db.select().from(resourceCategories).where(eq(resourceCategories.id, input.categoryId)).limit(1);
   if (!category[0]) throw new Error("Choose one of the six configured Resource Hub categories.");
   const safeUrl = validateResourceUrl(input.url, input.allowHttp);
   const [result] = await db.insert(resources).values({
+    schoolId,
     categoryId: input.categoryId,
     title: input.title.trim(),
     url: safeUrl,
@@ -221,8 +229,9 @@ export async function createResource(input: {
 }
 
 export async function updateResource(resourceId: number, input: Omit<Parameters<typeof createResource>[0], "displayOrder"> & { displayOrder: number }, actor: User) {
+  const schoolId = ensureActorSchoolId(actor);
   const db = await requireDb();
-  const existing = await db.select().from(resources).where(eq(resources.id, resourceId)).limit(1);
+  const existing = await db.select().from(resources).where(and(eq(resources.id, resourceId), eq(resources.schoolId, schoolId))).limit(1);
   if (!existing[0]) throw new Error("Resource not found.");
   const category = await db.select().from(resourceCategories).where(eq(resourceCategories.id, input.categoryId)).limit(1);
   if (!category[0]) throw new Error("Choose one of the six configured Resource Hub categories.");
@@ -241,45 +250,49 @@ export async function updateResource(resourceId: number, input: Omit<Parameters<
     isActive: input.isActive,
     displayOrder: input.displayOrder,
     updatedBy: actor.id,
-  }).where(eq(resources.id, resourceId));
+  }).where(and(eq(resources.id, resourceId), eq(resources.schoolId, schoolId)));
   await db.delete(resourceRoleVisibility).where(eq(resourceRoleVisibility.resourceId, resourceId));
   if (input.visibilityRoles.length) await db.insert(resourceRoleVisibility).values(input.visibilityRoles.map(role => ({ resourceId, role })));
-  const updated = await db.select().from(resources).where(eq(resources.id, resourceId)).limit(1);
+  const updated = await db.select().from(resources).where(and(eq(resources.id, resourceId), eq(resources.schoolId, schoolId))).limit(1);
   await writeAudit(actor, "updated", input.title.trim(), resourceId, auditResource(existing[0]), auditResource(updated[0]));
   return updated[0];
 }
 
 export async function setResourceActive(resourceId: number, isActive: boolean, actor: User) {
+  const schoolId = ensureActorSchoolId(actor);
   const db = await requireDb();
-  const existing = await db.select().from(resources).where(eq(resources.id, resourceId)).limit(1);
+  const existing = await db.select().from(resources).where(and(eq(resources.id, resourceId), eq(resources.schoolId, schoolId))).limit(1);
   if (!existing[0]) throw new Error("Resource not found.");
-  await db.update(resources).set({ isActive, updatedBy: actor.id }).where(eq(resources.id, resourceId));
+  await db.update(resources).set({ isActive, updatedBy: actor.id }).where(and(eq(resources.id, resourceId), eq(resources.schoolId, schoolId)));
   await writeAudit(actor, isActive ? "activated" : "deactivated", existing[0].title, resourceId, auditResource(existing[0]), { ...auditResource(existing[0]), isActive });
   return { success: true } as const;
 }
 
 export async function deleteResource(resourceId: number, actor: User) {
+  const schoolId = ensureActorSchoolId(actor);
   const db = await requireDb();
-  const existing = await db.select().from(resources).where(eq(resources.id, resourceId)).limit(1);
+  const existing = await db.select().from(resources).where(and(eq(resources.id, resourceId), eq(resources.schoolId, schoolId))).limit(1);
   if (!existing[0]) throw new Error("Resource not found.");
   await db.delete(resourceRoleVisibility).where(eq(resourceRoleVisibility.resourceId, resourceId));
-  await db.delete(resources).where(eq(resources.id, resourceId));
+  await db.delete(resources).where(and(eq(resources.id, resourceId), eq(resources.schoolId, schoolId)));
   await writeAudit(actor, "deleted", existing[0].title, resourceId, auditResource(existing[0]), null);
   return { success: true } as const;
 }
 
 export async function reorderResource(resourceId: number, displayOrder: number, actor: User) {
+  const schoolId = ensureActorSchoolId(actor);
   const db = await requireDb();
-  const existing = await db.select().from(resources).where(eq(resources.id, resourceId)).limit(1);
+  const existing = await db.select().from(resources).where(and(eq(resources.id, resourceId), eq(resources.schoolId, schoolId))).limit(1);
   if (!existing[0]) throw new Error("Resource not found.");
-  await db.update(resources).set({ displayOrder, updatedBy: actor.id }).where(eq(resources.id, resourceId));
+  await db.update(resources).set({ displayOrder, updatedBy: actor.id }).where(and(eq(resources.id, resourceId), eq(resources.schoolId, schoolId)));
   await writeAudit(actor, "reordered", existing[0].title, resourceId, { displayOrder: existing[0].displayOrder }, { displayOrder });
   return { success: true } as const;
 }
 
 export async function setResourceVisibility(resourceId: number, visibilityRoles: string[], actor: User) {
+  const schoolId = ensureActorSchoolId(actor);
   const db = await requireDb();
-  const existing = await db.select().from(resources).where(eq(resources.id, resourceId)).limit(1);
+  const existing = await db.select().from(resources).where(and(eq(resources.id, resourceId), eq(resources.schoolId, schoolId))).limit(1);
   if (!existing[0]) throw new Error("Resource not found.");
   const before = await db.select().from(resourceRoleVisibility).where(eq(resourceRoleVisibility.resourceId, resourceId));
   await db.delete(resourceRoleVisibility).where(eq(resourceRoleVisibility.resourceId, resourceId));

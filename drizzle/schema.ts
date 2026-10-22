@@ -406,6 +406,7 @@ export const iamSessions = mysqlTable("iam_sessions", {
   userId: int("userId").notNull(),
   sessionHash: varchar("sessionHash", { length: 128 }).notNull().unique(),
   loginAt: timestamp("loginAt").defaultNow().notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
   logoutAt: timestamp("logoutAt"),
   ipAddress: varchar("ipAddress", { length: 80 }),
   userAgent: varchar("userAgent", { length: 500 }),

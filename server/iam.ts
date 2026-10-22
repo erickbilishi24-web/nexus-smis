@@ -9,6 +9,7 @@ export const IAM_COOKIE_NAME = "nexus_iam_session";
 const MAX_FAILED_LOGINS = 5;
 const SESSION_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 30;
 export function shouldLockIamAccount(isSuperAdmin: boolean, failedAttempts: number) { return !isSuperAdmin && failedAttempts >= MAX_FAILED_LOGINS; }
+export function isIamSessionExpired(expiresAt: Date, now = new Date()) { return expiresAt.getTime() <= now.getTime(); }
 
 export function safeAuthProfile(user: User | null) {
   return user ? {
@@ -42,7 +43,8 @@ function getCookie(req: Request) {
 async function audit(userId: number | null, action: string, metadata: Record<string, unknown>, req: Request) {
   const db = await getDb();
   if (!db) return;
-  await db.insert(auditLogs).values({ userId, action, entityType: "iam", entityId: userId == null ? null : String(userId), metadata: JSON.stringify(metadata) });
+  const schoolId = userId == null ? null : (await db.select({ schoolId: users.schoolId }).from(users).where(eq(users.id, userId)).limit(1))[0]?.schoolId ?? null;
+  await db.insert(auditLogs).values({ schoolId, userId, action, entityType: "iam", entityId: userId == null ? null : String(userId), metadata: JSON.stringify(metadata) });
 }
 
 export async function authenticateIamRequest(req: Request) {
@@ -52,6 +54,10 @@ export async function authenticateIamRequest(req: Request) {
   if (!db) return null;
   const rows = await db.select({ session: iamSessions, user: users }).from(iamSessions).innerJoin(users, eq(users.id, iamSessions.userId)).where(and(eq(iamSessions.sessionHash, tokenHash(token)), eq(iamSessions.status, "active"))).limit(1);
   const row = rows[0];
+  if (row && isIamSessionExpired(row.session.expiresAt)) {
+    await db.update(iamSessions).set({ status: "expired", logoutAt: new Date() }).where(eq(iamSessions.id, row.session.id));
+    return null;
+  }
   if (!row || row.user.accountStatus !== "active" || row.user.accountLocked) return null;
   return row.user;
 }
@@ -79,7 +85,7 @@ export async function loginWithIam(input: LoginInput, req: Request, res: Respons
   }
   const token = crypto.randomBytes(48).toString("base64url");
   await db.update(users).set({ failedLoginAttempts: 0, accountLocked: 0, lastSignedIn: new Date() }).where(eq(users.id, row.id));
-  await db.insert(iamSessions).values({ userId: row.id, sessionHash: tokenHash(token), ipAddress: req.ip, userAgent: req.get("user-agent") ?? null });
+  await db.insert(iamSessions).values({ userId: row.id, sessionHash: tokenHash(token), expiresAt: new Date(Date.now() + SESSION_MAX_AGE_MS), ipAddress: req.ip, userAgent: req.get("user-agent") ?? null });
   res.cookie(IAM_COOKIE_NAME, token, cookieOptions());
   await audit(row.id, "IAM_LOGIN_SUCCESS", {}, req);
   return safeAuthProfile(row);

@@ -84,6 +84,13 @@ export async function requireDb() {
   return db;
 }
 
+export async function actorSchoolId(userId: number): Promise<number> {
+  const db = await requireDb();
+  const row = (await db.select({ schoolId: users.schoolId }).from(users).where(eq(users.id, userId)).limit(1))[0];
+  if (!row?.schoolId) throw new Error("SCHOOL_ASSIGNMENT_REQUIRED");
+  return row.schoolId;
+}
+
 export async function writeAudit(userId: number | null, action: string, entityType: string, entityId?: string | number | null, metadata: Record<string, unknown> = {}) {
   const db = await requireDb();
   const schoolId = userId == null ? null : (await db.select({ schoolId: users.schoolId }).from(users).where(eq(users.id, userId)).limit(1))[0]?.schoolId ?? null;
@@ -112,15 +119,15 @@ export async function getDashboardSnapshot(userId?: number, accountRole?: string
   const trendStart = new Date(); trendStart.setHours(0, 0, 0, 0); trendStart.setDate(trendStart.getDate() - 6);
   const [settings, learnerRows, attendanceRows, trendRows, paymentRows, paymentTrendRows, assessmentRows, staffRows, staffClockingRows, lowStockRows] = await Promise.all([
     getSettings(actorSchoolId),
-    db.select({ learner: learners, grade: grades }).from(learners).leftJoin(grades, eq(grades.id, learners.gradeId)).where(eq(learners.status, "active")),
-    db.select().from(attendances).orderBy(desc(attendances.id)).limit(100),
-    db.select({ attendanceDate: attendances.attendanceDate, status: attendances.status }).from(attendances).where(gte(attendances.attendanceDate, trendStart)),
-    canViewFinance ? db.select().from(payments).orderBy(desc(payments.paidAt)).limit(100) : Promise.resolve([]),
-    canViewFinance ? db.select({ amount: payments.amount, paidAt: payments.paidAt }).from(payments).where(gte(payments.paidAt, trendStart)) : Promise.resolve([]),
-    db.select().from(assessments).where(sql`${assessments.status} <> 'approved'`),
-    db.select().from(staffProfiles).where(eq(staffProfiles.status, "active")),
-    db.select({ userId: staffClockings.userId }).from(staffClockings).where(eq(staffClockings.clockDate, new Date(new Date().toISOString().slice(0, 10)))),
-    db.select({ item: storeItems, movement: storeMovements }).from(storeItems).leftJoin(storeMovements, eq(storeMovements.itemId, storeItems.id)),
+    db.select({ learner: learners, grade: grades }).from(learners).leftJoin(grades, eq(grades.id, learners.gradeId)).where(and(eq(learners.status, "active"), actorSchoolId == null ? undefined : eq(learners.schoolId, actorSchoolId))),
+    db.select().from(attendances).where(actorSchoolId == null ? undefined : eq(attendances.schoolId, actorSchoolId)).orderBy(desc(attendances.id)).limit(100),
+    db.select({ attendanceDate: attendances.attendanceDate, status: attendances.status }).from(attendances).where(and(gte(attendances.attendanceDate, trendStart), actorSchoolId == null ? undefined : eq(attendances.schoolId, actorSchoolId))),
+    canViewFinance ? db.select().from(payments).where(actorSchoolId == null ? undefined : eq(payments.schoolId, actorSchoolId)).orderBy(desc(payments.paidAt)).limit(100) : Promise.resolve([]),
+    canViewFinance ? db.select({ amount: payments.amount, paidAt: payments.paidAt }).from(payments).where(and(gte(payments.paidAt, trendStart), actorSchoolId == null ? undefined : eq(payments.schoolId, actorSchoolId))) : Promise.resolve([]),
+    db.select().from(assessments).where(and(sql`${assessments.status} <> 'approved'`, actorSchoolId == null ? undefined : eq(assessments.schoolId, actorSchoolId))),
+    db.select().from(staffProfiles).where(and(eq(staffProfiles.status, "active"), actorSchoolId == null ? undefined : eq(staffProfiles.schoolId, actorSchoolId))),
+    db.select({ userId: staffClockings.userId }).from(staffClockings).where(and(eq(staffClockings.clockDate, new Date(new Date().toISOString().slice(0, 10))), actorSchoolId == null ? undefined : eq(staffClockings.schoolId, actorSchoolId))),
+    db.select({ item: storeItems, movement: storeMovements }).from(storeItems).leftJoin(storeMovements, eq(storeMovements.itemId, storeItems.id)).where(actorSchoolId == null ? undefined : eq(storeItems.schoolId, actorSchoolId)),
   ]);
   const attendanceToday = attendanceRows.filter(row => String(row.attendanceDate) === new Date().toISOString().slice(0, 10));
   const present = attendanceToday.filter(row => row.status === "present").length;
@@ -165,63 +172,67 @@ export type LearnerStatus = "active" | "inactive";
 export type PeopleStaffStatus = "active" | "inactive";
 export type PeopleStaffRole = "admin" | "teacher" | "class_teacher" | "finance";
 
-export async function listLearners(search?: string) {
+export async function listLearners(search?: string, userId?: number) {
   const db = await requireDb();
   const term = search?.trim();
-  const rows = await db.select({ learner: learners, grade: grades }).from(learners).leftJoin(grades, eq(grades.id, learners.gradeId)).where(term ? or(like(learners.fullName, `%${term}%`), like(learners.admissionNumber, `%${term}%`), like(learners.guardianName, `%${term}%`), like(learners.status, `%${term}%`)) : undefined).orderBy(learners.fullName);
+  const schoolId = userId == null ? null : await actorSchoolId(userId);
+  const rows = await db.select({ learner: learners, grade: grades }).from(learners).leftJoin(grades, eq(grades.id, learners.gradeId)).where(and(schoolId == null ? undefined : eq(learners.schoolId, schoolId), term ? or(like(learners.fullName, `%${term}%`), like(learners.admissionNumber, `%${term}%`), like(learners.guardianName, `%${term}%`), like(learners.status, `%${term}%`)) : undefined)).orderBy(learners.fullName);
   return rows.map(row => ({ ...row.learner, grade: row.grade ? `${row.grade.name}${row.grade.stream ? ` ${row.grade.stream}` : ""}` : "" }));
 }
 
-async function resolveGrade(gradeId: number) {
+async function resolveGrade(gradeId: number, schoolId?: number) {
   const db = await requireDb();
-  const grade = (await db.select().from(grades).where(eq(grades.id, gradeId)).limit(1))[0];
+  const grade = (await db.select().from(grades).where(and(eq(grades.id, gradeId), schoolId == null ? undefined : eq(grades.schoolId, schoolId))).limit(1))[0];
   if (!grade) throw new Error("GRADE_NOT_FOUND");
   return grade;
 }
 
-async function syncPrimaryGuardian(input: { learnerId: number; fullName: string; idNumber?: string | null; phone?: string | null; userId: number }) {
+async function syncPrimaryGuardian(input: { learnerId: number; schoolId: number; fullName: string; idNumber?: string | null; phone?: string | null; userId: number }) {
   const db = await requireDb();
   const name = input.fullName.trim();
   if (!name) return;
-  const existing = input.idNumber?.trim() ? (await db.select().from(guardians).where(eq(guardians.idNumber, input.idNumber.trim())).limit(1))[0] : undefined;
-  const guardian = existing ? existing : (await db.insert(guardians).values({ fullName: name, idNumber: input.idNumber?.trim() || null, phone: input.phone?.trim() || null, communicationPreference: "sms" }).$returningId())[0];
-  if (existing) await db.update(guardians).set({ fullName: name, idNumber: input.idNumber?.trim() || null, phone: input.phone?.trim() || null }).where(eq(guardians.id, existing.id));
-  await db.insert(learnerGuardians).values({ learnerId: input.learnerId, guardianId: guardian.id, relationship: "Parent/Guardian", isPrimary: 1 }).onDuplicateKeyUpdate({ set: { relationship: "Parent/Guardian", isPrimary: 1 } });
+  const existing = input.idNumber?.trim() ? (await db.select().from(guardians).where(and(eq(guardians.schoolId, input.schoolId), eq(guardians.idNumber, input.idNumber.trim()))).limit(1))[0] : undefined;
+  const guardian = existing ? existing : (await db.insert(guardians).values({ schoolId: input.schoolId, fullName: name, idNumber: input.idNumber?.trim() || null, phone: input.phone?.trim() || null, communicationPreference: "sms" }).$returningId())[0];
+  if (existing) await db.update(guardians).set({ fullName: name, idNumber: input.idNumber?.trim() || null, phone: input.phone?.trim() || null }).where(and(eq(guardians.id, existing.id), eq(guardians.schoolId, input.schoolId)));
+  await db.insert(learnerGuardians).values({ schoolId: input.schoolId, learnerId: input.learnerId, guardianId: guardian.id, relationship: "Parent/Guardian", isPrimary: 1 }).onDuplicateKeyUpdate({ set: { relationship: "Parent/Guardian", isPrimary: 1 } });
   await writeAudit(input.userId, existing ? "guardian.update" : "guardian.create", "guardian", guardian.id, { learnerId: input.learnerId });
 }
 
 export async function createLearner(input: { fullName: string; admissionNumber: string; guardianName?: string | null; guardianIdNumber?: string | null; guardianPhone?: string | null; gradeId: number; status: LearnerStatus }, userId: number) {
   const db = await requireDb();
+  const schoolId = await actorSchoolId(userId);
   const fullName = input.fullName.trim(); const admissionNumber = input.admissionNumber.trim().toUpperCase();
   if (!fullName || !admissionNumber) throw new Error("LEARNER_REQUIRED_FIELDS");
-  await resolveGrade(input.gradeId);
-  const duplicate = (await db.select({ id: learners.id }).from(learners).where(eq(learners.admissionNumber, admissionNumber)).limit(1))[0];
+  await resolveGrade(input.gradeId, schoolId);
+  const duplicate = (await db.select({ id: learners.id }).from(learners).where(and(eq(learners.schoolId, schoolId), eq(learners.admissionNumber, admissionNumber))).limit(1))[0];
   if (duplicate) throw new Error("ADMISSION_NUMBER_EXISTS");
-  const row = (await db.insert(learners).values({ fullName, admissionNumber, guardianName: input.guardianName?.trim() || null, guardianIdNumber: input.guardianIdNumber?.trim() || null, guardianPhone: input.guardianPhone?.trim() || null, gradeId: input.gradeId, status: input.status }).$returningId())[0];
-  if (input.guardianName?.trim()) await syncPrimaryGuardian({ learnerId: row.id, fullName: input.guardianName, idNumber: input.guardianIdNumber, phone: input.guardianPhone, userId });
+  const row = (await db.insert(learners).values({ schoolId, fullName, admissionNumber, guardianName: input.guardianName?.trim() || null, guardianIdNumber: input.guardianIdNumber?.trim() || null, guardianPhone: input.guardianPhone?.trim() || null, gradeId: input.gradeId, status: input.status }).$returningId())[0];
+  if (input.guardianName?.trim()) await syncPrimaryGuardian({ learnerId: row.id, schoolId, fullName: input.guardianName, idNumber: input.guardianIdNumber, phone: input.guardianPhone, userId });
   await writeAudit(userId, "learner.create", "learner", row.id, { admissionNumber, gradeId: input.gradeId, status: input.status });
   return { ok: true, id: row.id };
 }
 
 export async function updateLearner(input: { learnerId: number; fullName: string; admissionNumber: string; guardianName?: string | null; guardianIdNumber?: string | null; guardianPhone?: string | null; gradeId: number; status: LearnerStatus }, userId: number) {
   const db = await requireDb();
-  const current = (await db.select().from(learners).where(eq(learners.id, input.learnerId)).limit(1))[0];
+  const schoolId = await actorSchoolId(userId);
+  const current = (await db.select().from(learners).where(and(eq(learners.id, input.learnerId), eq(learners.schoolId, schoolId))).limit(1))[0];
   if (!current) throw new Error("LEARNER_NOT_FOUND");
-  await resolveGrade(input.gradeId);
+  await resolveGrade(input.gradeId, schoolId);
   const admissionNumber = input.admissionNumber.trim().toUpperCase();
-  const duplicate = (await db.select({ id: learners.id }).from(learners).where(and(eq(learners.admissionNumber, admissionNumber), sql`${learners.id} <> ${input.learnerId}`)).limit(1))[0];
+  const duplicate = (await db.select({ id: learners.id }).from(learners).where(and(eq(learners.schoolId, schoolId), eq(learners.admissionNumber, admissionNumber), sql`${learners.id} <> ${input.learnerId}`)).limit(1))[0];
   if (duplicate) throw new Error("ADMISSION_NUMBER_EXISTS");
-  await db.update(learners).set({ fullName: input.fullName.trim(), admissionNumber, guardianName: input.guardianName?.trim() || null, guardianIdNumber: input.guardianIdNumber?.trim() || null, guardianPhone: input.guardianPhone?.trim() || null, gradeId: input.gradeId, status: input.status }).where(eq(learners.id, input.learnerId));
-  if (input.guardianName?.trim()) await syncPrimaryGuardian({ learnerId: input.learnerId, fullName: input.guardianName, idNumber: input.guardianIdNumber, phone: input.guardianPhone, userId });
+  await db.update(learners).set({ fullName: input.fullName.trim(), admissionNumber, guardianName: input.guardianName?.trim() || null, guardianIdNumber: input.guardianIdNumber?.trim() || null, guardianPhone: input.guardianPhone?.trim() || null, gradeId: input.gradeId, status: input.status }).where(and(eq(learners.id, input.learnerId), eq(learners.schoolId, schoolId)));
+  if (input.guardianName?.trim()) await syncPrimaryGuardian({ learnerId: input.learnerId, schoolId, fullName: input.guardianName, idNumber: input.guardianIdNumber, phone: input.guardianPhone, userId });
   await writeAudit(userId, "learner.update", "learner", input.learnerId, { gradeId: input.gradeId, status: input.status });
   return { ok: true };
 }
 
 export async function setLearnerStatus(input: { learnerId: number; status: LearnerStatus }, userId: number) {
   const db = await requireDb();
-  const current = (await db.select({ id: learners.id }).from(learners).where(eq(learners.id, input.learnerId)).limit(1))[0];
+  const schoolId = await actorSchoolId(userId);
+  const current = (await db.select({ id: learners.id }).from(learners).where(and(eq(learners.id, input.learnerId), eq(learners.schoolId, schoolId))).limit(1))[0];
   if (!current) throw new Error("LEARNER_NOT_FOUND");
-  await db.update(learners).set({ status: input.status }).where(eq(learners.id, input.learnerId));
+  await db.update(learners).set({ status: input.status }).where(and(eq(learners.id, input.learnerId), eq(learners.schoolId, schoolId)));
   await writeAudit(userId, `learner.${input.status}`, "learner", input.learnerId, input);
   return { ok: true };
 }
@@ -720,10 +731,11 @@ export async function archiveLearner(input: { learnerId: number; completionYear:
   return { ok: true };
 }
 
-export async function listStaff(search?: string) {
+export async function listStaff(search?: string, userId?: number) {
   const db = await requireDb();
   const term = search?.trim();
-  return db.select({ profile: staffProfiles, user: users }).from(staffProfiles).leftJoin(users, eq(users.id, staffProfiles.userId)).where(term ? or(like(staffProfiles.displayName, `%${term}%`), like(staffProfiles.email, `%${term}%`), like(staffProfiles.phone, `%${term}%`), like(staffProfiles.role, `%${term}%`), like(staffProfiles.status, `%${term}%`)) : undefined).orderBy(staffProfiles.displayName);
+  const schoolId = userId == null ? null : await actorSchoolId(userId);
+  return db.select({ profile: staffProfiles, user: users }).from(staffProfiles).leftJoin(users, eq(users.id, staffProfiles.userId)).where(and(schoolId == null ? undefined : eq(staffProfiles.schoolId, schoolId), term ? or(like(staffProfiles.displayName, `%${term}%`), like(staffProfiles.email, `%${term}%`), like(staffProfiles.phone, `%${term}%`), like(staffProfiles.role, `%${term}%`), like(staffProfiles.status, `%${term}%`)) : undefined)).orderBy(staffProfiles.displayName);
 }
 
 async function nextStaffCode() {
@@ -739,6 +751,7 @@ function staffUsername(name: string) {
 
 export async function createStaff(input: { displayName: string; title?: string | null; designation?: string | null; phone?: string | null; email?: string | null; teacherCode?: number | null; assignedGradeId?: number | null; role: PeopleStaffRole; status: PeopleStaffStatus }, userId: number) {
   const db = await requireDb();
+  const schoolId = await actorSchoolId(userId);
   const displayName = input.displayName.trim();
   if (!displayName) throw new Error("STAFF_NAME_REQUIRED");
   const code = input.teacherCode ?? await nextStaffCode();
@@ -747,11 +760,11 @@ export async function createStaff(input: { displayName: string; title?: string |
   const base = staffUsername(displayName);
   let username = base; let suffix = 2;
   while ((await db.select({ id: users.id }).from(users).where(eq(users.username, username)).limit(1)).length) username = `${base}.${suffix++}`;
-  const userRow = (await db.insert(users).values({ openId: `people-staff-${randomUUID()}`, username, name: displayName, email: input.email?.trim() || null, role: "user", accountStatus: input.status === "active" ? "active" : "disabled", loginMethod: "people_registry", lastSignedIn: new Date() }).$returningId())[0];
+  const userRow = (await db.insert(users).values({ schoolId, openId: `people-staff-${randomUUID()}`, username, name: displayName, email: input.email?.trim() || null, role: "user", accountStatus: input.status === "active" ? "active" : "disabled", loginMethod: "people_registry", lastSignedIn: new Date() }).$returningId())[0];
   try {
-    const staffRow = (await db.insert(staffProfiles).values({ userId: userRow.id, teacherCode: code, title: input.title?.trim() || null, displayName, designation: input.designation?.trim() || null, email: input.email?.trim() || null, phone: input.phone?.trim() || null, role: input.role, status: input.status === "active" ? "active" : "disabled" }).$returningId())[0];
+    const staffRow = (await db.insert(staffProfiles).values({ schoolId, userId: userRow.id, teacherCode: code, title: input.title?.trim() || null, displayName, designation: input.designation?.trim() || null, email: input.email?.trim() || null, phone: input.phone?.trim() || null, role: input.role, status: input.status === "active" ? "active" : "disabled" }).$returningId())[0];
     if (input.role === "class_teacher" && input.assignedGradeId) {
-      const grade = (await db.select().from(grades).where(eq(grades.id, input.assignedGradeId)).limit(1))[0];
+      const grade = (await db.select().from(grades).where(and(eq(grades.id, input.assignedGradeId), eq(grades.schoolId, schoolId))).limit(1))[0];
       if (!grade) throw new Error("GRADE_NOT_FOUND");
       if (grade.classTeacherUserId && grade.classTeacherUserId !== userRow.id) throw new Error("CLASS_TEACHER_ALREADY_ASSIGNED");
       await db.update(grades).set({ classTeacherUserId: userRow.id }).where(eq(grades.id, input.assignedGradeId));
@@ -767,7 +780,8 @@ export async function createStaff(input: { displayName: string; title?: string |
 
 export async function updateStaff(input: { staffProfileId: number; displayName: string; title?: string | null; designation?: string | null; phone?: string | null; email?: string | null; teacherCode?: number | null; assignedGradeId?: number | null; role: PeopleStaffRole; status: PeopleStaffStatus }, userId: number) {
   const db = await requireDb();
-  const current = (await db.select().from(staffProfiles).where(eq(staffProfiles.id, input.staffProfileId)).limit(1))[0];
+  const schoolId = await actorSchoolId(userId);
+  const current = (await db.select().from(staffProfiles).where(and(eq(staffProfiles.id, input.staffProfileId), eq(staffProfiles.schoolId, schoolId))).limit(1))[0];
   if (!current) throw new Error("STAFF_NOT_FOUND");
   const displayName = input.displayName.trim(); if (!displayName) throw new Error("STAFF_NAME_REQUIRED");
   if (input.teacherCode != null) {
@@ -777,11 +791,11 @@ export async function updateStaff(input: { staffProfileId: number; displayName: 
   }
   await db.update(staffProfiles).set({ displayName, teacherCode: input.teacherCode ?? current.teacherCode, title: input.title?.trim() || null, designation: input.designation?.trim() || null, email: input.email?.trim() || null, phone: input.phone?.trim() || null, role: input.role, status: input.status === "active" ? "active" : "disabled" }).where(eq(staffProfiles.id, input.staffProfileId));
   if (input.assignedGradeId) {
-    const grade = (await db.select().from(grades).where(eq(grades.id, input.assignedGradeId)).limit(1))[0];
+    const grade = (await db.select().from(grades).where(and(eq(grades.id, input.assignedGradeId), eq(grades.schoolId, schoolId))).limit(1))[0];
     if (!grade) throw new Error("GRADE_NOT_FOUND");
     if (grade.classTeacherUserId && grade.classTeacherUserId !== current.userId) throw new Error("CLASS_TEACHER_ALREADY_ASSIGNED");
-    await db.update(grades).set({ classTeacherUserId: null }).where(eq(grades.classTeacherUserId, current.userId));
-    await db.update(grades).set({ classTeacherUserId: current.userId }).where(eq(grades.id, input.assignedGradeId));
+    await db.update(grades).set({ classTeacherUserId: null }).where(and(eq(grades.classTeacherUserId, current.userId), eq(grades.schoolId, schoolId)));
+    await db.update(grades).set({ classTeacherUserId: current.userId }).where(and(eq(grades.id, input.assignedGradeId), eq(grades.schoolId, schoolId)));
   }
   await db.update(users).set({ name: displayName, email: input.email?.trim() || null, accountStatus: input.status === "active" ? "active" : "disabled" }).where(eq(users.id, current.userId));
   await writeAudit(userId, "staff.update", "staff_profile", input.staffProfileId, { role: input.role, status: input.status });
@@ -790,10 +804,11 @@ export async function updateStaff(input: { staffProfileId: number; displayName: 
 
 export async function setStaffStatus(input: { staffProfileId: number; status: PeopleStaffStatus }, userId: number) {
   const db = await requireDb();
-  const current = (await db.select().from(staffProfiles).where(eq(staffProfiles.id, input.staffProfileId)).limit(1))[0];
+  const schoolId = await actorSchoolId(userId);
+  const current = (await db.select().from(staffProfiles).where(and(eq(staffProfiles.id, input.staffProfileId), eq(staffProfiles.schoolId, schoolId))).limit(1))[0];
   if (!current) throw new Error("STAFF_NOT_FOUND");
-  await db.update(staffProfiles).set({ status: input.status === "active" ? "active" : "disabled" }).where(eq(staffProfiles.id, input.staffProfileId));
-  await db.update(users).set({ accountStatus: input.status === "active" ? "active" : "disabled" }).where(eq(users.id, current.userId));
+  await db.update(staffProfiles).set({ status: input.status === "active" ? "active" : "disabled" }).where(and(eq(staffProfiles.id, input.staffProfileId), eq(staffProfiles.schoolId, schoolId)));
+  await db.update(users).set({ accountStatus: input.status === "active" ? "active" : "disabled" }).where(and(eq(users.id, current.userId), eq(users.schoolId, schoolId)));
   await writeAudit(userId, `staff.${input.status}`, "staff_profile", input.staffProfileId, input);
   return { ok: true };
 }

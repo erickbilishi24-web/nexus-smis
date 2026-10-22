@@ -239,6 +239,13 @@
       "when": 1792683051145,
       "tag": "0033_yielding_crusher_hogan",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "5",
+      "when": 1792685605672,
+      "tag": "0034_soft_microchip",
+      "breakpoints": true
     }
   ]
 }

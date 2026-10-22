@@ -158,9 +158,9 @@ export const appRouter = router({
   }),
   resourceHub: router({
     categories: publicProcedure.query(() => getPublicCategorySummary()),
-    list: protectedProcedure.query(({ ctx }) => getResourcesForRole(ctx.user.role)),
+    list: protectedProcedure.query(({ ctx }) => getResourcesForRole(ctx.user.role, ctx.user.schoolId ?? 0)),
     canManage: protectedProcedure.query(({ ctx }) => canManageResourceHub(ctx.user)),
-    adminDashboard: resourceManagerProcedure.query(() => getAdminDashboard()),
+    adminDashboard: resourceManagerProcedure.query(({ ctx }) => getAdminDashboard(ctx.user.schoolId ?? 0)),
     create: resourceManagerProcedure.input(resourceInput).mutation(({ input, ctx }) => resourceMutation(() => createResource(input, ctx.user))),
     update: resourceManagerProcedure.input(resourceInput.extend({ resourceId: z.number().int().positive() })).mutation(({ input, ctx }) => { const { resourceId, ...payload } = input; return resourceMutation(() => updateResource(resourceId, payload, ctx.user)); }),
     setActive: resourceManagerProcedure.input(z.object({ resourceId: z.number().int().positive(), isActive: z.boolean() })).mutation(({ input, ctx }) => resourceMutation(() => setResourceActive(input.resourceId, input.isActive, ctx.user))),
@@ -177,7 +177,7 @@ export const appRouter = router({
     health: publicProcedure.query(() => ({ ok: true, service: "kenyan-smis", persistence: "mysql-drizzle", modules: ["learners", "attendance", "assessments", "reports", "finance", "store", "timetable", "communication", "alumni", "users", "settings", "audit"] })),
     snapshot: permissionProcedure("dashboard.view").query(({ ctx }) => getDashboardSnapshot(ctx.user.id, ctx.user.role)),
     learners: router({
-      list: permissionProcedure("learners.view").input(z.object({ search: z.string().optional() }).optional()).query(({ input }) => listLearners(input?.search)),
+      list: permissionProcedure("learners.view").input(z.object({ search: z.string().optional() }).optional()).query(({ input, ctx }) => listLearners(input?.search, currentUserId(ctx.user))),
       create: permissionProcedure("learners.add").input(z.object({ fullName: z.string().min(1).max(160), admissionNumber: z.string().min(1).max(40), guardianName: z.string().max(160).nullable().optional(), guardianIdNumber: z.string().max(40).nullable().optional(), guardianPhone: z.string().max(40).nullable().optional(), gradeId: z.number().int().positive(), status: z.enum(["active", "inactive"]) })).mutation(({ input, ctx }) => createLearner(input, currentUserId(ctx.user))),
       update: permissionProcedure("learners.edit").input(z.object({ learnerId: z.number().int().positive(), fullName: z.string().min(1).max(160), admissionNumber: z.string().min(1).max(40), guardianName: z.string().max(160).nullable().optional(), guardianIdNumber: z.string().max(40).nullable().optional(), guardianPhone: z.string().max(40).nullable().optional(), gradeId: z.number().int().positive(), status: z.enum(["active", "inactive"]) })).mutation(({ input, ctx }) => updateLearner(input, currentUserId(ctx.user))),
       setStatus: permissionProcedure("learners.deactivate").input(z.object({ learnerId: z.number().int().positive(), status: z.enum(["active", "inactive"]) })).mutation(({ input, ctx }) => setLearnerStatus(input, currentUserId(ctx.user))),
@@ -346,7 +346,7 @@ export const appRouter = router({
       audit: permissionProcedure("administration.view").input(z.object({ userId: z.number().int().positive().optional(), actorUserId: z.number().int().positive().optional(), action: z.string().max(80).optional(), module: z.string().max(40).optional(), from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), limit: z.number().int().min(1).max(200).optional(), offset: z.number().int().min(0).optional() }).optional()).query(({ input }) => listAuditTrail(input ?? {})),
     }),
     users: router({
-      list: permissionProcedure("users.edit").input(z.object({ search: z.string().optional() }).optional()).query(({ input }) => listStaff(input?.search)),
+      list: permissionProcedure("users.edit").input(z.object({ search: z.string().optional() }).optional()).query(({ input, ctx }) => listStaff(input?.search, currentUserId(ctx.user))),
       lastImport: permissionProcedure("users.edit").query(() => getLastPeopleImport()),
       undoLastImport: permissionProcedure("users.edit").mutation(({ ctx }) => undoLastPeopleImport(currentUserId(ctx.user))),
       createStaff: permissionProcedure("users.edit").input(z.object({ displayName: z.string().min(1).max(160), title: z.string().max(30).nullable().optional(), designation: z.string().max(120).nullable().optional(), phone: z.string().max(40).nullable().optional(), email: z.string().email().nullable().optional(), teacherCode: z.number().int().min(1).max(999).nullable().optional(), assignedGradeId: z.number().int().positive().nullable().optional(), role: z.enum(["admin", "teacher", "class_teacher", "finance"]), status: z.enum(["active", "inactive"]) })).mutation(({ input, ctx }) => createStaff(input, currentUserId(ctx.user))),
