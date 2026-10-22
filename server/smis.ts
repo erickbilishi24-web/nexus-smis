@@ -86,8 +86,10 @@ export async function requireDb() {
 
 export async function writeAudit(userId: number | null, action: string, entityType: string, entityId?: string | number | null, metadata: Record<string, unknown> = {}) {
   const db = await requireDb();
+  const schoolId = userId == null ? null : (await db.select({ schoolId: users.schoolId }).from(users).where(eq(users.id, userId)).limit(1))[0]?.schoolId ?? null;
   await db.insert(auditLogs).values({
     userId,
+    schoolId,
     action,
     entityType,
     entityId: entityId == null ? null : String(entityId),
@@ -95,18 +97,21 @@ export async function writeAudit(userId: number | null, action: string, entityTy
   });
 }
 
-export async function getSettings() {
+export async function getSettings(schoolId?: number | null) {
   const db = await requireDb();
-  const row = (await db.select().from(schoolSettings).limit(1))[0];
+  const row = (schoolId == null
+    ? await db.select().from(schoolSettings).limit(1)
+    : await db.select().from(schoolSettings).where(eq(schoolSettings.schoolId, schoolId)).limit(1))[0];
   return row ?? { id: 0, schoolName: "Ebunangwe Junior School", motto: "Learn. Lead. Serve.", currentTerm: "Term 2", academicYear: 2026, includeFeesOnReportCard: 1, showPercentagesOnReportCard: 0, logoPath: null, principalSignaturePath: null, classTeacherSignaturePath: null };
 }
 
 export async function getDashboardSnapshot(userId?: number, accountRole?: string) {
   const db = await requireDb();
+  const actorSchoolId = userId == null ? null : (await db.select({ schoolId: users.schoolId }).from(users).where(eq(users.id, userId)).limit(1))[0]?.schoolId ?? null;
   const canViewFinance = userId == null ? true : await userCan(userId, accountRole ?? "user", "finance.view");
   const trendStart = new Date(); trendStart.setHours(0, 0, 0, 0); trendStart.setDate(trendStart.getDate() - 6);
   const [settings, learnerRows, attendanceRows, trendRows, paymentRows, paymentTrendRows, assessmentRows, staffRows, staffClockingRows, lowStockRows] = await Promise.all([
-    getSettings(),
+    getSettings(actorSchoolId),
     db.select({ learner: learners, grade: grades }).from(learners).leftJoin(grades, eq(grades.id, learners.gradeId)).where(eq(learners.status, "active")),
     db.select().from(attendances).orderBy(desc(attendances.id)).limit(100),
     db.select({ attendanceDate: attendances.attendanceDate, status: attendances.status }).from(attendances).where(gte(attendances.attendanceDate, trendStart)),

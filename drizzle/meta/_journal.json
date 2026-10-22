@@ -225,6 +225,20 @@
       "when": 1792682181092,
       "tag": "0031_loud_bucky",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "5",
+      "when": 1792682901679,
+      "tag": "0032_right_lady_bullseye",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "5",
+      "when": 1792683051145,
+      "tag": "0033_yielding_crusher_hogan",
+      "breakpoints": true
     }
   ]
 }

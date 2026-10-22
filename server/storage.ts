@@ -21,6 +21,13 @@ function normalizeKey(relKey: string): string {
   return relKey.replace(/^\/+/, "");
 }
 
+export function schoolStorageKey(schoolId: number, relKey: string): string {
+  if (!Number.isInteger(schoolId) || schoolId < 1) throw new Error("SCHOOL_ID_REQUIRED");
+  const key = normalizeKey(relKey);
+  if (!key || key.includes("..")) throw new Error("STORAGE_KEY_INVALID");
+  return `schools/${schoolId}/${key}`;
+}
+
 function appendHashSuffix(relKey: string): string {
   const hash = crypto.randomUUID().replace(/-/g, "").slice(0, 8);
   const lastDot = relKey.lastIndexOf(".");
@@ -71,9 +78,22 @@ export async function storagePut(
   return { key, url: `/manus-storage/${key}` };
 }
 
+export async function storagePutForSchool(
+  schoolId: number,
+  relKey: string,
+  data: Buffer | Uint8Array | string,
+  contentType = "application/octet-stream",
+): Promise<{ key: string; url: string }> {
+  return storagePut(schoolStorageKey(schoolId, relKey), data, contentType);
+}
+
 export async function storageGet(relKey: string): Promise<{ key: string; url: string }> {
   const key = normalizeKey(relKey);
   return { key, url: `/manus-storage/${key}` };
+}
+
+export async function storageGetForSchool(schoolId: number, relKey: string): Promise<{ key: string; url: string }> {
+  return storageGet(schoolStorageKey(schoolId, relKey));
 }
 
 export async function storageGetSignedUrl(relKey: string): Promise<string> {
@@ -94,4 +114,8 @@ export async function storageGetSignedUrl(relKey: string): Promise<string> {
 
   const { url } = (await resp.json()) as { url: string };
   return url;
+}
+
+export async function storageGetSignedUrlForSchool(schoolId: number, relKey: string): Promise<string> {
+  return storageGetSignedUrl(schoolStorageKey(schoolId, relKey));
 }

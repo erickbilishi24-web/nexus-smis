@@ -49,6 +49,7 @@ export const schools = mysqlTable("schools", {
 });
 export const schoolSettings = mysqlTable("school_settings", {
   id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   schoolName: varchar("schoolName", { length: 200 }).notNull(),
   motto: varchar("motto", { length: 255 }),
   currentTerm: varchar("currentTerm", { length: 40 }).notNull(),
@@ -69,6 +70,7 @@ export const schoolSettings = mysqlTable("school_settings", {
 
 export const staffProfiles = mysqlTable("staff_profiles", {
   id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   userId: int("userId").notNull(),
   teacherCode: int("teacherCode").unique(),
   staffId: varchar("staffId", { length: 40 }),
@@ -85,6 +87,7 @@ export const staffProfiles = mysqlTable("staff_profiles", {
 
 export const grades = mysqlTable("grades", {
   id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   name: varchar("name", { length: 80 }).notNull(),
   stream: varchar("stream", { length: 80 }),
   classTeacherUserId: int("classTeacherUserId"),
@@ -92,12 +95,14 @@ export const grades = mysqlTable("grades", {
 
 export const subjects = mysqlTable("subjects", {
   id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   name: varchar("name", { length: 120 }).notNull(),
   code: varchar("code", { length: 30 }).notNull().unique(),
 });
 
 export const learners = mysqlTable("learners", {
   id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   admissionNumber: varchar("admissionNumber", { length: 40 }).notNull().unique(),
   fullName: varchar("fullName", { length: 160 }).notNull(),
   guardianName: varchar("guardianName", { length: 160 }),
@@ -113,6 +118,7 @@ export const learners = mysqlTable("learners", {
 
 export const guardians = mysqlTable("guardians", {
   id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   fullName: varchar("fullName", { length: 160 }).notNull(),
   idNumber: varchar("idNumber", { length: 40 }),
   phone: varchar("phone", { length: 40 }),
@@ -122,6 +128,7 @@ export const guardians = mysqlTable("guardians", {
 
 export const learnerGuardians = mysqlTable("learner_guardians", {
   id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   learnerId: int("learnerId").notNull(),
   guardianId: int("guardianId").notNull(),
   relationship: varchar("relationship", { length: 80 }).notNull(),
@@ -130,6 +137,7 @@ export const learnerGuardians = mysqlTable("learner_guardians", {
 
 export const teacherAllocations = mysqlTable("teacher_allocations", {
   id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   teacherUserId: int("teacherUserId").notNull(),
   gradeId: int("gradeId").notNull(),
   subjectId: int("subjectId").notNull(),
@@ -144,6 +152,7 @@ export const teacherAllocations = mysqlTable("teacher_allocations", {
 
 export const assessments = mysqlTable("assessments", {
   id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   title: varchar("title", { length: 120 }).notNull(),
   term: varchar("term", { length: 40 }).notNull(),
   academicYear: int("academicYear").notNull(),
@@ -162,6 +171,7 @@ export const assessments = mysqlTable("assessments", {
 
 export const marks = mysqlTable("marks", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   assessmentId: int("assessmentId").notNull(),
   learnerId: int("learnerId").notNull(),
   subjectId: int("subjectId").notNull(),
@@ -178,6 +188,7 @@ export const marks = mysqlTable("marks", {
 
 export const attendances = mysqlTable("attendances", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   learnerId: int("learnerId").notNull(),
   gradeId: int("gradeId").notNull(),
   attendanceDate: date("attendanceDate").notNull(),
@@ -188,6 +199,7 @@ export const attendances = mysqlTable("attendances", {
 }, table => ({ attendanceUnique: uniqueIndex("attendance_unique").on(table.learnerId, table.attendanceDate, table.session) }));
 export const attendanceRegisterApprovals = mysqlTable("attendance_register_approvals", {
   id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   attendanceDate: date("attendanceDate").notNull(),
   gradeId: int("gradeId").notNull(),
   status: mysqlEnum("status", ["draft", "submitted", "approved", "reopened"]).notNull().default("draft"),
@@ -200,6 +212,7 @@ export const attendanceRegisterApprovals = mysqlTable("attendance_register_appro
 
 export const feeStructures = mysqlTable("fee_structures", {
   id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   gradeId: int("gradeId").notNull(),
   term: varchar("term", { length: 40 }).notNull(),
   academicYear: int("academicYear").notNull(),
@@ -209,6 +222,7 @@ export const feeStructures = mysqlTable("fee_structures", {
 
 export const payments = mysqlTable("payments", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   learnerId: int("learnerId").notNull(),
   amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
   paymentMethod: mysqlEnum("paymentMethod", ["mpesa", "bank", "cash"]).notNull(),
@@ -218,6 +232,7 @@ export const payments = mysqlTable("payments", {
 
 export const storeItems = mysqlTable("store_items", {
   id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   name: varchar("name", { length: 160 }).notNull(),
   unit: varchar("unit", { length: 30 }).notNull(),
   reorderLevel: decimal("reorderLevel", { precision: 12, scale: 2 }).notNull().default("0"),
@@ -225,6 +240,7 @@ export const storeItems = mysqlTable("store_items", {
 
 export const storeMovements = mysqlTable("store_movements", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   itemId: int("itemId").notNull(),
   movementType: mysqlEnum("movementType", ["received", "issued", "adjustment"]).notNull(),
   quantity: decimal("quantity", { precision: 12, scale: 2 }).notNull(),
@@ -234,6 +250,7 @@ export const storeMovements = mysqlTable("store_movements", {
 
 export const timetableEntries = mysqlTable("timetable_entries", {
   id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   gradeId: int("gradeId").notNull(),
   subjectId: int("subjectId").notNull(),
   teacherUserId: int("teacherUserId").notNull(),
@@ -244,6 +261,7 @@ export const timetableEntries = mysqlTable("timetable_entries", {
 
 export const timetableRequirements = mysqlTable("timetable_requirements", {
   id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   gradeId: int("gradeId").notNull(),
   subjectId: int("subjectId").notNull(),
   academicYear: int("academicYear").notNull(),
@@ -252,6 +270,7 @@ export const timetableRequirements = mysqlTable("timetable_requirements", {
 
 export const communications = mysqlTable("communications", {
   id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   audience: mysqlEnum("audience", ["parents", "staff", "learners", "all"]).notNull(),
   channel: mysqlEnum("channel", ["sms", "notice", "email"]).notNull(),
   subject: varchar("subject", { length: 160 }).notNull(),
@@ -263,6 +282,7 @@ export const communications = mysqlTable("communications", {
 
 export const nexusMessages = mysqlTable("nexus_messages", {
   id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   category: varchar("category", { length: 80 }).notNull().default("announcement"),
   channel: mysqlEnum("channel", ["sms", "email", "in_app", "whatsapp"]).notNull().default("in_app"),
   body: text("body").notNull(),
@@ -274,6 +294,7 @@ export const nexusMessages = mysqlTable("nexus_messages", {
 
 export const nexusMessageRecipients = mysqlTable("nexus_message_recipients", {
   id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   messageId: int("messageId").notNull(),
   recipientType: varchar("recipientType", { length: 30 }).notNull(),
   recipientId: int("recipientId").notNull(),
@@ -284,6 +305,7 @@ export const nexusMessageRecipients = mysqlTable("nexus_message_recipients", {
 
 export const curriculumOfferings = mysqlTable("curriculum_offerings", {
   id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   level: varchar("level", { length: 40 }).notNull(),
   gradeLabel: varchar("gradeLabel", { length: 40 }).notNull(),
   pathway: varchar("pathway", { length: 100 }),
@@ -297,6 +319,7 @@ export const curriculumOfferings = mysqlTable("curriculum_offerings", {
 
 export const alumni = mysqlTable("alumni", {
   id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   learnerId: int("learnerId").notNull().unique(),
   completionYear: int("completionYear").notNull(),
   finalGradeId: int("finalGradeId"),
@@ -311,6 +334,7 @@ export const alumni = mysqlTable("alumni", {
 });
 export const learnerExits = mysqlTable("learner_exits", {
   id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   learnerId: int("learnerId").notNull(),
   status: mysqlEnum("status", ["completed", "graduated", "transferred", "withdrawn", "other"]).notNull(),
   effectiveDate: date("effectiveDate").notNull(),
@@ -322,6 +346,7 @@ export const learnerExits = mysqlTable("learner_exits", {
 }, table => ({ learnerExitDateUnique: uniqueIndex("learner_exit_date_unique").on(table.learnerId, table.effectiveDate) }));
 export const counsellingCases = mysqlTable("counselling_cases", {
   id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   learnerId: int("learnerId").notNull(),
   referralSource: varchar("referralSource", { length: 80 }).notNull().default("staff"),
   concern: varchar("concern", { length: 255 }).notNull(),
@@ -336,6 +361,7 @@ export const counsellingCases = mysqlTable("counselling_cases", {
 });
 export const counsellingNotes = mysqlTable("counselling_notes", {
   id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   caseId: int("caseId").notNull(),
   note: text("note").notNull(),
   createdByUserId: int("createdByUserId").notNull(),
@@ -343,6 +369,7 @@ export const counsellingNotes = mysqlTable("counselling_notes", {
 });
 export const counsellingFollowUps = mysqlTable("counselling_follow_ups", {
   id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   caseId: int("caseId").notNull(),
   scheduledFor: date("scheduledFor").notNull(),
   action: varchar("action", { length: 255 }).notNull(),
@@ -353,6 +380,7 @@ export const counsellingFollowUps = mysqlTable("counselling_follow_ups", {
 });
 export const behaviourRecords = mysqlTable("behaviour_records", {
   id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   learnerId: int("learnerId").notNull(),
   category: varchar("category", { length: 80 }).notNull(),
   summary: varchar("summary", { length: 500 }).notNull(),
@@ -364,6 +392,7 @@ export const behaviourRecords = mysqlTable("behaviour_records", {
 
 export const auditLogs = mysqlTable("smis_audit_logs", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   userId: int("userId"),
   action: varchar("action", { length: 120 }).notNull(),
   entityType: varchar("entityType", { length: 80 }),
@@ -407,6 +436,7 @@ export const userPermissions = mysqlTable("user_permissions", {
 
 export const expenditures = mysqlTable("expenditures", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   expenditureDate: date("expenditureDate").notNull(),
   amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
   category: varchar("category", { length: 120 }).notNull(),
@@ -418,6 +448,7 @@ export const expenditures = mysqlTable("expenditures", {
 
 export const notifications = mysqlTable("notifications", {
   id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   audience: mysqlEnum("audience", ["parents", "staff", "learners", "all"]).notNull(),
   title: varchar("title", { length: 160 }).notNull(),
   body: text("body").notNull(),
@@ -428,6 +459,7 @@ export const notifications = mysqlTable("notifications", {
 
 export const nexusAiTransactions = mysqlTable("nexus_ai_transactions", {
   id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   userId: int("userId").notNull(),
   documentType: varchar("documentType", { length: 80 }).notNull(),
   documentTitle: varchar("documentTitle", { length: 255 }).notNull(),
@@ -440,6 +472,7 @@ export const nexusAiTransactions = mysqlTable("nexus_ai_transactions", {
 });
 export const reportCards = mysqlTable("report_cards", {
   id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   learnerId: int("learnerId").notNull(),
   academicYear: int("academicYear").notNull(),
   term: varchar("term", { length: 40 }).notNull(),
@@ -453,6 +486,7 @@ export const reportCards = mysqlTable("report_cards", {
 }, table => ({ reportCardPeriodUnique: uniqueIndex("report_card_period_unique").on(table.learnerId, table.academicYear, table.term, table.assessmentType) }));
 export const commentBank = mysqlTable("report_card_comment_bank", {
   id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   role: mysqlEnum("role", ["class_teacher", "principal"]).notNull(),
   category: mysqlEnum("category", ["BE", "AE", "ME", "EE"]).notNull(),
   position: int("position").notNull(),
@@ -463,18 +497,24 @@ export const commentBank = mysqlTable("report_card_comment_bank", {
 }, table => ({ commentUnique: uniqueIndex("comment_bank_role_category_position").on(table.role, table.category, table.position) }));
 export const nexusFeedback = mysqlTable("nexus_feedback", {
   id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   userId: int("userId").notNull(),
   rating: int("rating").notNull(),
   message: text("message").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 export const academicYears = mysqlTable("academic_years", {
-  id: int("id").autoincrement().primaryKey(), year: int("year").notNull().unique(), startsOn: date("startsOn").notNull(), endsOn: date("endsOn").notNull(), rolloverOn: date("rolloverOn"), isCurrent: int("isCurrent").notNull().default(0), status: mysqlEnum("status", ["planned", "active", "closed"]).notNull().default("planned"), createdAt: timestamp("createdAt").defaultNow().notNull(),
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"), year: int("year").notNull().unique(), startsOn: date("startsOn").notNull(), endsOn: date("endsOn").notNull(), rolloverOn: date("rolloverOn"), isCurrent: int("isCurrent").notNull().default(0), status: mysqlEnum("status", ["planned", "active", "closed"]).notNull().default("planned"), createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
-export const academicTerms = mysqlTable("academic_terms", { id: int("id").autoincrement().primaryKey(), academicYearId: int("academicYearId").notNull(), name: varchar("name", { length: 40 }).notNull(), startsOn: date("startsOn").notNull(), endsOn: date("endsOn").notNull(), isActive: int("isActive").notNull().default(0) }, table => ({ termUnique: uniqueIndex("academic_term_unique").on(table.academicYearId, table.name) }));
-export const learnerEnrolments = mysqlTable("learner_enrolments", { id: int("id").autoincrement().primaryKey(), learnerId: int("learnerId").notNull(), academicYearId: int("academicYearId").notNull(), gradeId: int("gradeId").notNull(), className: varchar("className", { length: 80 }), status: mysqlEnum("status", ["active", "completed", "repeating", "transferred", "withdrawn", "pending_action"]).notNull().default("active"), source: varchar("source", { length: 40 }).notNull().default("manual"), createdAt: timestamp("createdAt").defaultNow().notNull() }, table => ({ enrolmentUnique: uniqueIndex("learner_year_enrolment_unique").on(table.learnerId, table.academicYearId) }));
-export const rolloverRuns = mysqlTable("rollover_runs", { id: int("id").autoincrement().primaryKey(), fromAcademicYearId: int("fromAcademicYearId").notNull(), toAcademicYearId: int("toAcademicYearId").notNull(), status: mysqlEnum("status", ["preview", "approved", "reversed", "failed"]).notNull().default("preview"), actorUserId: int("actorUserId").notNull(), createdAt: timestamp("createdAt").defaultNow().notNull(), approvedAt: timestamp("approvedAt"), reason: varchar("reason", { length: 255 }) });
-export const rolloverItems = mysqlTable("rollover_items", { id: int("id").autoincrement().primaryKey(), runId: int("runId").notNull(), learnerId: int("learnerId").notNull(), fromGradeId: int("fromGradeId").notNull(), toGradeId: int("toGradeId"), status: mysqlEnum("status", ["ready", "pending_action", "approved", "excluded", "reversed"]).notNull().default("ready"), reason: varchar("reason", { length: 255 }), createdAt: timestamp("createdAt").defaultNow().notNull() });
+export const academicTerms = mysqlTable("academic_terms", { id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"), academicYearId: int("academicYearId").notNull(), name: varchar("name", { length: 40 }).notNull(), startsOn: date("startsOn").notNull(), endsOn: date("endsOn").notNull(), isActive: int("isActive").notNull().default(0) }, table => ({ termUnique: uniqueIndex("academic_term_unique").on(table.academicYearId, table.name) }));
+export const learnerEnrolments = mysqlTable("learner_enrolments", { id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"), learnerId: int("learnerId").notNull(), academicYearId: int("academicYearId").notNull(), gradeId: int("gradeId").notNull(), className: varchar("className", { length: 80 }), status: mysqlEnum("status", ["active", "completed", "repeating", "transferred", "withdrawn", "pending_action"]).notNull().default("active"), source: varchar("source", { length: 40 }).notNull().default("manual"), createdAt: timestamp("createdAt").defaultNow().notNull() }, table => ({ enrolmentUnique: uniqueIndex("learner_year_enrolment_unique").on(table.learnerId, table.academicYearId) }));
+export const rolloverRuns = mysqlTable("rollover_runs", { id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"), fromAcademicYearId: int("fromAcademicYearId").notNull(), toAcademicYearId: int("toAcademicYearId").notNull(), status: mysqlEnum("status", ["preview", "approved", "reversed", "failed"]).notNull().default("preview"), actorUserId: int("actorUserId").notNull(), createdAt: timestamp("createdAt").defaultNow().notNull(), approvedAt: timestamp("approvedAt"), reason: varchar("reason", { length: 255 }) });
+export const rolloverItems = mysqlTable("rollover_items", { id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"), runId: int("runId").notNull(), learnerId: int("learnerId").notNull(), fromGradeId: int("fromGradeId").notNull(), toGradeId: int("toGradeId"), status: mysqlEnum("status", ["ready", "pending_action", "approved", "excluded", "reversed"]).notNull().default("ready"), reason: varchar("reason", { length: 255 }), createdAt: timestamp("createdAt").defaultNow().notNull() });
 export type Learner = typeof learners.$inferSelect;
 export type Attendance = typeof attendances.$inferSelect;
 export type Mark = typeof marks.$inferSelect;
@@ -489,6 +529,7 @@ export const rolePermissions = mysqlTable("role_permissions", {
 
 export const staffClockings = mysqlTable("staff_clockings", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
   userId: int("userId").notNull(),
   clockDate: date("clockDate").notNull(),
   clockedAt: timestamp("clockedAt").defaultNow().notNull(),
@@ -498,35 +539,45 @@ export const staffClockings = mysqlTable("staff_clockings", {
 }, table => ({ staffClockingDailyUnique: uniqueIndex("staff_clocking_daily_unique").on(table.userId, table.clockDate) }));
 
 export const libraryCategories = mysqlTable("library_categories", {
-  id: int("id").autoincrement().primaryKey(), name: varchar("name", { length: 120 }).notNull().unique(), active: int("active").notNull().default(1),
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"), name: varchar("name", { length: 120 }).notNull().unique(), active: int("active").notNull().default(1),
 });
 export const libraryBooks = mysqlTable("library_books", {
-  id: int("id").autoincrement().primaryKey(), isbn: varchar("isbn", { length: 40 }), title: varchar("title", { length: 200 }).notNull(), author: varchar("author", { length: 160 }), publisher: varchar("publisher", { length: 160 }), pubYear: int("pubYear"), subject: varchar("subject", { length: 120 }), categoryId: int("categoryId"), deletedAt: timestamp("deletedAt"), createdAt: timestamp("createdAt").defaultNow().notNull(),
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"), isbn: varchar("isbn", { length: 40 }), title: varchar("title", { length: 200 }).notNull(), author: varchar("author", { length: 160 }), publisher: varchar("publisher", { length: 160 }), pubYear: int("pubYear"), subject: varchar("subject", { length: 120 }), categoryId: int("categoryId"), deletedAt: timestamp("deletedAt"), createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 export const libraryCopies = mysqlTable("library_copies", {
-  id: int("id").autoincrement().primaryKey(), bookId: int("bookId").notNull(), accessionNo: varchar("accessionNo", { length: 80 }).notNull().unique(), barcode: varchar("barcode", { length: 80 }).notNull().unique(), status: mysqlEnum("status", ["available", "borrowed", "lost", "damaged", "withdrawn"]).notNull().default("available"), location: varchar("location", { length: 120 }), condition: varchar("condition", { length: 40 }).notNull().default("good"), acquiredOn: date("acquiredOn"), cost: decimal("cost", { precision: 12, scale: 2 }),
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"), bookId: int("bookId").notNull(), accessionNo: varchar("accessionNo", { length: 80 }).notNull().unique(), barcode: varchar("barcode", { length: 80 }).notNull().unique(), status: mysqlEnum("status", ["available", "borrowed", "lost", "damaged", "withdrawn"]).notNull().default("available"), location: varchar("location", { length: 120 }), condition: varchar("condition", { length: 40 }).notNull().default("good"), acquiredOn: date("acquiredOn"), cost: decimal("cost", { precision: 12, scale: 2 }),
 });
 export const libraryLoans = mysqlTable("library_loans", {
-  id: bigint("id", { mode: "number" }).autoincrement().primaryKey(), copyId: int("copyId").notNull(), learnerId: int("learnerId"), staffUserId: int("staffUserId"), loanedOn: date("loanedOn").notNull(), dueDate: date("dueDate").notNull(), returnedOn: date("returnedOn"), renewedCount: int("renewedCount").notNull().default(0), issuedByUserId: int("issuedByUserId").notNull(),
+  id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+  schoolId: int("schoolId"), copyId: int("copyId").notNull(), learnerId: int("learnerId"), staffUserId: int("staffUserId"), loanedOn: date("loanedOn").notNull(), dueDate: date("dueDate").notNull(), returnedOn: date("returnedOn"), renewedCount: int("renewedCount").notNull().default(0), issuedByUserId: int("issuedByUserId").notNull(),
 });
 export const libraryReservations = mysqlTable("library_reservations", {
-  id: int("id").autoincrement().primaryKey(), bookId: int("bookId").notNull(), learnerId: int("learnerId"), staffUserId: int("staffUserId"), status: mysqlEnum("status", ["waiting", "ready", "fulfilled", "cancelled"]).notNull().default("waiting"), createdAt: timestamp("createdAt").defaultNow().notNull(),
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"), bookId: int("bookId").notNull(), learnerId: int("learnerId"), staffUserId: int("staffUserId"), status: mysqlEnum("status", ["waiting", "ready", "fulfilled", "cancelled"]).notNull().default("waiting"), createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 export const libraryFines = mysqlTable("library_fines", {
-  id: int("id").autoincrement().primaryKey(), loanId: bigint("loanId", { mode: "number" }).notNull(), amount: decimal("amount", { precision: 12, scale: 2 }).notNull(), paid: decimal("paid", { precision: 12, scale: 2 }).notNull().default("0"), reason: varchar("reason", { length: 255 }), createdAt: timestamp("createdAt").defaultNow().notNull(),
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"), loanId: bigint("loanId", { mode: "number" }).notNull(), amount: decimal("amount", { precision: 12, scale: 2 }).notNull(), paid: decimal("paid", { precision: 12, scale: 2 }).notNull().default("0"), reason: varchar("reason", { length: 255 }), createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
 export const resourceCategories = mysqlTable("resource_categories", {
-  id: int("id").autoincrement().primaryKey(), slug: varchar("slug", { length: 64 }).notNull().unique(), name: varchar("name", { length: 120 }).notNull(), description: text("description").notNull(), icon: varchar("icon", { length: 64 }).notNull(), displayOrder: int("displayOrder").notNull().default(0), createdAt: timestamp("createdAt").defaultNow().notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"), slug: varchar("slug", { length: 64 }).notNull().unique(), name: varchar("name", { length: 120 }).notNull(), description: text("description").notNull(), icon: varchar("icon", { length: 64 }).notNull(), displayOrder: int("displayOrder").notNull().default(0), createdAt: timestamp("createdAt").defaultNow().notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, table => ({ orderIdx: index("resource_categories_order_idx").on(table.displayOrder) }));
 export const resources = mysqlTable("resources", {
-  id: int("id").autoincrement().primaryKey(), categoryId: int("categoryId").notNull(), title: varchar("title", { length: 160 }).notNull(), url: varchar("url", { length: 2048 }).notNull(), description: text("description").notNull(), icon: varchar("icon", { length: 64 }).notNull(), grade: varchar("grade", { length: 80 }), subject: varchar("subject", { length: 120 }), learningArea: varchar("learningArea", { length: 160 }), mediaType: varchar("mediaType", { length: 80 }), allowHttp: boolean("allowHttp").notNull().default(false), isActive: boolean("isActive").notNull().default(false), displayOrder: int("displayOrder").notNull().default(0), createdBy: int("createdBy"), updatedBy: int("updatedBy"), createdAt: timestamp("createdAt").defaultNow().notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"), categoryId: int("categoryId").notNull(), title: varchar("title", { length: 160 }).notNull(), url: varchar("url", { length: 2048 }).notNull(), description: text("description").notNull(), icon: varchar("icon", { length: 64 }).notNull(), grade: varchar("grade", { length: 80 }), subject: varchar("subject", { length: 120 }), learningArea: varchar("learningArea", { length: 160 }), mediaType: varchar("mediaType", { length: 80 }), allowHttp: boolean("allowHttp").notNull().default(false), isActive: boolean("isActive").notNull().default(false), displayOrder: int("displayOrder").notNull().default(0), createdBy: int("createdBy"), updatedBy: int("updatedBy"), createdAt: timestamp("createdAt").defaultNow().notNull(), updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, table => ({ categoryOrderIdx: index("resources_category_order_idx").on(table.categoryId, table.displayOrder), activeIdx: index("resources_active_idx").on(table.isActive) }));
 export const resourceRoleVisibility = mysqlTable("resource_role_visibility", {
-  id: int("id").autoincrement().primaryKey(), resourceId: int("resourceId").notNull(), role: varchar("role", { length: 64 }).notNull(), createdAt: timestamp("createdAt").defaultNow().notNull(),
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"), resourceId: int("resourceId").notNull(), role: varchar("role", { length: 64 }).notNull(), createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, table => ({ resourceRoleIdx: index("resource_role_visibility_resource_role_idx").on(table.resourceId, table.role) }));
 export const resourceAuditLogs = mysqlTable("resource_audit_logs", {
-  id: int("id").autoincrement().primaryKey(), actorUserId: int("actorUserId").notNull(), action: varchar("action", { length: 64 }).notNull(), resourceId: int("resourceId"), targetLabel: varchar("targetLabel", { length: 200 }).notNull(), beforeJson: text("beforeJson"), afterJson: text("afterJson"), createdAt: timestamp("createdAt").defaultNow().notNull(),
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"), actorUserId: int("actorUserId").notNull(), action: varchar("action", { length: 64 }).notNull(), resourceId: int("resourceId"), targetLabel: varchar("targetLabel", { length: 200 }).notNull(), beforeJson: text("beforeJson"), afterJson: text("afterJson"), createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, table => ({ auditCreatedIdx: index("resource_audit_created_idx").on(table.createdAt) }));
 export type ResourceCategory = typeof resourceCategories.$inferSelect;
 export type Resource = typeof resources.$inferSelect;
