@@ -211,6 +211,13 @@
       "when": 1792595745076,
       "tag": "0029_fearless_vision",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "5",
+      "when": 1792680279155,
+      "tag": "0030_wise_red_ghost",
+      "breakpoints": true
     }
   ]
 }

@@ -4,6 +4,7 @@ import {
   date,
   decimal,
   int,
+  longtext,
   index,
   mysqlEnum,
   mysqlTable,
@@ -520,3 +521,233 @@ export const resourceAuditLogs = mysqlTable("resource_audit_logs", {
 }, table => ({ auditCreatedIdx: index("resource_audit_created_idx").on(table.createdAt) }));
 export type ResourceCategory = typeof resourceCategories.$inferSelect;
 export type Resource = typeof resources.$inferSelect;
+// Extracted Drizzle table declarations from the validated NEXUS host schema.
+
+export const payrollRules = mysqlTable("payroll_rules", {
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId").notNull(),
+  effectiveFrom: date("effectiveFrom").notNull(),
+  rulesJson: longtext("rulesJson").notNull(),
+  sourceNotes: varchar("sourceNotes", { length: 600 }),
+  createdByUserId: int("createdByUserId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => ({ rulesEffectiveUnique: uniqueIndex("payroll_rules_school_effective_unique").on(table.schoolId, table.effectiveFrom) }));
+
+export const payrollCompensation = mysqlTable("payroll_compensation", {
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId").notNull(),
+  staffProfileId: int("staffProfileId").notNull(),
+  effectiveFrom: date("effectiveFrom").notNull(),
+  effectiveTo: date("effectiveTo"),
+  basicSalary: decimal("basicSalary", { precision: 12, scale: 2 }).notNull(),
+  earningsJson: longtext("earningsJson").notNull(),
+  deductionsJson: longtext("deductionsJson").notNull(),
+  resident: int("resident").notNull().default(1),
+  additionalPension: decimal("additionalPension", { precision: 12, scale: 2 }).notNull().default("0"),
+  postRetirementMedical: decimal("postRetirementMedical", { precision: 12, scale: 2 }).notNull().default("0"),
+  mortgageInterest: decimal("mortgageInterest", { precision: 12, scale: 2 }).notNull().default("0"),
+  createdByUserId: int("createdByUserId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => ({ staffCompEffectiveUnique: uniqueIndex("payroll_comp_school_staff_effective_unique").on(table.schoolId, table.staffProfileId, table.effectiveFrom) }));
+
+export const payrollAdjustments = mysqlTable("payroll_adjustments", {
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId").notNull(),
+  staffProfileId: int("staffProfileId").notNull(),
+  period: varchar("period", { length: 7 }).notNull(),
+  kind: mysqlEnum("kind", ["earning", "deduction"]).notNull(),
+  description: varchar("description", { length: 120 }).notNull(),
+  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+  taxable: int("taxable").notNull().default(1),
+  status: mysqlEnum("status", ["pending", "approved", "rejected"]).notNull().default("pending"),
+  createdByUserId: int("createdByUserId").notNull(),
+  approvedByUserId: int("approvedByUserId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => ({ adjustmentIdx: uniqueIndex("payroll_adjustment_unique").on(table.schoolId, table.staffProfileId, table.period, table.kind, table.description) }));
+
+export const payrollLoans = mysqlTable("payroll_loans", {
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId").notNull(),
+  staffProfileId: int("staffProfileId").notNull(),
+  loanType: mysqlEnum("loanType", ["loan", "advance"]).notNull(),
+  description: varchar("description", { length: 160 }).notNull(),
+  principalAmount: decimal("principalAmount", { precision: 12, scale: 2 }).notNull(),
+  outstandingBalance: decimal("outstandingBalance", { precision: 12, scale: 2 }).notNull(),
+  installmentAmount: decimal("installmentAmount", { precision: 12, scale: 2 }).notNull(),
+  startPeriod: varchar("startPeriod", { length: 7 }).notNull(),
+  status: mysqlEnum("status", ["pending", "approved", "rejected", "closed"]).notNull().default("pending"),
+  createdByUserId: int("createdByUserId").notNull(),
+  approvedByUserId: int("approvedByUserId"),
+  approvedAt: timestamp("approvedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const payrollLoanRepayments = mysqlTable("payroll_loan_repayments", {
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId").notNull(),
+  loanId: int("loanId").notNull(),
+  runId: int("runId").notNull(),
+  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => ({ runLoanUnique: uniqueIndex("payroll_loan_repayment_school_loan_run_unique").on(table.schoolId, table.loanId, table.runId) }));
+
+export const payrollRuns = mysqlTable("payroll_runs", {
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId").notNull(),
+  period: varchar("period", { length: 7 }).notNull(),
+  status: mysqlEnum("status", ["draft", "submitted", "approved", "recorded", "closed"]).notNull().default("draft"),
+  preparedByUserId: int("preparedByUserId").notNull(),
+  submittedByUserId: int("submittedByUserId"),
+  approvedByUserId: int("approvedByUserId"),
+  approvedAt: timestamp("approvedAt"),
+  recordedAt: timestamp("recordedAt"),
+  financeExpenditureId: bigint("financeExpenditureId", { mode: "number" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull().onUpdateNow(),
+}, table => ({ payrollRunPeriodUnique: uniqueIndex("payroll_run_school_period_unique").on(table.schoolId, table.period) }));
+
+export const payrollItems = mysqlTable("payroll_items", {
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId").notNull(),
+  runId: int("runId").notNull(),
+  staffProfileId: int("staffProfileId").notNull(),
+  employeeName: varchar("employeeName", { length: 160 }).notNull(),
+  calculationJson: longtext("calculationJson").notNull(),
+  gross: decimal("gross", { precision: 12, scale: 2 }).notNull(),
+  paye: decimal("paye", { precision: 12, scale: 2 }).notNull(),
+  net: decimal("net", { precision: 12, scale: 2 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => ({ payrollItemUnique: uniqueIndex("payroll_item_run_staff_unique").on(table.schoolId, table.runId, table.staffProfileId) }));
+// Extracted Drizzle table declarations from the validated NEXUS host schema.
+
+export const transportSettings = mysqlTable("transport_settings", {
+  schoolId: int("schoolId").primaryKey(),
+  enabled: int("enabled").notNull().default(1),
+  updatedByUserId: int("updatedByUserId"),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull().onUpdateNow(),
+});
+
+export const transportVehicles = mysqlTable("transport_vehicles", {
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId").notNull(),
+  registration: varchar("registration", { length: 24 }).notNull(),
+  description: varchar("description", { length: 160 }).notNull(),
+  capacity: int("capacity").notNull(),
+  driverStaffProfileId: int("driverStaffProfileId"),
+  assetReference: varchar("assetReference", { length: 80 }),
+  insuranceExpiresOn: date("insuranceExpiresOn"),
+  inspectionExpiresOn: date("inspectionExpiresOn"),
+  odometerKm: decimal("odometerKm", { precision: 11, scale: 1 }).notNull().default("0"),
+  status: mysqlEnum("status", ["active", "service", "retired"]).notNull().default("active"),
+  createdByUserId: int("createdByUserId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull().onUpdateNow(),
+}, table => ({ registrationUnique: uniqueIndex("transport_vehicle_school_reg_unique").on(table.schoolId, table.registration) }));
+
+export const transportRoutes = mysqlTable("transport_routes", {
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId").notNull(),
+  name: varchar("name", { length: 100 }).notNull(),
+  vehicleId: int("vehicleId"),
+  feeAmount: decimal("feeAmount", { precision: 12, scale: 2 }).notNull().default("0"),
+  billingCycle: mysqlEnum("billingCycle", ["monthly", "termly"]).notNull().default("termly"),
+  status: mysqlEnum("status", ["active", "inactive"]).notNull().default("active"),
+  createdByUserId: int("createdByUserId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull().onUpdateNow(),
+}, table => ({ routeSchoolNameUnique: uniqueIndex("transport_route_school_name_unique").on(table.schoolId, table.name) }));
+
+export const transportAllocations = mysqlTable("transport_allocations", {
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId").notNull(),
+  learnerId: int("learnerId").notNull(),
+  routeId: int("routeId").notNull(),
+  stopName: varchar("stopName", { length: 120 }).notNull(),
+  authorizedGuardianId: int("authorizedGuardianId"),
+  status: mysqlEnum("status", ["active", "paused", "ended"]).notNull().default("active"),
+  startsOn: date("startsOn").notNull(),
+  endsOn: date("endsOn"),
+  createdByUserId: int("createdByUserId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull().onUpdateNow(),
+}, table => ({ learnerSchoolUnique: uniqueIndex("transport_allocation_school_learner_unique").on(table.schoolId, table.learnerId) }));
+
+export const transportCharges = mysqlTable("transport_charges", {
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId").notNull(),
+  learnerId: int("learnerId").notNull(),
+  routeId: int("routeId").notNull(),
+  period: varchar("period", { length: 20 }).notNull(),
+  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+  createdByUserId: int("createdByUserId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => ({ chargePeriodUnique: uniqueIndex("transport_charge_school_learner_period_unique").on(table.schoolId, table.learnerId, table.period) }));
+
+export const transportChargePayments = mysqlTable("transport_charge_payments", {
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId").notNull(),
+  chargeId: int("chargeId").notNull(),
+  paymentId: int("paymentId").notNull(),
+  reference: varchar("reference", { length: 80 }).notNull(),
+  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => ({ paymentLinkUnique: uniqueIndex("transport_charge_payment_unique").on(table.schoolId, table.paymentId), paymentReferenceUnique: uniqueIndex("transport_charge_payment_reference_unique").on(table.schoolId, table.reference) }));
+
+export const transportAttendance = mysqlTable("transport_attendance", {
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId").notNull(),
+  learnerId: int("learnerId").notNull(),
+  routeId: int("routeId").notNull(),
+  attendanceDate: date("attendanceDate").notNull(),
+  shift: mysqlEnum("shift", ["am", "pm"]).notNull(),
+  status: mysqlEnum("status", ["boarded", "absent", "excused"]).notNull(),
+  capturedByUserId: int("capturedByUserId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => ({ attendanceUnique: uniqueIndex("transport_attendance_school_learner_day_shift_unique").on(table.schoolId, table.learnerId, table.attendanceDate, table.shift) }));
+
+export const transportTrips = mysqlTable("transport_trips", {
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId").notNull(),
+  vehicleId: int("vehicleId").notNull(),
+  routeId: int("routeId"),
+  driverStaffProfileId: int("driverStaffProfileId"),
+  tripDate: date("tripDate").notNull(),
+  shift: mysqlEnum("shift", ["am", "pm", "other"]).notNull(),
+  odometerStartKm: decimal("odometerStartKm", { precision: 11, scale: 1 }).notNull(),
+  odometerEndKm: decimal("odometerEndKm", { precision: 11, scale: 1 }).notNull(),
+  notes: varchar("notes", { length: 500 }),
+  createdByUserId: int("createdByUserId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const transportIncidents = mysqlTable("transport_incidents", {
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId").notNull(),
+  vehicleId: int("vehicleId").notNull(),
+  routeId: int("routeId"),
+  incidentDate: date("incidentDate").notNull(),
+  severity: mysqlEnum("severity", ["low", "medium", "high"]).notNull().default("medium"),
+  category: mysqlEnum("category", ["breakdown", "delay", "safety", "damage", "other"]).notNull(),
+  description: varchar("description", { length: 1000 }).notNull(),
+  resolution: varchar("resolution", { length: 500 }),
+  status: mysqlEnum("status", ["open", "resolved"]).notNull().default("open"),
+  reportedByUserId: int("reportedByUserId").notNull(),
+  resolvedByUserId: int("resolvedByUserId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull().onUpdateNow(),
+});
+
+export const transportCosts = mysqlTable("transport_costs", {
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId").notNull(),
+  vehicleId: int("vehicleId").notNull(),
+  costType: mysqlEnum("costType", ["fuel", "maintenance", "repair", "other"]).notNull(),
+  costDate: date("costDate").notNull(),
+  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+  idempotencyKey: varchar("idempotencyKey", { length: 36 }).notNull(),
+  description: varchar("description", { length: 255 }).notNull(),
+  nextDueOn: date("nextDueOn"),
+  ledgerExpenditureId: bigint("ledgerExpenditureId", { mode: "number" }),
+  createdByUserId: int("createdByUserId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => ({ ledgerRefUnique: uniqueIndex("transport_cost_ledger_ref_unique").on(table.ledgerExpenditureId), requestUnique: uniqueIndex("transport_cost_request_unique").on(table.schoolId, table.idempotencyKey) }));
