@@ -334,7 +334,7 @@ export const appRouter = router({
     administration: router({
       overview: permissionProcedure("administration.view").query(({ ctx }) => adminOverview(ctx.user.id)),
       catalog: permissionProcedure("administration.view").query(({ ctx }) => adminCatalog(ctx.user.id)),
-      schools: superProcedure.query(({ ctx }) => listSchools(ctx.user)),
+      schools: permissionProcedure("administration.view").query(({ ctx }) => listSchools(ctx.user)),
       createSchool: superProcedure.input(z.object({ schoolCode: z.string().min(3).max(40), schoolName: z.string().min(2).max(200), status: z.enum(["active", "pending_activation"]) })).mutation(({ input, ctx }) => adminCall(() => createSchool(input, ctx.user, ctx.req))),
       list: permissionProcedure("administration.view").input(z.object({ search: z.string().max(100).optional(), role: z.string().optional(), status: z.enum(["active", "suspended", "locked", "pending"]).optional() }).optional()).query(({ input, ctx }) => listAdminUsers(input ?? {}, ctx.user.id)),
       get: permissionProcedure("administration.view").input(z.object({ userId: z.number().int().positive() })).query(({ input, ctx }) => adminCall(() => getAdminUser(input.userId, ctx.user.id))),

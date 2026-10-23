@@ -44,9 +44,12 @@ export async function adminCatalog(actorUserId?: number) {
 
 export async function listSchools(actor: Actor) {
   const profile = await getAccessProfile(actor.id);
-  if (profile.level !== "system") fail("ONLY_PLATFORM_SUPER_ADMIN");
   const db = await requireDb();
-  return db.select({ id: schools.id, schoolCode: schools.schoolCode, schoolName: schools.schoolName, status: schools.status, createdAt: schools.createdAt }).from(schools).orderBy(schools.schoolName);
+  const columns = { id: schools.id, schoolCode: schools.schoolCode, schoolName: schools.schoolName, status: schools.status, createdAt: schools.createdAt };
+  if (profile.level === "system") return db.select(columns).from(schools).orderBy(schools.schoolName);
+  const account = (await db.select({ schoolId: users.schoolId }).from(users).where(eq(users.id, actor.id)).limit(1))[0];
+  if (!account?.schoolId) return [];
+  return db.select(columns).from(schools).where(eq(schools.id, account.schoolId)).orderBy(schools.schoolName);
 }
 
 export async function createSchool(input: { schoolCode: string; schoolName: string; status: "active" | "pending_activation" }, actor: Actor, req?: Request) {

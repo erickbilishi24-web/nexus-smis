@@ -53,11 +53,56 @@ function ClassesStreamsPanel({ catalog }: { catalog: Catalog }) {
     <div><p className="mb-2 text-xs font-bold uppercase tracking-wide text-[#718077]">Existing classes · {catalog.grades.length}</p><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{catalog.grades.map(g => <div key={g.id} className="flex items-center justify-between rounded-lg border border-[#d8ddd4] bg-[#fffefa] px-3 py-2"><span className="text-xs font-bold text-[#1d6a57]">{g.name}{g.stream ? ` · ${g.stream}` : ""}</span><span className="flex gap-1"><button type="button" className={ghost} aria-label={`Edit ${g.name} ${g.stream ?? ""}`} onClick={() => { setEditing(g.id); setName(g.baseName); setStream(g.stream ?? ""); }}><Pencil size={13} /></button><button type="button" className={`${ghost} text-[#9c4038]`} aria-label={`Delete ${g.name} ${g.stream ?? ""}`} onClick={() => { if (window.confirm(`Delete ${g.name}${g.stream ? ` ${g.stream}` : ""}? Classes with learners or linked records must be reassigned first.`)) remove.mutate({ id: g.id }); }} disabled={remove.isPending}><Trash2 size={13} /></button></span></div>)}</div></div>
   </div>;
 }
-function SchoolRegistryPanel() {
-  const utils = trpc.useUtils(); const [code, setCode] = useState(""); const [name, setName] = useState(""); const [status, setStatus] = useState<"active" | "pending_activation">("active");
+function SchoolRegistryPanel({ isSuper }: { isSuper: boolean }) {
+  const utils = trpc.useUtils();
+  const [code, setCode] = useState("");
+  const [name, setName] = useState("");
+  const [status, setStatus] = useState<"active" | "pending_activation">("active");
   const schools = trpc.smis.administration.schools.useQuery();
-  const create = trpc.smis.administration.createSchool.useMutation({ onSuccess: () => { toast.success("School registered"); setCode(""); setName(""); void utils.smis.administration.invalidate(); }, onError: e => toast.error(errText(e.message)) });
-  return <div className="space-y-5 p-5"><div><p className="eyebrow">Platform tenancy</p><h2 className="mt-1 text-lg font-bold text-[#28483f]">School registry</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-[#718077]">Register each customer school once. School administrators and their users are kept inside their assigned school; the Platform Super Admin remains cross-school.</p></div><form onSubmit={e => { e.preventDefault(); create.mutate({ schoolCode: code, schoolName: name, status }); }} className="grid gap-3 rounded-xl border border-[#d8ddd4] bg-[#fbfaf5] p-4 sm:grid-cols-[1fr_1.6fr_auto_auto] sm:items-end"><label className={label}>School code<Input required value={code} onChange={e => setCode(e.target.value.toUpperCase())} placeholder="SCHOOL-001" className="mt-1" /></label><label className={label}>School name<Input required value={name} onChange={e => setName(e.target.value)} placeholder="Ebunangwe Junior School" className="mt-1" /></label><label className={label}>Status<select className={field} value={status} onChange={e => setStatus(e.target.value as typeof status)}><option value="active">Active</option><option value="pending_activation">Pending</option></select></label><button className="action-button justify-center" disabled={create.isPending}><Plus size={15} />Register school</button></form><div className="overflow-x-auto"><table className="w-full min-w-[560px] text-left text-sm"><thead><tr className="border-b border-[#e2e6dc] text-[0.68rem] uppercase tracking-wide text-[#718077]"><th className="px-3 py-3">Code</th><th className="px-3 py-3">School</th><th className="px-3 py-3">Status</th><th className="px-3 py-3">Registered</th></tr></thead><tbody>{schools.data?.map(s => <tr key={s.id} className="border-b border-[#eef0e8]"><td className="px-3 py-3 font-mono text-xs text-[#1d6a57]">{s.schoolCode}</td><td className="px-3 py-3 font-semibold text-[#28483f]">{s.schoolName}</td><td className="px-3 py-3"><StatusPill status={s.status === "pending_activation" ? "pending" : s.status} /></td><td className="px-3 py-3 text-xs text-[#718077]">{fmt(s.createdAt)}</td></tr>)}{!schools.isLoading && !schools.data?.length && <tr><td colSpan={4} className="px-3 py-8 text-center text-[#718077]">No schools registered.</td></tr>}</tbody></table></div></div>;
+  const create = trpc.smis.administration.createSchool.useMutation({
+    onSuccess: () => {
+      toast.success("School registered");
+      setCode("");
+      setName("");
+      void utils.smis.administration.invalidate();
+    },
+    onError: e => toast.error(errText(e.message)),
+  });
+
+  return (
+    <div className="space-y-5 p-5">
+      <div>
+        <p className="eyebrow">Platform tenancy</p>
+        <h2 className="mt-1 text-lg font-bold text-[#28483f]">School registry</h2>
+        <p className="mt-1 max-w-2xl text-xs leading-5 text-[#718077]">
+          {isSuper
+            ? "Register and review customer schools. School administrators and their users are kept inside their assigned school; the Platform Super Admin remains cross-school."
+            : "Review the school assigned to your account. School administrators cannot view or register other schools."}
+        </p>
+      </div>
+      {isSuper ? (
+        <form onSubmit={e => { e.preventDefault(); create.mutate({ schoolCode: code, schoolName: name, status }); }} className="grid gap-3 rounded-xl border border-[#d8ddd4] bg-[#fbfaf5] p-4 sm:grid-cols-[1fr_1.6fr_auto_auto] sm:items-end">
+          <label className={label}>School code<Input required value={code} onChange={e => setCode(e.target.value.toUpperCase())} placeholder="SCHOOL-001" className="mt-1" /></label>
+          <label className={label}>School name<Input required value={name} onChange={e => setName(e.target.value)} placeholder="Ebunangwe Junior School" className="mt-1" /></label>
+          <label className={label}>Status<select className={field} value={status} onChange={e => setStatus(e.target.value as typeof status)}><option value="active">Active</option><option value="pending_activation">Pending</option></select></label>
+          <button className="action-button justify-center" disabled={create.isPending}><Plus size={15} />Register school</button>
+        </form>
+      ) : (
+        <p role="note" className="rounded-xl border border-[#d8ddd4] bg-[#fbfaf5] p-4 text-xs leading-5 text-[#718077]">
+          This view is limited to your assigned school. Only a Platform Super Administrator can register schools or view other schools.
+        </p>
+      )}
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[560px] text-left text-sm">
+          <thead><tr className="border-b border-[#e2e6dc] text-[0.68rem] uppercase tracking-wide text-[#718077]"><th className="px-3 py-3">Code</th><th className="px-3 py-3">School</th><th className="px-3 py-3">Status</th><th className="px-3 py-3">Registered</th></tr></thead>
+          <tbody>
+            {schools.data?.map(s => <tr key={s.id} className="border-b border-[#eef0e8]"><td className="px-3 py-3 font-mono text-xs text-[#1d6a57]">{s.schoolCode}</td><td className="px-3 py-3 font-semibold text-[#28483f]">{s.schoolName}</td><td className="px-3 py-3"><StatusPill status={s.status === "pending_activation" ? "pending" : s.status} /></td><td className="px-3 py-3 text-xs text-[#718077]">{fmt(s.createdAt)}</td></tr>)}
+            {!schools.isLoading && !schools.data?.length && <tr><td colSpan={4} className="px-3 py-8 text-center text-[#718077]">{isSuper ? "No schools registered." : "No school is assigned to this account."}</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 }
 function CredentialDialog({ link, name, onClose }: { link: { setupToken?: string; expiresAt?: Date | string; temporaryPassword?: string } | null; name: string; onClose: () => void }) {
   const url = link?.setupToken ? `${window.location.origin}/?reset=${link.setupToken}` : "";
@@ -228,7 +273,7 @@ export function AdministrationWorkspace() {
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-5">{[["Accounts", stats?.total], ["Active", stats?.active], ["Pending setup", stats?.pending], ["Suspended", stats?.suspended], ["Locked", stats?.locked]].map(([k, v]) => <div key={String(k)} className="rounded-xl bg-white/10 px-4 py-3"><p className="text-[0.66rem] font-bold uppercase tracking-wider text-[#d2e2d9]">{k}</p><p className="mt-1 text-2xl font-bold">{v ?? "—"}</p></div>)}</div>
     </section>
 
-    <div className="flex flex-wrap gap-2 border-b border-[#d8ddd4]" role="tablist">{([["users", "Users & Credentials", Users], ["matrix", "Permission Matrix", ShieldCheck], ...(has("settings.edit") ? [["classes", "Classes & Streams", Plus] as const, ["comments", "Report Comments", Pencil] as const] : []), ...(isSuper ? [["schools", "School Registry", School] as const] : []), ["audit", "Audit Trail", History]] as const).map(([k, t, Icon]) =>
+    <div className="flex flex-wrap gap-2 border-b border-[#d8ddd4]" role="tablist">{([["users", "Users & Credentials", Users], ["matrix", "Permission Matrix", ShieldCheck], ...(has("settings.edit") ? [["classes", "Classes & Streams", Plus] as const, ["comments", "Report Comments", Pencil] as const] : []), ["schools", "School Registry", School] as const, ["audit", "Audit Trail", History]] as const).map(([k, t, Icon]) =>
       <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className={`-mb-px inline-flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-bold ${tab === k ? "border-[#1d6a57] text-[#1d6a57]" : "border-transparent text-[#718077] hover:text-[#28483f]"}`}><Icon size={15} />{t}</button>)}</div>
 
     <section className="soft-card paper-noise rounded-[1.1rem]">
@@ -255,7 +300,7 @@ export function AdministrationWorkspace() {
       {tab === "matrix" && <MatrixTab users={rows} isSuper={isSuper} />}
       {tab === "classes" && catalog && <ClassesStreamsPanel catalog={catalog} />}
       {tab === "comments" && has("settings.edit") && <CommentBankAdminPanel />}
-      {tab === "schools" && isSuper && <SchoolRegistryPanel />}
+      {tab === "schools" && <SchoolRegistryPanel isSuper={isSuper} />}
       {tab === "audit" && <><AuditFilters withUser value={auditF} onChange={v => { setAuditF(v); setAuditPage(0); }} /><AuditTable filters={toQuery(auditF)} page={auditPage} onPage={setAuditPage} /></>}
     </section>
 
