@@ -53,7 +53,7 @@ function ClassesStreamsPanel({ catalog }: { catalog: Catalog }) {
     <div><p className="mb-2 text-xs font-bold uppercase tracking-wide text-[#718077]">Existing classes · {catalog.grades.length}</p><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{catalog.grades.map(g => <div key={g.id} className="flex items-center justify-between rounded-lg border border-[#d8ddd4] bg-[#fffefa] px-3 py-2"><span className="text-xs font-bold text-[#1d6a57]">{g.name}{g.stream ? ` · ${g.stream}` : ""}</span><span className="flex gap-1"><button type="button" className={ghost} aria-label={`Edit ${g.name} ${g.stream ?? ""}`} onClick={() => { setEditing(g.id); setName(g.baseName); setStream(g.stream ?? ""); }}><Pencil size={13} /></button><button type="button" className={`${ghost} text-[#9c4038]`} aria-label={`Delete ${g.name} ${g.stream ?? ""}`} onClick={() => { if (window.confirm(`Delete ${g.name}${g.stream ? ` ${g.stream}` : ""}? Classes with learners or linked records must be reassigned first.`)) remove.mutate({ id: g.id }); }} disabled={remove.isPending}><Trash2 size={13} /></button></span></div>)}</div></div>
   </div>;
 }
-function SchoolRegistryPanel({ isSuper }: { isSuper: boolean }) {
+export function SchoolRegistryPanel({ isSuper }: { isSuper: boolean }) {
   const utils = trpc.useUtils();
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
