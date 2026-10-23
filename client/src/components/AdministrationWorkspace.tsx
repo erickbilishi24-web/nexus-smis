@@ -257,7 +257,7 @@ export function AdministrationWorkspace() {
   const reset = trpc.smis.administration.resetPassword.useMutation({ onSuccess: (r, v) => { setLink({ link: r, name: list.data?.find(u => u.userId === v.userId)?.fullName ?? "user" }); toast.success("Temporary password issued; password change required at next login"); }, onError: e => toast.error(errText(e.message)) });
   const deleteUser = trpc.smis.administration.deleteUser.useMutation({ onSuccess: () => { toast.success("Account permanently deleted; school history retained"); void utils.smis.administration.invalidate(); setDeleteRow(null); setDeletePhrase(""); }, onError: e => toast.error(errText(e.message)) });
   const has = (k: string) => !!perms.data && (perms.data.includes("*") || perms.data.includes(k));
-  const isSuper = !!perms.data?.includes("administration.manage_permissions");
+  const isSuper = has("administration.manage_permissions");
   const forbidden = list.error?.data?.code === "FORBIDDEN";
   const catalog = catalogQ.data;
   const stats = overview.data;
