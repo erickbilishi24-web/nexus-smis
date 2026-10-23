@@ -148,6 +148,10 @@ async function assertNotLastPermissionManager(targetUserId: number) {
 export function assertStrongPassword(password: string) {
   if (password.length < 10 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) fail("PASSWORD_TOO_WEAK");
 }
+export function assertAdminAccountDeletionAllowed(actorUserId: number, targetUserId: number, isPermissionManager: boolean, hasOtherActivePermissionManager: boolean) {
+  if (actorUserId === targetUserId) fail("CANNOT_DELETE_OWN_ACCOUNT");
+  if (isPermissionManager && !hasOtherActivePermissionManager) fail("LAST_SUPER_ADMIN_PROTECTED");
+}
 export const normalizeSchoolCode = (value: string) => value.trim().toUpperCase();
 export const isValidSchoolCode = (value: string) => /^[A-Z0-9][A-Z0-9_-]{2,39}$/.test(normalizeSchoolCode(value));
 export const generateTemporaryPassword = () => `Nexus-7-${crypto.randomBytes(12).toString("base64url")}`;
@@ -303,6 +307,39 @@ export async function setAccountState(input: { userId: number; action: "activate
     await db.update(users).set({ accountStatus: "active", accountLocked: 0, failedLoginAttempts: 0 }).where(eq(users.id, input.userId));
   }
   await audit(actor.id, `admin.account.${input.action}`, input.userId, { from: state, reason: input.reason ?? null }, req);
+  return { ok: true };
+}
+
+/** Permanently removes login credentials and access artifacts while preserving the staff profile and school history. */
+export async function deleteAdminUser(input: { userId: number }, actor: Actor, req?: Request) {
+  const db = await requireDb();
+  const targetRole = await assertCanManage(actor, input.userId);
+  const target = (await db.select({ schoolId: users.schoolId, staffProfileId: staffProfiles.id }).from(users).leftJoin(staffProfiles, eq(staffProfiles.userId, users.id)).where(eq(users.id, input.userId)).limit(1))[0];
+  if (!target) fail("USER_NOT_FOUND");
+  const isPermissionManager = await hasManagePermissions(targetRole);
+  const hasOtherActivePermissionManager = isPermissionManager
+    ? (await activePermissionManagers()).some(user => user.userId !== input.userId)
+    : true;
+  assertAdminAccountDeletionAllowed(actor.id, input.userId, isPermissionManager, hasOtherActivePermissionManager);
+
+  await db.transaction(async tx => {
+    await tx.insert(auditLogs).values({
+      schoolId: target.schoolId,
+      userId: actor.id,
+      action: "admin.user.delete",
+      entityType: "user",
+      entityId: String(input.userId),
+      metadata: JSON.stringify({ staffProfileId: target.staffProfileId ?? null, staffProfileRetained: Boolean(target.staffProfileId), ...clientMeta(req) }),
+    });
+    await tx.delete(iamSessions).where(eq(iamSessions.userId, input.userId));
+    await tx.delete(iamPasswordResets).where(eq(iamPasswordResets.userId, input.userId));
+    await tx.delete(userPermissions).where(eq(userPermissions.userId, input.userId));
+    await tx.update(staffProfiles).set({ status: "disabled" }).where(eq(staffProfiles.userId, input.userId));
+    await tx.update(teacherAllocations).set({ status: "inactive" }).where(and(eq(teacherAllocations.teacherUserId, input.userId), eq(teacherAllocations.status, "active")));
+    await tx.update(grades).set({ classTeacherUserId: null }).where(eq(grades.classTeacherUserId, input.userId));
+    await tx.delete(users).where(eq(users.id, input.userId));
+  });
+  resetAttempts.delete(input.userId);
   return { ok: true };
 }
 

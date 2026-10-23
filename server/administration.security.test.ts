@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertStrongPassword, generateTemporaryPassword, isValidSchoolCode, normalizeSchoolCode } from "./administration";
+import { assertAdminAccountDeletionAllowed, assertStrongPassword, generateTemporaryPassword, isValidSchoolCode, normalizeSchoolCode } from "./administration";
 
 describe("multi-school administration security helpers", () => {
   it("normalizes school codes before validation", () => {
@@ -16,5 +16,15 @@ describe("multi-school administration security helpers", () => {
     expect(two).toMatch(/^Nexus-7-[A-Za-z0-9_-]{16,}$/);
     expect(one).not.toBe(two);
     expect(() => assertStrongPassword(one)).not.toThrow();
+  });
+
+  it("blocks deleting the signed-in account", () => {
+    expect(() => assertAdminAccountDeletionAllowed(7, 7, false, true)).toThrow("CANNOT_DELETE_OWN_ACCOUNT");
+  });
+
+  it("protects the last active Super Administrator while allowing another manager's presence", () => {
+    expect(() => assertAdminAccountDeletionAllowed(7, 8, true, false)).toThrow("LAST_SUPER_ADMIN_PROTECTED");
+    expect(() => assertAdminAccountDeletionAllowed(7, 8, true, true)).not.toThrow();
+    expect(() => assertAdminAccountDeletionAllowed(7, 8, false, false)).not.toThrow();
   });
 });

@@ -5,7 +5,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { MANAGE_PERMISSIONS } from "./access";
-import { AdminError, AUDIT_MODULES, adminCatalog, adminOverview, changeAdminAssignment, changeAdminRole, createAdminUser, createSchool, getAdminUser, getPermissionMatrixView, listAdminUsers, listAuditTrail, listSchools, resetAdminPassword, setAccountState, setRolePermission, setUserPermissionOverride, updateAdminUser } from "./administration";
+import { AdminError, AUDIT_MODULES, adminCatalog, adminOverview, changeAdminAssignment, changeAdminRole, createAdminUser, createSchool, deleteAdminUser, getAdminUser, getPermissionMatrixView, listAdminUsers, listAuditTrail, listSchools, resetAdminPassword, setAccountState, setRolePermission, setUserPermissionOverride, updateAdminUser } from "./administration";
 import { correctLockedAssessmentMark, ensureAssessment, getAssessmentEntries, getAssessmentReportCard, getClassMarklist, listAssessmentScopes, listReportLearners, saveAssessmentMarks, setAssessmentFinalState, submitAssessment } from "./assessment";
 import { adminResetIamPassword, changeIamPassword, loginWithIam, logoutIam, requestIamPasswordReset, resetIamPassword, safeAuthProfile } from "./iam";
 import { listFeedback, submitFeedback } from "./feedback";
@@ -343,6 +343,7 @@ export const appRouter = router({
       changeRole: permissionProcedure("administration.edit").input(z.object({ userId: z.number().int().positive(), role: roleEnum })).mutation(({ input, ctx }) => adminCall(() => changeAdminRole(input, ctx.user, ctx.req))),
       changeAssignment: permissionProcedure("administration.edit").input(z.object({ userId: z.number().int().positive(), classGradeId: z.number().int().positive().nullable().optional(), subjectAllocations })).mutation(({ input, ctx }) => adminCall(() => changeAdminAssignment(input, ctx.user, ctx.req))),
       setState: permissionProcedure("administration.edit").input(z.object({ userId: z.number().int().positive(), action: z.enum(["activate", "suspend", "lock", "unlock"]), reason: z.string().max(255).optional() })).mutation(({ input, ctx }) => adminCall(() => setAccountState(input, ctx.user, ctx.req))),
+      deleteUser: superProcedure.input(z.object({ userId: z.number().int().positive() })).mutation(({ input, ctx }) => adminCall(() => deleteAdminUser(input, ctx.user, ctx.req))),
       resetPassword: superProcedure.input(z.object({ userId: z.number().int().positive() })).mutation(({ input, ctx }) => adminCall(() => resetAdminPassword(input, ctx.user, ctx.req))),
       matrix: permissionProcedure("administration.view").input(z.object({ role: z.string().optional(), userId: z.number().int().positive().optional() })).query(({ input }) => getPermissionMatrixView(input)),
       setRolePermission: superProcedure.input(z.object({ role: z.string(), permissionKey: z.string(), allowed: z.boolean() })).mutation(({ input, ctx }) => adminCall(() => setRolePermission(input, ctx.user, ctx.req))),
