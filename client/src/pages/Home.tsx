@@ -56,7 +56,7 @@ const navigation: { label: View; icon: typeof LayoutDashboard; group: string }[]
   { label: "Academic Archives & Alumni", icon: Archive, group: "Records" },
   { label: "Guidance & Counselling", icon: HeartHandshake, group: "Safeguarding" },
   { label: "User Administration", icon: Settings2, group: "Workspace" },
-  { label: "School Registry", icon: Landmark, group: "Workspace" },
+  { label: "School Registry", icon: Landmark, group: "Administration" },
   { label: "Messages", icon: MessageSquareText, group: "Workspace" },
   { label: "Curriculum Setup", icon: BookOpen, group: "Administration" },
   { label: "Resource Links", icon: Globe2, group: "Administration" },
