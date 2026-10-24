@@ -98,7 +98,7 @@ function VisionReportCard({ result, assessmentType, term, academicYear, status, 
 }
 
 function VisionHeader({ schoolName, motto }: { schoolName: string; motto?: string | null }) {
-  return <header className="border-b-4 border-[#242477] text-center"><h2 className="text-lg font-black uppercase tracking-wide text-[#d000b9] sm:text-2xl">{schoolName || "NEXUS Software"}</h2><div className="grid grid-cols-3 items-center py-1 text-[9px] sm:text-xs"><div className="text-left text-[#242477]">P.O. BOX 54 KENYA<br />school@school.co.ke<br />+254 700 000 000</div><img src="/manus-storage/NexusSoftwareEducationBadge_3aeddf86.png" alt="NEXUS Software" className="mx-auto h-16 w-16 object-contain sm:h-20 sm:w-20" /><div className="text-right text-[#242477]">{motto || "Better Schools · Brighter Futures"}</div></div><h1 className="bg-[#ef16c6] py-1 text-base font-black text-white sm:text-2xl">LEARNER ASSESSMENT REPORT CARD</h1></header>;
+  return <header className="border-b-4 border-[#242477] text-center"><h2 className="text-lg font-black uppercase tracking-wide text-[#d000b9] sm:text-2xl">{schoolName || "Nexus-smis"}</h2><div className="grid grid-cols-3 items-center py-1 text-[9px] sm:text-xs"><div className="text-left text-[#242477]">P.O. BOX 54 KENYA<br />school@school.co.ke<br />+254 700 000 000</div><img src="/manus-storage/nexus-smis-logo_37d2287e.png" alt="Nexus-smis" className="mx-auto h-16 w-16 object-contain sm:h-20 sm:w-20" /><div className="text-right text-[#242477]">{motto || "Better Schools · Brighter Futures"}</div></div><h1 className="bg-[#ef16c6] py-1 text-base font-black text-white sm:text-2xl">LEARNER ASSESSMENT REPORT CARD</h1></header>;
 }
 
 function PerformanceChart({ rows, values }: { rows: any[]; values: any[] }) {

@@ -93,7 +93,7 @@ if (!(await db.select().from(communications).limit(1)).length) await db.insert(c
 if (!(await db.select().from(expenditures).limit(1)).length) await db.insert(expenditures).values({ expenditureDate: new Date(), amount: "8500", category: "Learning materials", description: "Term 2 exercise books and chalk", responsiblePerson: "Erickology", createdByUserId: ownerId });
 if (!(await db.select().from(notifications).limit(1)).length) await db.insert(notifications).values({ audience: "all", title: "Term 2 marklist review", body: "Teachers should complete marklist review before Friday.", status: "published", createdByUserId: ownerId });
 
-console.log("Seeded Kenyan SMIS modules", { ownerId, learners: learnersNow.length, subjects: subjectsNow.length });
+console.log("Seeded Nexus-smis modules", { ownerId, learners: learnersNow.length, subjects: subjectsNow.length });
 }
 
 main().then(() => process.exit(0)).catch(error => {
