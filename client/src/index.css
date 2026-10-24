@@ -357,3 +357,6 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgb(29 106 87 / 2
 .dashboard-hero-orb { pointer-events: none; }
 @keyframes finance-section-enter { from { opacity: .35; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 @media (prefers-reduced-motion: reduce) { .finance-section-enter { animation: none; } .dashboard-hero-orb { display: none; } }
+@media (max-width: 639px) {
+  .dashboard-mobile-collapsed > :not(.dashboard-hero) { display: none; }
+}
