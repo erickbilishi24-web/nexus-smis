@@ -162,7 +162,7 @@ export const generateTemporaryPassword = () => `Nexus-7-${crypto.randomBytes(12)
 /* ------------------------------------------------------------------- Create */
 
 const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{2,59}$/;
-export type CreateUserInput = { fullName: string; username: string; staffId: string; role: (typeof ASSIGNABLE_ROLES)[number]; department?: string | null; email?: string | null; phone?: string | null; classGradeId?: number | null; subjectAllocations?: { gradeId: number; subjectId: number }[]; status: "active" | "pending_activation" | "disabled"; schoolId?: number | null };
+export type CreateUserInput = { fullName: string; username: string; staffId: string; role: (typeof ASSIGNABLE_ROLES)[number]; department?: string | null; email?: string | null; phone?: string | null; classGradeId?: number | null; subjectAllocations?: { gradeId: number; subjectId: number }[]; status: "active" | "pending_activation" | "disabled"; schoolId?: number | null; password?: string | null };
 
 async function assertUnique(input: { username?: string; staffId?: string | null }, exceptUserId?: number) {
   const db = await requireDb();
@@ -214,6 +214,8 @@ export async function createAdminUser(input: CreateUserInput, actor: Actor, req?
   const actorSchool = (await db.select({ schoolId: users.schoolId }).from(users).where(eq(users.id, actor.id)).limit(1))[0]?.schoolId ?? null;
   const schoolId = actorProfile.level === "system" ? (input.schoolId ?? null) : actorSchool;
   if (actorProfile.level !== "system" && input.schoolId != null && input.schoolId !== actorSchool) fail("CROSS_SCHOOL_ACCESS_FORBIDDEN");
+  if (input.password && actorProfile.level !== "system") fail("ONLY_PLATFORM_SUPER_ADMIN_CREATES_PASSWORDS");
+  if (input.password) assertStrongPassword(input.password);
   const fullName = input.fullName.trim(); if (!fullName) fail("NAME_REQUIRED");
   const username = input.username.trim().toLowerCase(); if (!USERNAME_RE.test(username)) fail("USERNAME_INVALID");
   const staffId = input.staffId.trim(); if (!staffId) fail("STAFF_ID_REQUIRED");
@@ -221,7 +223,7 @@ export async function createAdminUser(input: CreateUserInput, actor: Actor, req?
   await assertUnique({ username, staffId });
   const userRow = (await db.insert(users).values({
     openId: `iam-${crypto.randomUUID()}`, schoolId, username, name: fullName, email: input.email?.trim().toLowerCase() || null, role: await hasManagePermissions(input.role) || permissionRole(input.role) === "admin" ? "admin" : "user",
-    accountStatus: input.status, loginMethod: "password", mustChangePassword: 0,
+    accountStatus: input.password ? "active" : input.status, loginMethod: "password", passwordHash: input.password ? await bcrypt.hash(input.password, 12) : null, mustChangePassword: input.password ? 1 : 0,
   }).$returningId())[0];
   try {
     await db.insert(staffProfiles).values({ userId: userRow.id, teacherCode: await nextTeacherCode(), staffId, displayName: fullName, department: input.department?.trim() || null, email: input.email?.trim().toLowerCase() || null, phone: input.phone?.trim() || null, role: input.role, status: input.status === "disabled" ? "disabled" : "active" });
@@ -232,9 +234,9 @@ export async function createAdminUser(input: CreateUserInput, actor: Actor, req?
     await db.delete(users).where(eq(users.id, userRow.id));
     throw error;
   }
-  const setup = await issueSetupToken(userRow.id, 72);
-  await audit(actor.id, "admin.user.create", userRow.id, { username, staffId, role: input.role, status: input.status, department: input.department ?? null }, req);
-  return { userId: userRow.id, ...setup };
+  const setup = input.password ? null : await issueSetupToken(userRow.id, 72);
+  await audit(actor.id, "admin.user.create", userRow.id, { username, staffId, role: input.role, status: input.password ? "active" : input.status, passwordCreated: Boolean(input.password), department: input.department ?? null }, req);
+  return setup ? { userId: userRow.id, ...setup } : { userId: userRow.id, credentialsCreated: true as const };
 }
 
 /* --------------------------------------------------------------------- Edit */
