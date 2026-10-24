@@ -625,10 +625,18 @@ export function timetableConflicts(entries: Array<{ dayOfWeek: number; period: n
   return conflicts;
 }
 
+export function unallocatedTimetableEntries(entries: Array<{ gradeId: number; subjectId: number; teacherUserId: number }>, allocations: Array<{ gradeId: number; subjectId: number; teacherUserId: number; status: string; allocationType: string }>) {
+  const allowed = new Set(allocations.filter(row => row.status === "active" && row.allocationType !== "class_teacher").map(row => `${row.gradeId}:${row.subjectId}:${row.teacherUserId}`));
+  return entries.filter(entry => !allowed.has(`${entry.gradeId}:${entry.subjectId}:${entry.teacherUserId}`));
+}
+
 export async function generateTimetable(entries: Array<{ dayOfWeek: number; period: number; gradeId: number; subjectId: number; teacherUserId: number; room?: string | null }>, userId: number) {
   const conflicts = timetableConflicts(entries);
   if (conflicts.length) throw new Error(`TIMETABLE_CLASH:${conflicts.join(",")}`);
   const db = await requireDb();
+  const activeAllocations = await db.select({ gradeId: teacherAllocations.gradeId, subjectId: teacherAllocations.subjectId, teacherUserId: teacherAllocations.teacherUserId, status: teacherAllocations.status, allocationType: teacherAllocations.allocationType }).from(teacherAllocations).where(eq(teacherAllocations.status, "active"));
+  const unallocated = unallocatedTimetableEntries(entries, activeAllocations);
+  if (unallocated.length) throw new Error(`UNALLOCATED_SUBJECT:${unallocated[0].gradeId}:${unallocated[0].subjectId}:${unallocated[0].teacherUserId}`);
   if (entries.length) await db.insert(timetableEntries).values(entries);
   await writeAudit(userId, "timetable.generate", "timetable", null, { count: entries.length });
   return { placed: entries.length, conflicts: [] };
@@ -1165,7 +1173,7 @@ export async function saveTeacherAllocation(input: { teacherUserId: number; grad
   const conflict = active.find(row => allocationContextConflict(input, row));
   if (conflict && conflict.teacherUserId !== input.teacherUserId) {
     if (input.allocationType === "class_teacher") throw new Error("CLASS_TEACHER_CONFLICT");
-    throw new Error(`Subject already allocated. Delete existing allocation first. [allocationId:${conflict.id}]`);
+    throw new Error(`subject already allocated. Delete existing allocation first. [allocationId:${conflict.id}]`);
   }
   const existing = (await db.select().from(teacherAllocations).where(and(eq(teacherAllocations.teacherUserId, input.teacherUserId), eq(teacherAllocations.gradeId, input.gradeId), eq(teacherAllocations.subjectId, input.subjectId), eq(teacherAllocations.academicYear, input.academicYear), eq(teacherAllocations.term, input.term), eq(teacherAllocations.allocationType, input.allocationType))).limit(1))[0];
   const values = { ...input, startsOn: input.startsOn ? new Date(input.startsOn) : null, endsOn: input.endsOn ? new Date(input.endsOn) : null, status: "active" as const };

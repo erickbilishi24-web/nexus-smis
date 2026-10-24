@@ -325,3 +325,29 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgb(29 106 87 / 2
     padding: 2px 3px;
   }
 }
+
+/* Reference-inspired dashboard polish: preserve the existing warm light theme and provide a usable dark variant. */
+.dashboard-panel, .dashboard-metric { transition: transform 180ms cubic-bezier(.23,1,.32,1), box-shadow 180ms cubic-bezier(.23,1,.32,1), background-color 180ms ease, border-color 180ms ease; }
+.dashboard-panel:hover, .dashboard-metric:hover { transform: translateY(-2px); }
+.dark {
+  --background: #0b1522;
+  --foreground: #e8f0f5;
+  --card: #132235;
+  --card-foreground: #e8f0f5;
+  --popover: #132235;
+  --popover-foreground: #e8f0f5;
+  --border: #294056;
+  --input: #294056;
+  --muted: #182b40;
+  --muted-foreground: #9eb1c0;
+  --accent: #183c52;
+  --accent-foreground: #a8e4dc;
+}
+.dark body, .dark .shell { background: #0b1522; color: #e8f0f5; }
+.dark .shell > main > header { background: rgb(11 21 34 / 92%); border-color: #294056; }
+.dark .dashboard-panel, .dark .dashboard-metric { background: #132235; border-color: #294056; box-shadow: 0 8px 26px rgb(0 0 0 / 22%); }
+.dark .dashboard-panel [class*="bg-white"], .dark .dashboard-metric [class*="bg-white"] { background: #182b40 !important; }
+.dark .dashboard-panel [class*="text-[#263b4c]"], .dark .dashboard-panel [class*="text-[#283d4d]"], .dark .dashboard-panel [class*="text-[#344957]"], .dark .dashboard-metric [class*="text-[#263b4c]"] { color: #e8f0f5 !important; }
+.dark .dashboard-panel [class*="text-[#82909b]"], .dark .dashboard-panel [class*="text-[#637482]"], .dark .dashboard-metric [class*="text-[#687b88]"] { color: #9eb1c0 !important; }
+.dark .dashboard-panel [class*="bg-[#fbfcfd]"], .dark .dashboard-panel [class*="bg-[#edf2f4]"] { background: #182b40 !important; }
+.dark .icon-button, .dark .quiet-button { background: #132235; border-color: #294056; color: #d7e6ed; }
