@@ -17,7 +17,7 @@ const scheduleSlots: Slot[] = [
   { period: 1 }, { period: 2 }, { label: "BREAK", time: "9:40–10:00" },
   { period: 3 }, { period: 4 }, { label: "BREAK", time: "11:10–11:30" },
   { period: 5 }, { period: 6 }, { label: "LUNCH", time: "12:50–14:00" },
-  { period: 7 }, { period: 8 }, { label: "GAMES", time: "15:20–16:00" }, { period: 9 },
+  { period: 7 }, { period: 8 }, { label: "GAMES", time: "15:20–16:00" },
 ];
 const periodTimes: Record<number, string> = {
   1: "8:20–9:00", 2: "9:00–9:40", 3: "10:00–10:30", 4: "10:30–11:10",
