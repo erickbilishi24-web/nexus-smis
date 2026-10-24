@@ -351,3 +351,9 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgb(29 106 87 / 2
 .dark .dashboard-panel [class*="text-[#82909b]"], .dark .dashboard-panel [class*="text-[#637482]"], .dark .dashboard-metric [class*="text-[#687b88]"] { color: #9eb1c0 !important; }
 .dark .dashboard-panel [class*="bg-[#fbfcfd]"], .dark .dashboard-panel [class*="bg-[#edf2f4]"] { background: #182b40 !important; }
 .dark .icon-button, .dark .quiet-button { background: #132235; border-color: #294056; color: #d7e6ed; }
+
+.finance-section-enter { animation: finance-section-enter 220ms cubic-bezier(.23,1,.32,1); }
+.dashboard-hero { background: linear-gradient(118deg, #0f3b33 0%, #176b63 55%, #237e89 100%); }
+.dashboard-hero-orb { pointer-events: none; }
+@keyframes finance-section-enter { from { opacity: .35; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .finance-section-enter { animation: none; } .dashboard-hero-orb { display: none; } }
