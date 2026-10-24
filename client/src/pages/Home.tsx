@@ -127,7 +127,7 @@ function TimetableWorkspace() {
   const codeAudit = trpc.smis.administration.audit.useQuery({ action: "timetable.teacher_code.update", limit: 20 }, { enabled: true });
   const allocations = trpc.smis.allocations.list.useQuery();
   const utils = trpc.useUtils();
-  const [regenerate, setRegenerate] = useState(false);
+  const [regenerate, setRegenerate] = useState(true);
   const [weeklyTotals, setWeeklyTotals] = useState<Record<string, string>>({});
   const [requirementDraft, setRequirementDraft] = useState<Record<string, string>>({});
   const [codeDrafts, setCodeDrafts] = useState<Record<number, string>>({});
@@ -137,7 +137,7 @@ function TimetableWorkspace() {
   const [showCodeAudit, setShowCodeAudit] = useState(false);
   const [serverConflict, setServerConflict] = useState<{ staffProfileId: number; teacherCode: number } | null>(null);
   const setRequirement = trpc.smis.timetable.setRequirement.useMutation({ onSuccess: () => { toast.success("Weekly lesson requirement saved"); void utils.smis.timetable.requirements.invalidate(); }, onError: e => toast.error(e.message.replaceAll("_", " ")) });
-  const generate = trpc.smis.timetable.generateAutomatic.useMutation({ onSuccess: r => { toast.success(`Master timetable generated: ${r.placed} lessons placed`); void utils.smis.timetable.list.invalidate(); }, onError: e => toast.error(e.message) });
+  const generate = trpc.smis.timetable.generateAutomatic.useMutation({ onSuccess: r => { toast.success(r.unplaced?.length ? `Generated ${r.placed} lessons; ${r.unplaced.length} requirement(s) could not fit` : `SUCCESS: ${r.placed} lessons placed`); void utils.smis.timetable.list.invalidate(); }, onError: e => toast.error(e.message) });
   const saveCode = trpc.smis.timetable.updateTeacherCode.useMutation({ onSuccess: () => { void utils.smis.timetable.teacherCodes.invalidate(); void utils.smis.timetable.list.invalidate(); void utils.smis.timetable.personal.invalidate(); setServerConflict(null); }, onError: (e, variables) => { if (e.message.includes("TEACHER_CODE_ALREADY_IN_USE")) setServerConflict({ staffProfileId: variables.staffProfileId, teacherCode: variables.teacherCode }); toast.error(e.message.replaceAll("_", " ")); } });
   const saveRole = trpc.smis.users.updateStaffRole.useMutation({ onSuccess: () => { toast.success("Staff role updated"); void utils.smis.timetable.teacherCodes.invalidate(); }, onError: e => toast.error(e.message.replaceAll("_", " ")) });
   const days=["MON","TUE","WED","THUR","FRI"]; const gradeRows=[7,8,9];

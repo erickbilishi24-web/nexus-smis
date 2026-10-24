@@ -658,7 +658,7 @@ export async function setTimetableRequirement(input: { gradeId: number; subjectI
 export async function generateAutomaticTimetable(input: { academicYear?: number; regenerate: boolean; days?: number; periodsPerDay?: number; classLessonTotals?: Array<{ gradeId: number; totalLessonsPerWeek: number }> }, userId: number) {
   const db = await requireDb();
   const academicYear = input.academicYear ?? Number((await getSettings()).academicYear);
-  const days = input.days ?? 5; const periodsPerDay = input.periodsPerDay ?? 9;
+  const days = input.days ?? 5; const periodsPerDay = input.periodsPerDay ?? 8;
   if (input.regenerate) await db.delete(timetableEntries);
   const requirements = await db.select({ requirement: timetableRequirements, grade: grades, subject: subjects }).from(timetableRequirements).innerJoin(grades, eq(grades.id, timetableRequirements.gradeId)).innerJoin(subjects, eq(subjects.id, timetableRequirements.subjectId)).where(eq(timetableRequirements.academicYear, academicYear));
   for (const requested of input.classLessonTotals ?? []) {
