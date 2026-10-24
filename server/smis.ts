@@ -852,6 +852,30 @@ export async function setStaffStatus(input: { staffProfileId: number; status: Pe
   return { ok: true };
 }
 
+/** Removes a staff identity from live People, allocation, and timetable selections while preserving the disabled login shell and audit/history records. */
+export async function deleteStaffProfile(input: { staffProfileId: number }, userId: number) {
+  const db = await requireDb();
+  const schoolId = await actorSchoolId(userId);
+  const current = (await db.select({ profile: staffProfiles, user: users }).from(staffProfiles).innerJoin(users, eq(users.id, staffProfiles.userId)).where(and(eq(staffProfiles.id, input.staffProfileId), eq(staffProfiles.schoolId, schoolId), eq(users.schoolId, schoolId))).limit(1))[0];
+  if (!current) throw new Error("STAFF_NOT_FOUND");
+  if (current.user.id === userId) throw new Error("CANNOT_DELETE_CURRENT_ACCOUNT");
+  if (current.profile.role === "super_admin") throw new Error("CANNOT_DELETE_PLATFORM_SUPER_ADMIN");
+  const [assessmentRows, markRows] = await Promise.all([
+    db.select({ id: assessments.id }).from(assessments).where(eq(assessments.teacherUserId, current.user.id)).limit(1),
+    db.select({ id: marks.id }).from(marks).where(eq(marks.teacherUserId, current.user.id)).limit(1),
+  ]);
+  if (assessmentRows.length || markRows.length) throw new Error("STAFF_HAS_HISTORICAL_RECORDS_USE_DEACTIVATE");
+  await db.transaction(async tx => {
+    await tx.insert(auditLogs).values({ schoolId, userId, action: "staff.delete", entityType: "staff_profile", entityId: String(input.staffProfileId), metadata: JSON.stringify({ userId: current.user.id, displayName: current.profile.displayName, liveLinksRemoved: ["teacher_allocations", "timetable_entries", "class_teacher_assignment"], historicalRecordsRetained: true }) });
+    await tx.delete(timetableEntries).where(eq(timetableEntries.teacherUserId, current.user.id));
+    await tx.delete(teacherAllocations).where(eq(teacherAllocations.teacherUserId, current.user.id));
+    await tx.update(grades).set({ classTeacherUserId: null }).where(and(eq(grades.classTeacherUserId, current.user.id), eq(grades.schoolId, schoolId)));
+    await tx.delete(staffProfiles).where(and(eq(staffProfiles.id, input.staffProfileId), eq(staffProfiles.schoolId, schoolId)));
+    await tx.update(users).set({ accountStatus: "disabled", name: null }).where(and(eq(users.id, current.user.id), eq(users.schoolId, schoolId)));
+  });
+  return { ok: true };
+}
+
 export type PeopleImportKind = "learners" | "staff";
 export type PeopleImportRow = Record<string, unknown>;
 export type PeopleImportOptions = { autoCreateMissingClasses?: boolean };
