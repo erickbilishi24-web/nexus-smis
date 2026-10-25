@@ -66,6 +66,7 @@ export const schoolSettings = mysqlTable("school_settings", {
   longitude: decimal("longitude", { precision: 10, scale: 7 }),
   geofenceRadiusMeters: int("geofenceRadiusMeters").notNull().default(150),
   enabledSchoolLevels: varchar("enabledSchoolLevels", { length: 255 }).notNull().default("ECDE,Lower Primary,Upper Primary,Junior School,Senior School"),
+  subjectShortNames: text("subjectShortNames"),
 });
 
 export const staffProfiles = mysqlTable("staff_profiles", {

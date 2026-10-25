@@ -34,7 +34,7 @@ const sameLesson = (left?: ScheduleRow, right?: ScheduleRow) => !!left && !!righ
   && left.entry.subjectId === right.entry.subjectId
   && left.entry.teacherUserId === right.entry.teacherUserId
   && left.entry.room === right.entry.room;
-const subjectCode = (row?: ScheduleRow) => { const raw = (row?.subject?.code || row?.subject?.name || "").replace(/^CBC[-_\s]*/i, "").trim(); const key = raw.toLowerCase().replace(/[-_]/g, " ").replace(/\s+/g, " "); const aliases: Record<string,string> = { kiswahili: "KISW", english: "ENG", mathematics: "MAT", "integrated science": "INT SCI", "social studies": "SST", "religious education": "CRE", "creative arts": "C ART", agriculture: "AGRI", "pre technical studies": "PRE TECH", "life skills education": "LIFE SKILLS", "health education": "HEALTH" }; return aliases[key] || raw.toUpperCase().slice(0, 12); };
+const subjectCode = (row?: ScheduleRow, shortNames: Record<string,string> = {}) => { const custom = row?.entry.subjectId ? shortNames[String(row.entry.subjectId)] : undefined; if (custom) return custom; const raw = (row?.subject?.code || row?.subject?.name || "").replace(/^CBC[-_\s]*/i, "").trim(); const key = raw.toLowerCase().replace(/[-_]/g, " ").replace(/\s+/g, " "); const aliases: Record<string,string> = { kiswahili: "KISW", english: "ENG", mathematics: "MAT", "integrated science": "INT SCI", "social studies": "SST", "religious education": "CRE", "creative arts": "C ART", agriculture: "AGRI", "pre technical studies": "PRE TECH", "life skills education": "LIFE SKILLS", "health education": "HEALTH" }; return aliases[key] || raw.toUpperCase().slice(0, 12); };
 const gradeLabel = (row?: ScheduleRow) => row?.grade ? `${row.grade.name}${row.grade.stream ? ` ${row.grade.stream}` : ""}` : "";
 
 function ScheduleHeader({ showGrade = false }: { showGrade?: boolean }) {
@@ -47,7 +47,7 @@ function ScheduleHeader({ showGrade = false }: { showGrade?: boolean }) {
   </tr></thead>;
 }
 
-function PeriodCells({ entries, day, gradeId, multiGrade = false, firstRow = false, breakRowSpan = 5 }: { entries: ScheduleRow[]; day: number; gradeId?: number; multiGrade?: boolean; firstRow?: boolean; breakRowSpan?: number }) {
+function PeriodCells({ entries, day, gradeId, multiGrade = false, firstRow = false, breakRowSpan = 5, shortNames = {} }: { entries: ScheduleRow[]; day: number; gradeId?: number; multiGrade?: boolean; firstRow?: boolean; breakRowSpan?: number; shortNames?: Record<string,string> }) {
   const cellFor = (period: number, gradeId?: number) => entries.find(row => row.entry.dayOfWeek === day && row.entry.period === period && (gradeId === undefined || row.entry.gradeId === gradeId));
   const cells: React.ReactNode[] = [];
   for (let period = 1; period <= 9;) {
@@ -57,7 +57,7 @@ function PeriodCells({ entries, day, gradeId, multiGrade = false, firstRow = fal
       while (period + span <= 9 && !breakAfter[period + span - 1] && sameLesson(current, cellFor(period + span, gradeId))) span += 1;
     }
     cells.push(<td key={`p${period}`} colSpan={span} className={`personal-time-subject-cell ${current ? "has-lesson" : "is-empty"}`}>
-      {current ? <><b>{subjectCode(current)}</b><span>{gradeLabel(current)}</span>{current.entry.room && <small>{current.entry.room}</small>}{multiGrade && current.staff?.teacherCode != null && <small className="personal-time-code">{String(current.staff.teacherCode).padStart(2, "0")}</small>}</> : <span className="personal-time-empty">—</span>}
+      {current ? <><b>{subjectCode(current, shortNames)}</b><span>{gradeLabel(current)}</span>{current.entry.room && <small>{current.entry.room}</small>}{multiGrade && current.staff?.teacherCode != null && <small className="personal-time-code">{String(current.staff.teacherCode).padStart(2, "0")}</small>}</> : <span className="personal-time-empty">—</span>}
     </td>);
     period += span;
     const breakInfo = breakAfter[period - 1];
@@ -68,13 +68,15 @@ function PeriodCells({ entries, day, gradeId, multiGrade = false, firstRow = fal
 
 function PersonalSchedule({ schoolName }: { schoolName: string }) {
   const personal = trpc.smis.timetable.personal.useQuery();
+  const settings = trpc.smis.settings.get.useQuery();
+  const shortNames = (settings.data?.subjectShortNames ?? {}) as Record<string,string>;
   const info = personal.data;
   const entries = useMemo(() => (info?.entries ?? []) as ScheduleRow[], [info?.entries]);
   return <div className="personal-timetable-paper">
     <div className="personal-timetable-title"><div className="personal-timetable-teacher">{info?.teacherName ?? "Your timetable"}{info?.teacherCode != null && <small>Teacher code {info.teacherCode}</small>}</div><div><p>{schoolName}</p><h2>PERSONAL TIMETABLE</h2></div><div className="personal-timetable-print-button"><button type="button" onClick={() => window.print()}><Printer size={14} />Print</button></div></div>
     {personal.isLoading ? <p className="py-8 text-center text-sm text-[#718077]">Loading your personal schedule…</p> : <div className="personal-timetable-scroll"><table className="personal-timetable-grid"><ScheduleHeader /><tbody>{weekDays.map((dayName, dayIndex) => <tr key={dayName}>
       <th className="personal-time-day">{dayName.slice(0, 3)}</th>
-      <PeriodCells entries={entries} day={dayIndex + 1} firstRow={dayIndex === 0} />
+      <PeriodCells entries={entries} day={dayIndex + 1} firstRow={dayIndex === 0} shortNames={shortNames} />
     </tr>)}</tbody></table></div>}
     {!personal.isLoading && entries.length === 0 && <p className="mt-2 text-center text-xs text-[#718077]">No lessons are assigned to your timetable yet. Once a master schedule is published for you, it will appear here.</p>}
     <div className="personal-timetable-date">Weekly timetable · Printed {new Date().toLocaleDateString("en-KE")}</div>
@@ -83,6 +85,8 @@ function PersonalSchedule({ schoolName }: { schoolName: string }) {
 
 function MasterSchedule({ schoolName, onOpenMaster }: { schoolName: string; onOpenMaster: () => void }) {
   const master = trpc.smis.timetable.masterList.useQuery();
+  const settings = trpc.smis.settings.get.useQuery();
+  const shortNames = (settings.data?.subjectShortNames ?? {}) as Record<string,string>;
   const entries = useMemo(() => (master.data ?? []) as ScheduleRow[], [master.data]);
   const gradeRows: Array<{ level: number; gradeId: number | null; label: string }> = [];
   for (const level of [7, 8, 9]) {
@@ -95,7 +99,7 @@ function MasterSchedule({ schoolName, onOpenMaster }: { schoolName: string; onOp
     {master.isLoading ? <p className="py-8 text-center text-sm text-[#718077]">Loading master timetable…</p> : <div className="personal-timetable-scroll"><table className="personal-timetable-grid master-time-grid"><ScheduleHeader showGrade /><tbody>{weekDays.map((dayName, dayIndex) => gradeRows.map((grade, gradeIndex) => <tr key={`${dayName}-${grade.gradeId ?? grade.level}`}>
       {gradeIndex === 0 && <th rowSpan={gradeRows.length} className="personal-time-day">{dayName.slice(0, 3)}</th>}
       <th className="personal-time-day">{grade.label}</th>
-      <PeriodCells entries={entries} day={dayIndex + 1} gradeId={grade.gradeId ?? undefined} multiGrade breakRowSpan={gradeRows.length} firstRow={gradeIndex === 0} />
+      <PeriodCells entries={entries} day={dayIndex + 1} gradeId={grade.gradeId ?? undefined} multiGrade breakRowSpan={gradeRows.length} firstRow={gradeIndex === 0} shortNames={shortNames} />
     </tr>))}</tbody></table></div>}
     {!master.isLoading && entries.length === 0 && <p className="mt-2 text-center text-xs text-[#718077]">No master timetable entries are available yet.</p>}
     <div className="mt-2 flex justify-end print:hidden"><button type="button" onClick={onOpenMaster} className="text-xs font-bold text-[#1d6a57] underline underline-offset-4">Open timetable generator</button></div>

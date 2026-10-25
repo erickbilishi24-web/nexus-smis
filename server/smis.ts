@@ -109,7 +109,11 @@ export async function getSettings(schoolId?: number | null) {
   const row = (schoolId == null
     ? await db.select().from(schoolSettings).limit(1)
     : await db.select().from(schoolSettings).where(eq(schoolSettings.schoolId, schoolId)).limit(1))[0];
-  return row ?? { id: 0, schoolName: "Ebunangwe Junior School", motto: "Learn. Lead. Serve.", currentTerm: "Term 2", academicYear: 2026, includeFeesOnReportCard: 1, showPercentagesOnReportCard: 0, logoPath: null, principalSignaturePath: null, classTeacherSignaturePath: null };
+  const defaults = { id: 0, schoolName: "Ebunangwe Junior School", motto: "Learn. Lead. Serve.", currentTerm: "Term 2", academicYear: 2026, includeFeesOnReportCard: 1, showPercentagesOnReportCard: 0, logoPath: null, principalSignaturePath: null, classTeacherSignaturePath: null, subjectShortNames: {} };
+  if (!row) return defaults;
+  let subjectShortNames: Record<string, string> = {};
+  try { subjectShortNames = row.subjectShortNames ? JSON.parse(row.subjectShortNames) : {}; } catch { subjectShortNames = {}; }
+  return { ...row, subjectShortNames };
 }
 
 export async function getDashboardSnapshot(userId?: number, accountRole?: string) {
@@ -1277,10 +1281,10 @@ export async function deleteTeacherAllocation(id: number, userId: number) {
   return { ok: true };
 }
 
-export async function saveSettings(input: { schoolName: string; motto?: string | null; currentTerm: string; academicYear: number; includeFeesOnReportCard: boolean; showPercentagesOnReportCard?: boolean }, userId: number) {
+export async function saveSettings(input: { schoolName: string; motto?: string | null; currentTerm: string; academicYear: number; includeFeesOnReportCard: boolean; showPercentagesOnReportCard?: boolean; subjectShortNames?: Record<string, string> }, userId: number) {
   const db = await requireDb();
   const current = (await db.select().from(schoolSettings).limit(1))[0];
-  const values = { ...input, includeFeesOnReportCard: input.includeFeesOnReportCard ? 1 : 0, showPercentagesOnReportCard: input.showPercentagesOnReportCard ? 1 : 0 };
+  const { subjectShortNames, ...profileInput } = input; const values = { ...profileInput, includeFeesOnReportCard: input.includeFeesOnReportCard ? 1 : 0, showPercentagesOnReportCard: input.showPercentagesOnReportCard ? 1 : 0, subjectShortNames: JSON.stringify(subjectShortNames ?? {}) };
   if (current) await db.update(schoolSettings).set(values).where(eq(schoolSettings.id, current.id));
   else await db.insert(schoolSettings).values(values);
   await writeAudit(userId, "settings.update", "school_settings", current?.id ?? null, values);
