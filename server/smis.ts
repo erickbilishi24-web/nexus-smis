@@ -847,6 +847,22 @@ export async function updateStaff(input: { staffProfileId: number; displayName: 
   return { ok: true };
 }
 
+export async function restoreStaffProfile(input: { staffProfileId: number }, userId: number) {
+  const db = await requireDb();
+  const schoolId = await actorSchoolId(userId);
+  const actor = (await db.select({ user: users, staff: staffProfiles }).from(users).leftJoin(staffProfiles, eq(staffProfiles.userId, users.id)).where(eq(users.id, userId)).limit(1))[0];
+  if (actor?.user.role !== "admin" && actor?.staff?.role !== "super_admin") throw new Error("SUPER_ADMIN_REQUIRED");
+  const target = (await db.select({ profile: staffProfiles, user: users }).from(staffProfiles).innerJoin(users, eq(users.id, staffProfiles.userId)).where(and(eq(staffProfiles.id, input.staffProfileId), eq(staffProfiles.schoolId, schoolId), eq(users.schoolId, schoolId))).limit(1))[0];
+  if (!target) throw new Error("STAFF_NOT_FOUND");
+  if (target.profile.status === "active" && target.user.accountStatus === "active") throw new Error("STAFF_ALREADY_ACTIVE");
+  await db.transaction(async tx => {
+    await tx.update(staffProfiles).set({ status: "active" }).where(and(eq(staffProfiles.id, input.staffProfileId), eq(staffProfiles.schoolId, schoolId)));
+    await tx.update(users).set({ accountStatus: "active" }).where(and(eq(users.id, target.user.id), eq(users.schoolId, schoolId)));
+    await tx.insert(auditLogs).values({ schoolId, userId, action: "staff.restore", entityType: "staff_profile", entityId: String(input.staffProfileId), metadata: JSON.stringify({ restoredUserId: target.user.id, displayName: target.profile.displayName }) });
+  });
+  return { ok: true, displayName: target.profile.displayName };
+}
+
 export async function setStaffStatus(input: { staffProfileId: number; status: PeopleStaffStatus }, userId: number) {
   const db = await requireDb();
   const schoolId = await actorSchoolId(userId);
