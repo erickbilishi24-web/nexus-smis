@@ -595,22 +595,22 @@ export async function getPersonalTimetable(userId: number) {
 
 export async function listTeacherCodes() {
   const db = await requireDb();
-  const rows = await db.select({ profile: staffProfiles, user: users }).from(staffProfiles).leftJoin(users, eq(users.id, staffProfiles.userId)).orderBy(staffProfiles.createdAt, staffProfiles.id);
-  const used = new Set(rows.map(row => row.profile.teacherCode).filter((code): code is number => code !== null));
-  let next = 1;
-  for (const row of rows) { if (row.profile.teacherCode === null) { while (used.has(next)) next += 1; await db.update(staffProfiles).set({ teacherCode: next }).where(eq(staffProfiles.id, row.profile.id)); row.profile.teacherCode = next; used.add(next); next += 1; } }
-  return rows;
+  return db.select({ profile: staffProfiles, user: users }).from(staffProfiles).leftJoin(users, eq(users.id, staffProfiles.userId)).orderBy(staffProfiles.createdAt, staffProfiles.id);
 }
 
 export async function updateTeacherCode(input: { staffProfileId: number; teacherCode: number }, userId: number) {
   const db = await requireDb();
-  const current = (await db.select().from(staffProfiles).where(eq(staffProfiles.id, input.staffProfileId)).limit(1))[0];
+  const schoolId = await actorSchoolId(userId);
+  const current = (await db.select().from(staffProfiles).where(and(eq(staffProfiles.id, input.staffProfileId), eq(staffProfiles.schoolId, schoolId))).limit(1))[0];
   if (!current) throw new Error("TEACHER_NOT_FOUND");
-  const other = (await db.select().from(staffProfiles).where(eq(staffProfiles.teacherCode, input.teacherCode)).limit(1))[0];
-  if (other && other.id !== input.staffProfileId) throw new Error("TEACHER_CODE_ALREADY_IN_USE");
-  await db.update(staffProfiles).set({ teacherCode: input.teacherCode }).where(eq(staffProfiles.id, input.staffProfileId));
-  await writeAudit(userId, "timetable.teacher_code.update", "staff_profile", input.staffProfileId, input);
-  return { ok: true };
+  const other = (await db.select().from(staffProfiles).where(and(eq(staffProfiles.teacherCode, input.teacherCode), eq(staffProfiles.schoolId, schoolId))).limit(1))[0];
+  if (other && other.id !== input.staffProfileId) {
+    await db.update(staffProfiles).set({ teacherCode: null }).where(eq(staffProfiles.id, other.id));
+    await writeAudit(userId, "timetable.teacher_code.cleared", "staff_profile", other.id, { replacedByStaffProfileId: input.staffProfileId, previousCode: input.teacherCode });
+  }
+  await db.update(staffProfiles).set({ teacherCode: input.teacherCode }).where(and(eq(staffProfiles.id, input.staffProfileId), eq(staffProfiles.schoolId, schoolId)));
+  await writeAudit(userId, "timetable.teacher_code.update", "staff_profile", input.staffProfileId, { ...input, replacedStaffProfileId: other?.id ?? null });
+  return { ok: true, replacedStaffProfileId: other?.id ?? null };
 }
 
 export function timetableConflicts(entries: Array<{ dayOfWeek: number; period: number; gradeId: number; teacherUserId: number; room?: string | null }>) {
@@ -801,7 +801,11 @@ export async function createStaff(input: { displayName: string; title?: string |
   if (!displayName) throw new Error("STAFF_NAME_REQUIRED");
   const code = input.teacherCode ?? await nextStaffCode();
   if (code < 1 || code > 999) throw new Error("INVALID_TEACHER_CODE");
-  if ((await db.select({ id: staffProfiles.id }).from(staffProfiles).where(eq(staffProfiles.teacherCode, code)).limit(1)).length) throw new Error("TEACHER_CODE_ALREADY_IN_USE");
+  const existingCodeOwner = (await db.select({ id: staffProfiles.id }).from(staffProfiles).where(and(eq(staffProfiles.teacherCode, code), eq(staffProfiles.schoolId, schoolId))).limit(1))[0];
+  if (existingCodeOwner) {
+    await db.update(staffProfiles).set({ teacherCode: null }).where(eq(staffProfiles.id, existingCodeOwner.id));
+    await writeAudit(userId, "staff.teacher_code.cleared", "staff_profile", existingCodeOwner.id, { previousCode: code, reassignedToNewStaff: displayName });
+  }
   const base = staffUsername(displayName);
   let username = base; let suffix = 2;
   while ((await db.select({ id: users.id }).from(users).where(eq(users.username, username)).limit(1)).length) username = `${base}.${suffix++}`;
@@ -831,8 +835,11 @@ export async function updateStaff(input: { staffProfileId: number; displayName: 
   const displayName = input.displayName.trim(); if (!displayName) throw new Error("STAFF_NAME_REQUIRED");
   if (input.teacherCode != null) {
     if (input.teacherCode < 1 || input.teacherCode > 999) throw new Error("INVALID_TEACHER_CODE");
-    const other = (await db.select({ id: staffProfiles.id }).from(staffProfiles).where(eq(staffProfiles.teacherCode, input.teacherCode)).limit(1))[0];
-    if (other && other.id !== input.staffProfileId) throw new Error("TEACHER_CODE_ALREADY_IN_USE");
+    const other = (await db.select({ id: staffProfiles.id }).from(staffProfiles).where(and(eq(staffProfiles.teacherCode, input.teacherCode), eq(staffProfiles.schoolId, schoolId))).limit(1))[0];
+    if (other && other.id !== input.staffProfileId) {
+      await db.update(staffProfiles).set({ teacherCode: null }).where(and(eq(staffProfiles.id, other.id), eq(staffProfiles.schoolId, schoolId)));
+      await writeAudit(userId, "staff.teacher_code.cleared", "staff_profile", other.id, { replacedByStaffProfileId: input.staffProfileId, previousCode: input.teacherCode });
+    }
   }
   await db.update(staffProfiles).set({ displayName, teacherCode: input.teacherCode ?? current.teacherCode, title: input.title?.trim() || null, designation: input.designation?.trim() || null, email: input.email?.trim() || null, phone: input.phone?.trim() || null, role: input.role, status: input.status === "active" ? "active" : "disabled" }).where(eq(staffProfiles.id, input.staffProfileId));
   if (input.assignedGradeId) {
