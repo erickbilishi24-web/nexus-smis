@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, inArray, like, lte, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, like, lte, ne, or, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db";
 import { computePermissions } from "./access";
@@ -1232,14 +1232,24 @@ export async function assignClassTeacher(input: { teacherUserId: number; gradeId
   const teacher = (await db.select({ userId: staffProfiles.userId, role: staffProfiles.role, status: staffProfiles.status, schoolId: staffProfiles.schoolId }).from(staffProfiles).where(eq(staffProfiles.userId, input.teacherUserId)).limit(1))[0];
   const grade = (await db.select().from(grades).where(eq(grades.id, input.gradeId)).limit(1))[0];
   if (!teacher || !grade || (schoolId != null && (teacher.schoolId !== schoolId || grade.schoolId !== schoolId))) throw new Error("ALLOCATION_CONTEXT_NOT_FOUND");
-  if (teacher.status !== "active" || teacher.role !== "class_teacher") throw new Error("CLASS_TEACHER_REQUIRED");
-  if (grade.classTeacherUserId && grade.classTeacherUserId !== input.teacherUserId) throw new Error("CLASS_TEACHER_CONFLICT");
-  const otherClass = (await db.select({ gradeId: grades.id }).from(grades).where(and(eq(grades.classTeacherUserId, input.teacherUserId), schoolId == null ? undefined : eq(grades.schoolId, schoolId))).limit(1))[0];
-  if (otherClass && otherClass.gradeId !== input.gradeId) throw new Error("TEACHER_ALREADY_ASSIGNED_TO_CLASS");
-  await saveTeacherAllocation({ teacherUserId: input.teacherUserId, gradeId: input.gradeId, subjectId: 0, academicYear: input.academicYear, term: input.term, allocationType: "class_teacher" }, userId);
-  await db.update(grades).set({ classTeacherUserId: input.teacherUserId }).where(eq(grades.id, input.gradeId));
-  await writeAudit(userId, "class_teacher.assign", "grade", input.gradeId, input);
-  return { ok: true, gradeId: input.gradeId, teacherUserId: input.teacherUserId };
+  if (teacher.status !== "active") throw new Error("ACTIVE_TEACHER_REQUIRED");
+  const previousHolder = grade.classTeacherUserId && grade.classTeacherUserId !== input.teacherUserId ? grade.classTeacherUserId : null;
+  await db.transaction(async tx => {
+    // A teacher may be responsible for one class at a time. Selecting them here moves the assignment cleanly.
+    const otherGrades = await tx.select({ id: grades.id }).from(grades).where(and(eq(grades.classTeacherUserId, input.teacherUserId), ne(grades.id, input.gradeId), schoolId == null ? undefined : eq(grades.schoolId, schoolId)));
+    for (const other of otherGrades) {
+      await tx.update(grades).set({ classTeacherUserId: null }).where(eq(grades.id, other.id));
+      await tx.update(teacherAllocations).set({ status: "inactive" }).where(and(eq(teacherAllocations.gradeId, other.id), eq(teacherAllocations.teacherUserId, input.teacherUserId), eq(teacherAllocations.allocationType, "class_teacher"), eq(teacherAllocations.status, "active")));
+    }
+    await tx.update(teacherAllocations).set({ status: "inactive", replacedByUserId: input.teacherUserId }).where(and(eq(teacherAllocations.gradeId, input.gradeId), eq(teacherAllocations.academicYear, input.academicYear), eq(teacherAllocations.term, input.term), eq(teacherAllocations.allocationType, "class_teacher"), eq(teacherAllocations.status, "active")));
+    const existing = (await tx.select({ id: teacherAllocations.id }).from(teacherAllocations).where(and(eq(teacherAllocations.teacherUserId, input.teacherUserId), eq(teacherAllocations.gradeId, input.gradeId), eq(teacherAllocations.academicYear, input.academicYear), eq(teacherAllocations.term, input.term), eq(teacherAllocations.allocationType, "class_teacher"))).limit(1))[0];
+    if (existing) await tx.update(teacherAllocations).set({ status: "active", replacedByUserId: null, schoolId }).where(eq(teacherAllocations.id, existing.id));
+    else await tx.insert(teacherAllocations).values({ schoolId, teacherUserId: input.teacherUserId, gradeId: input.gradeId, subjectId: 0, academicYear: input.academicYear, term: input.term, allocationType: "class_teacher", status: "active" });
+    await tx.update(grades).set({ classTeacherUserId: input.teacherUserId }).where(and(eq(grades.id, input.gradeId), schoolId == null ? undefined : eq(grades.schoolId, schoolId)));
+    await tx.update(staffProfiles).set({ role: "class_teacher" }).where(and(eq(staffProfiles.userId, input.teacherUserId), schoolId == null ? undefined : eq(staffProfiles.schoolId, schoolId)));
+  });
+  await writeAudit(userId, previousHolder ? "class_teacher.replace" : "class_teacher.assign", "grade", input.gradeId, { ...input, previousHolder });
+  return { ok: true, gradeId: input.gradeId, teacherUserId: input.teacherUserId, replacedTeacherUserId: previousHolder };
 }
 
 export async function changeTeacherAllocationStatus(input: { allocationId: number; status: AllocationStatus | "active"; replacedByUserId?: number | null }, userId: number) {
