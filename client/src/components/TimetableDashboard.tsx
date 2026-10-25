@@ -34,7 +34,7 @@ const sameLesson = (left?: ScheduleRow, right?: ScheduleRow) => !!left && !!righ
   && left.entry.subjectId === right.entry.subjectId
   && left.entry.teacherUserId === right.entry.teacherUserId
   && left.entry.room === right.entry.room;
-const subjectCode = (row?: ScheduleRow) => row?.subject?.code || row?.subject?.name?.slice(0, 4).toUpperCase() || "";
+const subjectCode = (row?: ScheduleRow) => { const raw = (row?.subject?.code || row?.subject?.name || "").replace(/^CBC[-_\s]*/i, "").trim(); const key = raw.toLowerCase().replace(/[-_]/g, " ").replace(/\s+/g, " "); const aliases: Record<string,string> = { kiswahili: "KISW", english: "ENG", mathematics: "MAT", "integrated science": "INT SCI", "social studies": "SST", "religious education": "CRE", "creative arts": "C ART", agriculture: "AGRI", "pre technical studies": "PRE TECH", "life skills education": "LIFE SKILLS", "health education": "HEALTH" }; return aliases[key] || raw.toUpperCase().slice(0, 12); };
 const gradeLabel = (row?: ScheduleRow) => row?.grade ? `${row.grade.name}${row.grade.stream ? ` ${row.grade.stream}` : ""}` : "";
 
 function ScheduleHeader({ showGrade = false }: { showGrade?: boolean }) {
