@@ -1207,6 +1207,22 @@ export async function saveTeacherAllocation(input: { teacherUserId: number; grad
   return { ok: true, id: existing?.id ?? null };
 }
 
+export async function assignClassTeacher(input: { teacherUserId: number; gradeId: number; academicYear: number; term: string }, userId: number) {
+  const db = await requireDb();
+  const schoolId = await actorSchoolId(userId);
+  const teacher = (await db.select({ userId: staffProfiles.userId, role: staffProfiles.role, status: staffProfiles.status, schoolId: staffProfiles.schoolId }).from(staffProfiles).where(eq(staffProfiles.userId, input.teacherUserId)).limit(1))[0];
+  const grade = (await db.select().from(grades).where(eq(grades.id, input.gradeId)).limit(1))[0];
+  if (!teacher || !grade || (schoolId != null && (teacher.schoolId !== schoolId || grade.schoolId !== schoolId))) throw new Error("ALLOCATION_CONTEXT_NOT_FOUND");
+  if (teacher.status !== "active" || teacher.role !== "class_teacher") throw new Error("CLASS_TEACHER_REQUIRED");
+  if (grade.classTeacherUserId && grade.classTeacherUserId !== input.teacherUserId) throw new Error("CLASS_TEACHER_CONFLICT");
+  const otherClass = (await db.select({ gradeId: grades.id }).from(grades).where(and(eq(grades.classTeacherUserId, input.teacherUserId), schoolId == null ? undefined : eq(grades.schoolId, schoolId))).limit(1))[0];
+  if (otherClass && otherClass.gradeId !== input.gradeId) throw new Error("TEACHER_ALREADY_ASSIGNED_TO_CLASS");
+  await saveTeacherAllocation({ teacherUserId: input.teacherUserId, gradeId: input.gradeId, subjectId: 0, academicYear: input.academicYear, term: input.term, allocationType: "class_teacher" }, userId);
+  await db.update(grades).set({ classTeacherUserId: input.teacherUserId }).where(eq(grades.id, input.gradeId));
+  await writeAudit(userId, "class_teacher.assign", "grade", input.gradeId, input);
+  return { ok: true, gradeId: input.gradeId, teacherUserId: input.teacherUserId };
+}
+
 export async function changeTeacherAllocationStatus(input: { allocationId: number; status: AllocationStatus | "active"; replacedByUserId?: number | null }, userId: number) {
   const db = await requireDb();
   const current = (await db.select().from(teacherAllocations).where(eq(teacherAllocations.id, input.allocationId)).limit(1))[0];

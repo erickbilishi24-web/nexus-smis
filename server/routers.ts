@@ -42,6 +42,7 @@ import {
   listAcademicCatalog,
   canManageSchoolLevels,
   saveTeacherAllocation,
+  assignClassTeacher,
   changeTeacherAllocationStatus,
   deleteTeacherAllocation,
   listAssessments,
@@ -315,6 +316,7 @@ export const appRouter = router({
       generate: masterTimetableProcedure.input(z.object({ entries: z.array(z.object({ gradeId: z.number().int().positive(), subjectId: z.number().int().positive(), teacherUserId: z.number().int().positive(), dayOfWeek: z.number().int().min(1).max(7), period: z.number().int().positive(), room: z.string().max(80).nullable().optional() })) })).mutation(({ input, ctx }) => generateTimetable(input.entries, currentUserId(ctx.user))),
       requirements: masterTimetableProcedure.input(z.object({ academicYear: z.number().int().optional() }).optional()).query(({ input }) => listTimetableRequirements(input?.academicYear)),
       setRequirement: masterTimetableProcedure.input(z.object({ gradeId: z.number().int().positive(), subjectId: z.number().int().positive(), academicYear: z.number().int().min(2000).max(2100), periodsPerWeek: z.number().int().min(0).max(40) })).mutation(({ input, ctx }) => setTimetableRequirement(input, currentUserId(ctx.user))),
+      assignClassTeacher: permissionProcedure("allocations.create").input(z.object({ teacherUserId: z.number().int().positive(), gradeId: z.number().int().positive(), academicYear: z.number().int().min(2000).max(2100), term: z.string().min(2).max(40) })).mutation(({ input, ctx }) => assignClassTeacher(input, currentUserId(ctx.user))),
       generateAutomatic: masterTimetableProcedure.input(z.object({ academicYear: z.number().int().min(2000).max(2100).optional(), regenerate: z.boolean(), days: z.number().int().min(1).max(7).optional(), periodsPerDay: z.number().int().min(1).max(12).optional(), classLessonTotals: z.array(z.object({ gradeId: z.number().int().positive(), totalLessonsPerWeek: z.number().int().min(0).max(200) })).optional() })).mutation(({ input, ctx }) => generateAutomaticTimetable(input, currentUserId(ctx.user))),
     }),
     communication: router({
