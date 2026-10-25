@@ -126,7 +126,7 @@ function UserDialog({ mode, row, catalog, isSuper, onClose, onLink }: { mode: "c
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const base = { fullName: f.fullName, username: f.username, staffId: f.staffId, department: f.department || null, email: f.email, phone: f.phone || null };
-    if (mode === "edit" && row) update.mutate({ userId: row.userId, ...base });
+    if (mode === "edit" && row) update.mutate({ userId: row.userId, ...base, password: isSuper && f.password.trim() ? f.password : null });
     else create.mutate({ ...base, schoolId: isSuper ? f.schoolId : undefined, role: f.role, classGradeId: teaching && f.classGradeId ? f.classGradeId : null, subjectAllocations: teaching ? f.subjects : [], status: f.status, password: mode === "create" && isSuper && f.password ? f.password : null });
   };
   return <Dialog open={!!mode} onOpenChange={o => !o && onClose()}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
@@ -134,7 +134,7 @@ function UserDialog({ mode, row, catalog, isSuper, onClose, onLink }: { mode: "c
     <form onSubmit={submit} className="grid gap-3 sm:grid-cols-2">
       <div className="sm:col-span-2"><label className={label}>Full name</label><Input required value={f.fullName} onChange={e => set("fullName", e.target.value)} className="mt-1" /></div>
       <div><label className={label}>Username</label><Input required value={f.username} onChange={e => set("username", e.target.value.toLowerCase())} className="mt-1" autoComplete="off" /></div>
-      {mode === "create" && isSuper && <div><label className={label}>Initial password</label><Input required minLength={10} type="password" value={f.password} onChange={e => set("password", e.target.value)} placeholder="At least 10 characters with letters and numbers" autoComplete="new-password" className="mt-1" /></div>}
+      {isSuper && <div><label className={label}>{mode === "create" ? "Initial password" : "New password (optional)"}</label><Input required={mode === "create"} minLength={10} type="password" value={f.password} onChange={e => set("password", e.target.value)} placeholder={mode === "create" ? "At least 10 characters with letters and numbers" : "Leave blank to keep the current password"} autoComplete="new-password" className="mt-1" /></div>}
       <div><label className={label}>Staff / Employee ID</label><Input required value={f.staffId} onChange={e => set("staffId", e.target.value)} className="mt-1" /></div>
       <div><label className={label}>Department</label><Input list="departments" value={f.department} onChange={e => set("department", e.target.value)} className="mt-1" /><datalist id="departments">{catalog.departments.map(d => <option key={d} value={d} />)}</datalist></div>
       <div><label className={label}>Email</label><Input type="email" value={f.email} onChange={e => set("email", e.target.value)} className="mt-1" /></div>

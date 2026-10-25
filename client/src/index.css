@@ -100,7 +100,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgb(29 106 87 / 2
 .overflow-x-auto::-webkit-scrollbar-thumb { background: #a9c7b9; border-radius: 999px; }
 [role="tablist"] { scrollbar-width: none; }
 [role="tablist"]::-webkit-scrollbar { display: none; }
-@media (max-width: 767px) {
+@media (max-width: 1535px) {
   .shell > main > .mx-auto { padding-top: 1rem; padding-bottom: 2rem; }
   [role="tablist"] { flex-wrap: nowrap !important; overflow-x: auto; padding-bottom: .15rem; }
   [role="tablist"] > button { flex: 0 0 auto; min-height: 2.75rem; white-space: nowrap; }

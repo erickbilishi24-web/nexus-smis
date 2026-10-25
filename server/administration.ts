@@ -241,20 +241,22 @@ export async function createAdminUser(input: CreateUserInput, actor: Actor, req?
 
 /* --------------------------------------------------------------------- Edit */
 
-export async function updateAdminUser(input: { userId: number; fullName: string; username: string; staffId: string; department?: string | null; email?: string | null; phone?: string | null }, actor: Actor, req?: Request) {
+export async function updateAdminUser(input: { userId: number; fullName: string; username: string; staffId: string; department?: string | null; email?: string | null; phone?: string | null; password?: string | null }, actor: Actor, req?: Request) {
   const db = await requireDb();
   await assertCanManage(actor, input.userId);
   const username = input.username.trim().toLowerCase(); if (!USERNAME_RE.test(username)) fail("USERNAME_INVALID");
   const fullName = input.fullName.trim(); if (!fullName) fail("NAME_REQUIRED");
   const staffId = input.staffId.trim(); if (!staffId) fail("STAFF_ID_REQUIRED");
   await assertUnique({ username, staffId }, input.userId);
+  if (input.password) assertStrongPassword(input.password);
   const before = (await listAdminUsers()).find(u => u.userId === input.userId)!;
   const email = input.email?.trim().toLowerCase() || null;
-  await db.update(users).set({ username, name: fullName, email }).where(eq(users.id, input.userId));
+  await db.update(users).set({ username, name: fullName, email, ...(input.password ? { passwordHash: await bcrypt.hash(input.password, 12), mustChangePassword: 1, accountStatus: "active", accountLocked: 0, failedLoginAttempts: 0 } : {}) }).where(eq(users.id, input.userId));
+  if (input.password) await db.update(iamSessions).set({ status: "revoked", logoutAt: new Date() }).where(and(eq(iamSessions.userId, input.userId), eq(iamSessions.status, "active")));
   const values = { displayName: fullName, staffId, department: input.department?.trim() || null, email, phone: input.phone?.trim() || null };
   if (before.staffProfileId) await db.update(staffProfiles).set(values).where(eq(staffProfiles.userId, input.userId));
   else await db.insert(staffProfiles).values({ ...values, userId: input.userId, teacherCode: await nextTeacherCode(), role: before.role, status: "active" });
-  const changed = Object.fromEntries(Object.entries({ fullName, username, staffId, department: values.department, email }).filter(([k, v]) => (before as any)[k] !== v).map(([k, v]) => [k, { from: (before as any)[k] ?? null, to: v }]));
+  const changed = Object.fromEntries(Object.entries({ fullName, username, staffId, department: values.department, email, password: input.password ? { changed: true, sessionsRevoked: true } : undefined }).filter(([k, v]) => (before as any)[k] !== v).map(([k, v]) => [k, { from: (before as any)[k] ?? null, to: v }]));
   await audit(actor.id, "admin.user.update", input.userId, { changed }, req);
   return { ok: true };
 }
