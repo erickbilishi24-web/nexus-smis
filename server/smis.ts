@@ -662,9 +662,11 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
   if (input.regenerate) await db.delete(timetableEntries);
   const requirements = await db.select({ requirement: timetableRequirements, grade: grades, subject: subjects }).from(timetableRequirements).innerJoin(grades, eq(grades.id, timetableRequirements.gradeId)).innerJoin(subjects, eq(subjects.id, timetableRequirements.subjectId)).where(eq(timetableRequirements.academicYear, academicYear));
   for (const requested of input.classLessonTotals ?? []) {
-    const configured = requirements.filter(row => row.requirement.gradeId === requested.gradeId).reduce((sum, row) => sum + row.requirement.periodsPerWeek, 0);
+    const classRequirements = requirements.filter(row => row.requirement.gradeId === requested.gradeId);
+    const configured = classRequirements.reduce((sum, row) => sum + row.requirement.periodsPerWeek, 0);
     if (requested.totalLessonsPerWeek < configured) throw new Error("No. of lessons not complete");
     if (requested.totalLessonsPerWeek > configured) throw new Error("No. of lessons is Excess");
+    if (classRequirements.some(row => row.requirement.periodsPerWeek > days)) throw new Error("A subject cannot appear more than once per day");
   }
   const allocations = await db.select().from(teacherAllocations).where(and(eq(teacherAllocations.academicYear, academicYear), eq(teacherAllocations.status, "active")));
   const eligibleByGradeSubject = new Map<string, number[]>();
@@ -687,7 +689,11 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
     }
     if (missing > 0) unplaced.push({ grade: row.grade.name, subject: `${row.subject.name}${mustBeBeforeLunch ? " (pre-lunch constraint)" : ""}`, missing });
   }
-  await writeAudit(userId, "timetable.generate.automatic", "timetable", null, { academicYear, placed, unplaced, regenerate: input.regenerate });
+  const generatedRows = await db.select().from(timetableEntries);
+  const duplicateSubjectDays = generatedRows.reduce((set, entry) => { const key = `${entry.gradeId}:${entry.subjectId}:${entry.dayOfWeek}`; if (set.has(key)) set.add(`DUPLICATE:${key}`); else set.add(key); return set; }, new Set<string>());
+  const duplicateCount = Array.from(duplicateSubjectDays).filter(key => key.startsWith("DUPLICATE:")).length;
+  if (duplicateCount) throw new Error("TIMETABLE_SUBJECT_DUPLICATE_DAY");
+  await writeAudit(userId, "timetable.generate.automatic", "timetable", null, { academicYear, placed, unplaced, duplicateCount, regenerate: input.regenerate });
   return { placed, unplaced, regenerated: input.regenerate, requirements: requirements.length, slots: days * periodsPerDay };
 }
 
@@ -860,18 +866,15 @@ export async function deleteStaffProfile(input: { staffProfileId: number }, user
   if (!current) throw new Error("STAFF_NOT_FOUND");
   if (current.user.id === userId) throw new Error("CANNOT_DELETE_CURRENT_ACCOUNT");
   if (current.profile.role === "super_admin") throw new Error("CANNOT_DELETE_PLATFORM_SUPER_ADMIN");
-  const [assessmentRows, markRows] = await Promise.all([
-    db.select({ id: assessments.id }).from(assessments).where(eq(assessments.teacherUserId, current.user.id)).limit(1),
-    db.select({ id: marks.id }).from(marks).where(eq(marks.teacherUserId, current.user.id)).limit(1),
-  ]);
-  if (assessmentRows.length || markRows.length) throw new Error("STAFF_HAS_HISTORICAL_RECORDS_USE_DEACTIVATE");
+  // Historical assessments and marks deliberately remain linked to the user id. Only the live
+  // staff profile, active allocations, timetable entries and class-teacher link are removed.
   await db.transaction(async tx => {
     await tx.insert(auditLogs).values({ schoolId, userId, action: "staff.delete", entityType: "staff_profile", entityId: String(input.staffProfileId), metadata: JSON.stringify({ userId: current.user.id, displayName: current.profile.displayName, liveLinksRemoved: ["teacher_allocations", "timetable_entries", "class_teacher_assignment"], historicalRecordsRetained: true }) });
     await tx.delete(timetableEntries).where(eq(timetableEntries.teacherUserId, current.user.id));
     await tx.delete(teacherAllocations).where(eq(teacherAllocations.teacherUserId, current.user.id));
     await tx.update(grades).set({ classTeacherUserId: null }).where(and(eq(grades.classTeacherUserId, current.user.id), eq(grades.schoolId, schoolId)));
     await tx.delete(staffProfiles).where(and(eq(staffProfiles.id, input.staffProfileId), eq(staffProfiles.schoolId, schoolId)));
-    await tx.update(users).set({ accountStatus: "disabled", name: null }).where(and(eq(users.id, current.user.id), eq(users.schoolId, schoolId)));
+    await tx.update(users).set({ accountStatus: "disabled" }).where(and(eq(users.id, current.user.id), eq(users.schoolId, schoolId)));
   });
   return { ok: true };
 }
