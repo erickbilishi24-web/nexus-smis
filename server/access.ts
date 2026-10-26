@@ -14,11 +14,11 @@ export const MANAGE_PERMISSIONS = "administration.manage_permissions";
 export const MATRIX_KEYS: string[] = [...MODULES.flatMap(([module]) => ACTIONS.map(action => `${module}.${action}`)), MANAGE_PERMISSIONS];
 
 export const ROLE_LABELS: Record<string, string> = {
-  super_admin: "Super Administrator", admin: "Administrator", head_teacher: "Administrator", deputy_head: "Administrator",
-  teacher: "Teacher", senior_teacher: "Teacher", class_teacher: "Class Teacher", exam_council: "Exam Council", finance: "Accounts Officer", storekeeper: "Support Staff", other: "Support Staff",
+  super_admin: "Super Administrator", admin: "Administrator", head_teacher: "Head of Department", deputy_head: "Deputy",
+  teacher: "Teacher", senior_teacher: "Senior Teacher", class_teacher: "Class Teacher", exam_council: "Exam Council", finance: "Accounts Officer", storekeeper: "Support Staff", other: "Support Staff",
 };
 /** Roles offered when creating or changing a user (stored in staff_profiles.role). */
-export const ASSIGNABLE_ROLES = ["super_admin", "admin", "teacher", "class_teacher", "exam_council", "finance", "other"] as const;
+export const ASSIGNABLE_ROLES = ["super_admin", "admin", "teacher", "senior_teacher", "class_teacher", "deputy_head", "head_teacher", "exam_council", "finance", "other"] as const;
 export type StaffRole = "super_admin" | "admin" | "teacher" | "class_teacher" | "exam_council" | "senior_teacher" | "deputy_head" | "head_teacher" | "finance" | "storekeeper" | "other";
 
 /** Collapses legacy staff roles to the permission role that carries their defaults. */

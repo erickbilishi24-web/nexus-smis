@@ -14,7 +14,7 @@ import type { AppRouter } from "../../../server/routers";
 type Out = inferRouterOutputs<AppRouter>["smis"]["administration"];
 type Row = Out["list"][number];
 type Catalog = Out["catalog"];
-type Role = "super_admin" | "admin" | "teacher" | "class_teacher" | "exam_council" | "finance" | "other";
+type Role = "super_admin" | "admin" | "teacher" | "senior_teacher" | "class_teacher" | "deputy_head" | "head_teacher" | "exam_council" | "finance" | "other";
 type Alloc = { gradeId: number; subjectId: number };
 
 const field = "mt-1 w-full rounded-lg border border-[#d8ddd4] bg-[#fffefa] px-3 py-2 text-sm text-[#28483f] outline-none focus:border-[#1d6a57]";

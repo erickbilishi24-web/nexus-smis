@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { permissionCatalog, permissionsByRole } from "./smis";
-import { rolesCanCreateAssessments, rolesCanViewWholeClassMarklist } from "./access";
+import { ASSIGNABLE_ROLES, ROLE_LABELS, permissionRole, rolesCanCreateAssessments, rolesCanViewWholeClassMarklist } from "./access";
 
 describe("NEXUS-SMIS permission model", () => {
   it("includes the critical granular permissions", () => {
@@ -41,5 +41,15 @@ describe("NEXUS-SMIS permission model", () => {
     expect(rolesCanCreateAssessments(["exam_council"])).toBe(false);
     expect(rolesCanCreateAssessments(["teacher", "exam_council"])).toBe(false);
     expect(rolesCanCreateAssessments(["admin"])).toBe(true);
+  });
+
+  it("exposes the requested leadership roles without changing their permission families", () => {
+    expect(ASSIGNABLE_ROLES).toEqual(expect.arrayContaining(["deputy_head", "senior_teacher", "head_teacher"]));
+    expect(ROLE_LABELS.deputy_head).toBe("Deputy");
+    expect(ROLE_LABELS.senior_teacher).toBe("Senior Teacher");
+    expect(ROLE_LABELS.head_teacher).toBe("Head of Department");
+    expect(permissionRole("deputy_head")).toBe("admin");
+    expect(permissionRole("senior_teacher")).toBe("teacher");
+    expect(permissionRole("head_teacher")).toBe("admin");
   });
 });
