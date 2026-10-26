@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allocationContextConflict, assertScore, unallocatedTimetableEntries, canAccessAttendanceGrade, canCaptureAttendance, cbcLevel, isAttendanceAdmin, resolveImportGrade, timetableConflicts } from "./smis";
+import { allocationContextConflict, assertScore, timetableEntriesAlignedWithAllocations, unallocatedTimetableEntries, canAccessAttendanceGrade, canCaptureAttendance, cbcLevel, isAttendanceAdmin, resolveImportGrade, timetableConflicts } from "./smis";
 
 describe("Kenyan SMIS backend rules", () => {
   it("maps the CBC eight-level scale correctly", () => {
@@ -52,6 +52,15 @@ describe("Kenyan SMIS backend rules", () => {
     const entries = [{ gradeId: 7, subjectId: 3, teacherUserId: 12 }, { gradeId: 7, subjectId: 4, teacherUserId: 12 }];
     const allocations = [{ gradeId: 7, subjectId: 3, teacherUserId: 12, status: "active", allocationType: "learning_area" }];
     expect(unallocatedTimetableEntries(entries, allocations)).toEqual([{ gradeId: 7, subjectId: 4, teacherUserId: 12 }]);
+  });
+
+  it("shows only timetable rows owned by the active subject allocation", () => {
+    const entries = [
+      { id: 1, schoolId: 1, gradeId: 8, subjectId: 1, teacherUserId: 1 },
+      { id: 2, schoolId: 1, gradeId: 8, subjectId: 1, teacherUserId: 42 },
+    ];
+    const allocations = [{ schoolId: 1, gradeId: 8, subjectId: 1, teacherUserId: 42, status: "active", allocationType: "learning_area" }];
+    expect(timetableEntriesAlignedWithAllocations(entries, allocations).map(entry => entry.id)).toEqual([2]);
   });
 
   it("resolves legacy combined learner class labels only when unambiguous", () => {
