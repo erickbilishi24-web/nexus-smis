@@ -181,9 +181,13 @@ function TimetableWorkspace() {
     rows.forEach(row => byClassSlot.set(`${row.entry.gradeId}:${row.entry.dayOfWeek}:${row.entry.period}`, row));
     const repeats: Array<{ grade: string; day: number; firstPeriod: number; secondPeriod: number; teacherUserId: number; teacherName: string }> = [];
     rows.forEach(row => {
-      const previous = byClassSlot.get(`${row.entry.gradeId}:${row.entry.dayOfWeek}:${row.entry.period - 1}`);
+      const currentSlotIndex = slots.findIndex(slot => slot.period === row.entry.period);
+      const previousSlot = currentSlotIndex > 0 ? slots[currentSlotIndex - 1] : undefined;
+      // A break/lunch/games slot is intentionally not a lesson, so it ends adjacency.
+      if (!previousSlot?.period) return;
+      const previous = byClassSlot.get(`${row.entry.gradeId}:${row.entry.dayOfWeek}:${previousSlot.period}`);
       if (previous && previous.entry.teacherUserId === row.entry.teacherUserId) {
-        repeats.push({ grade: `${row.grade?.name ?? "Grade"}${row.grade?.stream ? ` ${row.grade.stream}` : ""}`, day: row.entry.dayOfWeek, firstPeriod: row.entry.period - 1, secondPeriod: row.entry.period, teacherUserId: row.entry.teacherUserId, teacherName: row.staff?.displayName ?? `Teacher ${row.entry.teacherUserId}` });
+        repeats.push({ grade: `${row.grade?.name ?? "Grade"}${row.grade?.stream ? ` ${row.grade.stream}` : ""}`, day: row.entry.dayOfWeek, firstPeriod: previousSlot.period, secondPeriod: row.entry.period, teacherUserId: row.entry.teacherUserId, teacherName: row.staff?.displayName ?? `Teacher ${row.entry.teacherUserId}` });
       }
     });
     return repeats;
