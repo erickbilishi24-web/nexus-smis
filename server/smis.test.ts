@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allocationContextConflict, assertScore, timetableEntriesAlignedWithAllocations, unallocatedTimetableEntries, canAccessAttendanceGrade, canCaptureAttendance, cbcLevel, isAttendanceAdmin, resolveImportGrade, timetableConflicts } from "./smis";
+import { allocationContextConflict, assertScore, buildTimetableAuditRows, timetableEntriesAlignedWithAllocations, unallocatedTimetableEntries, canAccessAttendanceGrade, canCaptureAttendance, cbcLevel, isAttendanceAdmin, resolveImportGrade, timetableConflicts } from "./smis";
 
 describe("Kenyan SMIS backend rules", () => {
   it("maps the CBC eight-level scale correctly", () => {
@@ -61,6 +61,18 @@ describe("Kenyan SMIS backend rules", () => {
     ];
     const allocations = [{ schoolId: 1, gradeId: 8, subjectId: 1, teacherUserId: 42, status: "active", allocationType: "learning_area" }];
     expect(timetableEntriesAlignedWithAllocations(entries, allocations).map(entry => entry.id)).toEqual([2]);
+  });
+
+  it("reports missing teacher allocations separately from under-scheduled lessons", () => {
+    const requirements = [
+      { gradeId: 7, gradeName: "Grade 7", gradeStream: "Blue", subjectId: 2, subjectName: "English", subjectCode: "ENG", periodsPerWeek: 5 },
+      { gradeId: 7, gradeName: "Grade 7", gradeStream: "Blue", subjectId: 3, subjectName: "Mathematics", subjectCode: "MAT", periodsPerWeek: 5 },
+    ];
+    const allocations = [{ schoolId: 1, gradeId: 7, subjectId: 2, teacherUserId: 12, displayName: "Sarah Anupi", teacherCode: 4, status: "active", allocationType: "learning_area" }];
+    const entries = [{ id: 1, schoolId: 1, gradeId: 7, subjectId: 2, teacherUserId: 12 }];
+    const rows = buildTimetableAuditRows(requirements, allocations, entries);
+    expect(rows[0]).toMatchObject({ expectedLessons: 5, scheduledLessons: 1, unplacedLessons: 4, missingTeacherAllocation: false, status: "under_scheduled" });
+    expect(rows[1]).toMatchObject({ expectedLessons: 5, scheduledLessons: 0, unplacedLessons: 5, missingTeacherAllocation: true, status: "missing_teacher" });
   });
 
   it("resolves legacy combined learner class labels only when unambiguous", () => {

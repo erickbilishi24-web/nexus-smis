@@ -69,6 +69,7 @@ import {
   deleteStaffProfile,
   updateStaffRole,
   listTimetable,
+  listTimetableAudit,
   listTeacherCodes,
   listTimetableRequirements,
   recordPayment,
@@ -312,6 +313,7 @@ export const appRouter = router({
         if (!await canViewMasterTimetable(ctx.user.id, ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: "MASTER_TIMETABLE_SCOPE_FORBIDDEN" });
         return next();
       }).query(() => listTimetable()),
+      audit: masterTimetableProcedure.input(z.object({ academicYear: z.number().int().min(2000).max(2100).optional() }).optional()).query(({ input }) => listTimetableAudit(input?.academicYear)),
       teacherCodes: masterTimetableProcedure.query(() => listTeacherCodes()),
       updateTeacherCode: masterTimetableProcedure.input(z.object({ staffProfileId: z.number().int().positive(), teacherCode: z.number().int().min(1).max(999) })).mutation(({ input, ctx }) => updateTeacherCode(input, currentUserId(ctx.user))),
       generate: masterTimetableProcedure.input(z.object({ entries: z.array(z.object({ gradeId: z.number().int().positive(), subjectId: z.number().int().positive(), teacherUserId: z.number().int().positive(), dayOfWeek: z.number().int().min(1).max(7), period: z.number().int().positive(), room: z.string().max(80).nullable().optional() })) })).mutation(({ input, ctx }) => generateTimetable(input.entries, currentUserId(ctx.user))),

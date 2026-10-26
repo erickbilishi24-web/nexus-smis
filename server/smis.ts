@@ -566,6 +566,49 @@ export async function listTimetable() {
   return rows.filter(row => alignedIds.has(row.entry.id));
 }
 
+export type TimetableAuditRequirement = { gradeId: number; gradeName: string; gradeStream?: string | null; subjectId: number; subjectName: string; subjectCode?: string | null; periodsPerWeek: number };
+export type TimetableAuditAllocation = { schoolId?: number | null; gradeId: number; subjectId: number; teacherUserId: number; displayName?: string | null; teacherCode?: number | null; status: string; allocationType: string };
+export type TimetableAuditEntry = { id: number; schoolId?: number | null; gradeId: number; subjectId: number; teacherUserId: number };
+
+export function buildTimetableAuditRows(requirements: TimetableAuditRequirement[], allocations: TimetableAuditAllocation[], entries: TimetableAuditEntry[]) {
+  const activeAllocations = allocations.filter(allocation => allocation.status === "active" && allocation.allocationType !== "class_teacher");
+  const alignedEntries = timetableEntriesAlignedWithAllocations(entries, activeAllocations);
+  return requirements.map(requirement => {
+    const subjectAllocations = Array.from(new Map(activeAllocations.filter(allocation => allocation.gradeId === requirement.gradeId && allocation.subjectId === requirement.subjectId).map(allocation => [allocation.teacherUserId, allocation])).values());
+    const teacherIds = new Set(subjectAllocations.map(allocation => allocation.teacherUserId));
+    const scheduled = alignedEntries.filter(entry => entry.gradeId === requirement.gradeId && entry.subjectId === requirement.subjectId && teacherIds.has(entry.teacherUserId)).length;
+    const missing = Math.max(0, requirement.periodsPerWeek - scheduled);
+    return {
+      gradeId: requirement.gradeId,
+      gradeName: requirement.gradeName,
+      gradeStream: requirement.gradeStream ?? null,
+      subjectId: requirement.subjectId,
+      subjectName: requirement.subjectName,
+      subjectCode: requirement.subjectCode ?? null,
+      expectedLessons: requirement.periodsPerWeek,
+      scheduledLessons: scheduled,
+      unplacedLessons: missing,
+      missingTeacherAllocation: subjectAllocations.length === 0,
+      status: subjectAllocations.length === 0 ? "missing_teacher" : missing > 0 ? "under_scheduled" : scheduled > requirement.periodsPerWeek ? "over_scheduled" : "complete",
+      allocatedTeachers: subjectAllocations.map(allocation => ({ userId: allocation.teacherUserId, displayName: allocation.displayName ?? `User ${allocation.teacherUserId}`, teacherCode: allocation.teacherCode ?? null })),
+    };
+  });
+}
+
+export async function listTimetableAudit(academicYear?: number) {
+  const db = await requireDb();
+  const settings = await getSettings();
+  const year = academicYear ?? Number(settings.academicYear);
+  const requirementRows = await db.select({ requirement: timetableRequirements, grade: grades, subject: subjects }).from(timetableRequirements).innerJoin(grades, eq(grades.id, timetableRequirements.gradeId)).innerJoin(subjects, eq(subjects.id, timetableRequirements.subjectId)).where(and(eq(timetableRequirements.academicYear, year), sql`${timetableRequirements.periodsPerWeek} > 0`)).orderBy(grades.name, subjects.name);
+  const allocationRows = await db.select({ allocation: teacherAllocations, staff: staffProfiles }).from(teacherAllocations).leftJoin(staffProfiles, eq(staffProfiles.userId, teacherAllocations.teacherUserId)).where(and(eq(teacherAllocations.academicYear, year), eq(teacherAllocations.status, "active")));
+  const entries = await db.select().from(timetableEntries);
+  return buildTimetableAuditRows(
+    requirementRows.map(row => ({ gradeId: row.requirement.gradeId, gradeName: row.grade.name, gradeStream: row.grade.stream, subjectId: row.requirement.subjectId, subjectName: row.subject.name, subjectCode: row.subject.code, periodsPerWeek: row.requirement.periodsPerWeek })),
+    allocationRows.map(row => ({ ...row.allocation, displayName: row.staff?.displayName ?? null, teacherCode: row.staff?.teacherCode ?? null })),
+    entries,
+  );
+}
+
 export function isMasterTimetableAdmin(userRole?: string | null, staffRole?: string | null) {
   return userRole === "admin" || staffRole === "super_admin" || staffRole === "admin" || staffRole === "deputy_head" || staffRole === "head_teacher";
 }
@@ -701,8 +744,8 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
   const unplaced: Array<{ grade: string; subject: string; missing: number }> = []; let placed = 0;
   for (const row of requirements) {
     const key = `${row.requirement.gradeId}:${row.requirement.subjectId}`; const needed = Math.max(0, row.requirement.periodsPerWeek - (counts.get(key) ?? 0)); const teachers = Array.from(new Set(eligibleByGradeSubject.get(key) ?? [])); let missing = needed;
-    const mustBeBeforeLunch = /\b(english|kiswahili|french|arabic|german|mandarin|physical education|pe|games)\b/i.test(row.subject.name);
-    const latestAllowedPeriod = mustBeBeforeLunch ? Math.min(6, periodsPerDay) : periodsPerDay;
+    const mustBeBeforeLunch = false;
+    const latestAllowedPeriod = periodsPerDay;
     for (let lesson = 0; lesson < needed; lesson += 1) {
       let best: { teacherId: number; day: number; period: number; load: number } | null = null;
       for (let day = 1; day <= days; day += 1) for (let period = 1; period <= latestAllowedPeriod; period += 1) { if (occupied.has(`${row.requirement.gradeId}:${day}:${period}`)) continue; for (const teacherId of teachers) { if (teacherBusy.has(`${teacherId}:${day}:${period}`) || subjectDays.has(`${row.requirement.gradeId}:${row.requirement.subjectId}:${day}`)) continue; const load = teacherLoad.get(teacherId) ?? 0; if (!best || load < best.load) best = { teacherId, day, period, load }; } }
