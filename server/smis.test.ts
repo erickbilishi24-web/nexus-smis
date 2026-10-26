@@ -108,6 +108,10 @@ describe("Kenyan SMIS backend rules", () => {
     expect(report.hardConflicts.some(item => item.type === "grade_clash")).toBe(true);
     expect(report.softWarnings).toHaveLength(1);
     expect(report.morningPlacement.find(item => item.subject === "Kiswahili")).toMatchObject({ morning: 2, afternoon: 0 });
+    expect(report.teacherWorkload).toEqual(expect.arrayContaining([
+      expect.objectContaining({ teacherUserId: 12, teacherName: "Sarah Anupi", teacherCode: 4, weeklyLessons: 2 }),
+      expect.objectContaining({ teacherUserId: 13, teacherName: "John Andera", teacherCode: 1, weeklyLessons: 1 }),
+    ]));
     expect(report.valid).toBe(false);
   });
 

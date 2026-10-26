@@ -645,11 +645,31 @@ export function buildTimetableValidationReport(
     const expected = subjectRequirements.reduce((sum, row) => sum + row.periodsPerWeek, 0);
     return { subject, expected, morning, afternoon, exceptions: afternoon ? `Could not place ${afternoon} lesson${afternoon === 1 ? "" : "s"} before lunch under the current teacher/class constraints.` : null };
   }).filter(row => row.expected > 0);
+  const dayNames = ["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  const teacherById = new Map(activeAllocations.map(allocation => [allocation.teacherUserId, allocation]));
+  const teacherWorkloadMap = new Map<number, { teacherUserId: number; teacherName: string; teacherCode: number | null; weeklyLessons: number; dailyLessons: Record<string, number> }>();
+  for (const entry of entries) {
+    const allocation = teacherById.get(entry.teacherUserId) ?? allocations.find(row => row.teacherUserId === entry.teacherUserId);
+    const current = teacherWorkloadMap.get(entry.teacherUserId) ?? { teacherUserId: entry.teacherUserId, teacherName: allocation?.displayName ?? `Teacher ${entry.teacherUserId}`, teacherCode: allocation?.teacherCode ?? null, weeklyLessons: 0, dailyLessons: {} };
+    const day = dayNames[entry.dayOfWeek] ?? `Day ${entry.dayOfWeek}`;
+    current.weeklyLessons += 1;
+    current.dailyLessons[day] = (current.dailyLessons[day] ?? 0) + 1;
+    teacherWorkloadMap.set(entry.teacherUserId, current);
+  }
+  const teacherWorkload = Array.from(teacherWorkloadMap.values()).sort((a, b) => b.weeklyLessons - a.weeklyLessons || a.teacherName.localeCompare(b.teacherName));
   const hardConflictDetails = hardConflicts.map(conflict => {
     const parts = conflict.split(":");
-    if (parts[0] === "teacher") return { conflict, type: "teacher_clash", day: Number(parts[1]), period: Number(parts[2]), teacherUserId: Number(parts[3]), suggestion: "Move one affected class to an unoccupied lesson period for this teacher." };
-    if (parts[0] === "grade") return { conflict, type: "grade_clash", day: Number(parts[1]), period: Number(parts[2]), gradeId: Number(parts[3]), suggestion: "Keep one lesson in this class slot and move the other to an empty period." };
-    return { conflict, type: "room_clash", suggestion: "Assign a different room or move one lesson to an available period." };
+    if (parts[0] === "teacher") {
+      const teacherId = Number(parts[3]);
+      const teacher = teacherById.get(teacherId) ?? allocations.find(row => row.teacherUserId === teacherId);
+      const teacherLabel = `${teacher?.displayName ?? `Teacher ${teacherId}`}${teacher?.teacherCode ? ` · Code ${teacher.teacherCode}` : ""}`;
+      return { conflict, type: "teacher_clash", label: `Teacher clash: ${teacherLabel} is scheduled in more than one class on ${dayNames[Number(parts[1])] ?? `Day ${parts[1]}`}, period ${parts[2]}.`, day: Number(parts[1]), period: Number(parts[2]), teacherUserId: teacherId, suggestion: "Move one affected class to an unoccupied lesson period for this teacher." };
+    }
+    if (parts[0] === "grade") {
+      const gradeId = Number(parts[3]);
+      return { conflict, type: "grade_clash", label: `Class clash: ${gradeNames.get(gradeId) ?? `Class ${gradeId}`} has more than one lesson in ${dayNames[Number(parts[1])] ?? `Day ${parts[1]}`}, period ${parts[2]}.`, day: Number(parts[1]), period: Number(parts[2]), gradeId, suggestion: "Keep one lesson in this class slot and move the other to an empty period." };
+    }
+    return { conflict, type: "room_clash", label: `Room clash: room ${parts.slice(3).join(":") || "the assigned room"} is double-booked on ${dayNames[Number(parts[1])] ?? `Day ${parts[1]}`}, period ${parts[2]}.`, suggestion: "Assign a different room or move one lesson to an available period." };
   });
   const missingAllocations = auditRows.filter(row => row.missingTeacherAllocation).map(row => ({ gradeId: row.gradeId, subjectId: row.subjectId, grade: `${row.gradeName}${row.gradeStream ? ` ${row.gradeStream}` : ""}`, subject: row.subjectName }));
   const totalExpected = auditRows.reduce((sum, row) => sum + row.expectedLessons, 0);
@@ -661,6 +681,7 @@ export function buildTimetableValidationReport(
     invalidEntries: invalidEntries.map(entry => ({ id: entry.id, gradeId: entry.gradeId, subjectId: entry.subjectId, teacherUserId: entry.teacherUserId })),
     inactiveTeacherEntries: inactiveTeacherEntries.map(entry => ({ id: entry.id, teacherUserId: entry.teacherUserId, gradeId: entry.gradeId, subjectId: entry.subjectId })),
     subjectTotals: auditRows,
+    teacherWorkload,
     morningPlacement,
     totalExpected,
     totalScheduled,
