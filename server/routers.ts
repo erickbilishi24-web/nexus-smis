@@ -69,6 +69,7 @@ import {
   deleteStaffProfile,
   updateStaffRole,
   listTimetable,
+  listTimetableVersions, restoreTimetableVersion,
   listTimetableAudit, getTimetableValidationReport,
   listTeacherCodes,
   listTimetableRequirements,
@@ -308,7 +309,9 @@ export const appRouter = router({
         return { canManageMaster, canViewPersonal, canViewMaster };
       }),
       personal: permissionProcedure("timetable.view").query(({ ctx }) => getPersonalTimetable(currentUserId(ctx.user))),
-      list: masterTimetableProcedure.query(() => listTimetable()),
+      list: masterTimetableProcedure.query(({ ctx }) => listTimetable()),
+      versions: masterTimetableProcedure.query(({ ctx }) => listTimetableVersions(currentUserId(ctx.user))),
+      restoreVersion: masterTimetableProcedure.input(z.object({ versionId: z.number().int().positive() })).mutation(({ input, ctx }) => restoreTimetableVersion(input.versionId, currentUserId(ctx.user))),
       masterList: protectedProcedure.use(async ({ ctx, next }) => {
         if (!await canViewMasterTimetable(ctx.user.id, ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: "MASTER_TIMETABLE_SCOPE_FORBIDDEN" });
         return next();
