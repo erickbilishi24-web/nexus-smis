@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allocationContextConflict, assertScore, buildTimetableAuditRows, timetableEntriesAlignedWithAllocations, unallocatedTimetableEntries, canAccessAttendanceGrade, canCaptureAttendance, cbcLevel, isAttendanceAdmin, isPreNoonTimetableSubject, resolveImportGrade, timetableConflicts } from "./smis";
+import { allocationContextConflict, assertScore, buildTimetableAuditRows, hasAdjacentTeacherLesson, timetableEntriesAlignedWithAllocations, unallocatedTimetableEntries, canAccessAttendanceGrade, canCaptureAttendance, cbcLevel, isAttendanceAdmin, isPreNoonTimetableSubject, resolveImportGrade, timetableConflicts } from "./smis";
 
 describe("Kenyan SMIS backend rules", () => {
   it("maps the CBC eight-level scale correctly", () => {
@@ -50,6 +50,16 @@ describe("Kenyan SMIS backend rules", () => {
   it("classifies core subjects that must be scheduled before noon", () => {
     expect(["English", "CBC-KISWAHILI", "Mathematics", "Physical Education", "Physical and Health Education"].every(isPreNoonTimetableSubject)).toBe(true);
     expect(isPreNoonTimetableSubject("Agriculture")).toBe(false);
+  });
+
+  it("detects a teacher code repeated in an adjacent class slot", () => {
+    const slots = new Map([
+      ["7:1:2", 3],
+      ["7:1:4", 5],
+    ]);
+    expect(hasAdjacentTeacherLesson(slots, 7, 3, 1, 3)).toBe(true);
+    expect(hasAdjacentTeacherLesson(slots, 7, 4, 1, 3)).toBe(false);
+    expect(hasAdjacentTeacherLesson(slots, 7, 5, 1, 3)).toBe(true);
   });
 
 
