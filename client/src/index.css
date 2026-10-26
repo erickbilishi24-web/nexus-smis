@@ -116,6 +116,9 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgb(29 106 87 / 2
   .admin-users-table td:nth-child(8) { max-width: none; }
   .admin-users-table td:last-child { justify-content: flex-end; border-top: 1px solid #eef0e8; margin-top: .35rem; padding-top: .65rem !important; }
   .admin-users-table td:last-child::before { display: none; }
+  .admin-users-table .admin-user-actions > div { width: 100%; }
+  .admin-users-table .admin-user-actions button { min-height: 2.45rem; }
+  .admin-users-table .admin-user-actions .admin-user-more-label { display: inline; }
   .admin-users-table tr:has(td[colspan]) { display: table-row; margin: 0; border: 0; box-shadow: none; }
   .admin-users-table tr:has(td[colspan]) td { display: table-cell; text-align: center; }
   .admin-users-table tr:has(td[colspan]) td::before { display: none; }
@@ -128,6 +131,10 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgb(29 106 87 / 2
   .shell > main > header { transition: background-color 220ms cubic-bezier(.23,1,.32,1), box-shadow 220ms cubic-bezier(.23,1,.32,1); }
 }
 
+.admin-users-table th:last-child, .admin-users-table td:last-child { position: sticky; right: 0; z-index: 2; background: #fffefa; box-shadow: -7px 0 12px rgb(42 67 82 / 5%); }
+.admin-users-table th:last-child { z-index: 3; background: #f7f9f3; }
+.admin-users-table .admin-user-actions { min-width: 12rem; }
+.admin-users-table .admin-user-actions > div { min-width: 11.5rem; }
 .record-row { transition: background 150ms cubic-bezier(.23,1,.32,1); }
 .record-row:hover { background: #f6f4ed; }
 .icon-button { display: inline-flex; align-items: center; justify-content: center; width: 2.4rem; height: 2.4rem; border: 1px solid #e1ddd3; border-radius: .75rem; background: #fffefa; color: #496057; transition: all 150ms cubic-bezier(.23,1,.32,1); }
