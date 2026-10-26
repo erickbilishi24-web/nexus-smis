@@ -367,3 +367,38 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgb(29 106 87 / 2
 @media (max-width: 639px) {
   .dashboard-mobile-collapsed > :not(.dashboard-hero) { display: none; }
 }
+
+
+/* Timetable scanning and landscape print layout */
+.timetable-grid-scroll {
+  scrollbar-width: thin;
+}
+
+@media (max-width: 900px) and (orientation: landscape) {
+  .timetable-landscape-grid {
+    min-width: 0 !important;
+    width: 100%;
+    font-size: .5rem !important;
+  }
+  .timetable-landscape-grid [class*="min-h-[34px]"] {
+    min-height: 28px !important;
+  }
+}
+
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 8mm;
+  }
+  .timetable-grid-scroll {
+    overflow: visible !important;
+  }
+  .timetable-landscape-grid {
+    min-width: 0 !important;
+    width: 100% !important;
+    font-size: .48rem !important;
+  }
+  .timetable-landscape-grid [class*="min-h-[34px]"] {
+    min-height: 22px !important;
+  }
+}
