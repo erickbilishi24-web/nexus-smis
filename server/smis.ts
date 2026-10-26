@@ -687,6 +687,11 @@ export function timetableEntriesAlignedWithAllocations<T extends { id: number; s
   return entries.filter(entry => allocations.some(allocation => allocation.status === "active" && allocation.allocationType !== "class_teacher" && allocation.gradeId === entry.gradeId && allocation.subjectId === entry.subjectId && allocation.teacherUserId === entry.teacherUserId && (entry.schoolId == null || allocation.schoolId == null || allocation.schoolId === entry.schoolId)));
 }
 
+export function isPreNoonTimetableSubject(subjectName: string) {
+  const normalized = subjectName.replace(/^CBC[-\s]*/i, "").replace(/[^a-z]/gi, "").toLowerCase();
+  return normalized === "english" || normalized === "kiswahili" || normalized === "mathematics" || normalized === "physicaleducation" || normalized === "physicalandhealtheducation";
+}
+
 export async function generateTimetable(entries: Array<{ dayOfWeek: number; period: number; gradeId: number; subjectId: number; teacherUserId: number; room?: string | null }>, userId: number) {
   const conflicts = timetableConflicts(entries);
   if (conflicts.length) throw new Error(`TIMETABLE_CLASH:${conflicts.join(",")}`);
@@ -734,18 +739,34 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
     const key = `${allocation.gradeId}:${allocation.subjectId}`;
     eligibleByGradeSubject.set(key, [...(eligibleByGradeSubject.get(key) ?? []), allocation.teacherUserId]);
   }
+  const requiredLoadByTeacher = new Map<number, number>();
+  for (const allocation of allocations) {
+    if (allocation.allocationType === "class_teacher") continue;
+    const requirement = requirements.find(row => row.requirement.gradeId === allocation.gradeId && row.requirement.subjectId === allocation.subjectId);
+    if (requirement) requiredLoadByTeacher.set(allocation.teacherUserId, (requiredLoadByTeacher.get(allocation.teacherUserId) ?? 0) + requirement.requirement.periodsPerWeek);
+  }
+  const orderedRequirements = [...requirements].sort((a, b) => {
+    const preNoonOrder = Number(isPreNoonTimetableSubject(b.subject.name)) - Number(isPreNoonTimetableSubject(a.subject.name));
+    if (preNoonOrder) return preNoonOrder;
+    const aLoad = Math.max(...(Array.from(new Set(eligibleByGradeSubject.get(`${a.requirement.gradeId}:${a.requirement.subjectId}`) ?? [])).map(teacherId => requiredLoadByTeacher.get(teacherId) ?? 0)), 0);
+    const bLoad = Math.max(...(Array.from(new Set(eligibleByGradeSubject.get(`${b.requirement.gradeId}:${b.requirement.subjectId}`) ?? [])).map(teacherId => requiredLoadByTeacher.get(teacherId) ?? 0)), 0);
+    return bLoad - aLoad || b.requirement.periodsPerWeek - a.requirement.periodsPerWeek;
+  });
+  const preNoonSubjectIds = new Set(requirements.filter(row => isPreNoonTimetableSubject(row.subject.name)).map(row => row.subject.id));
   const existingRows = await db.select().from(timetableEntries);
-  const existing = timetableEntriesAlignedWithAllocations(existingRows, allocations);
+  const incompatiblePreNoonRows = existingRows.filter(entry => preNoonSubjectIds.has(entry.subjectId) && entry.period > Math.min(5, periodsPerDay));
+  if (incompatiblePreNoonRows.length) await db.delete(timetableEntries).where(inArray(timetableEntries.id, incompatiblePreNoonRows.map(entry => entry.id)));
+  const existing = timetableEntriesAlignedWithAllocations(existingRows.filter(entry => !incompatiblePreNoonRows.some(row => row.id === entry.id)), allocations);
   const staleIds = existingRows.filter(entry => !existing.some(valid => valid.id === entry.id)).map(entry => entry.id);
   if (staleIds.length) await db.delete(timetableEntries).where(inArray(timetableEntries.id, staleIds));
   const occupied = new Set(existing.map(entry => `${entry.gradeId}:${entry.dayOfWeek}:${entry.period}`)); const subjectDays = new Set(existing.map(entry => `${entry.gradeId}:${entry.subjectId}:${entry.dayOfWeek}`)); const teacherBusy = new Set(existing.map(entry => `${entry.teacherUserId}:${entry.dayOfWeek}:${entry.period}`)); const teacherLoad = new Map<number, number>();
   for (const entry of existing) teacherLoad.set(entry.teacherUserId, (teacherLoad.get(entry.teacherUserId) ?? 0) + 1);
   const counts = new Map<string, number>(); for (const entry of existing) counts.set(`${entry.gradeId}:${entry.subjectId}`, (counts.get(`${entry.gradeId}:${entry.subjectId}`) ?? 0) + 1);
   const unplaced: Array<{ grade: string; subject: string; missing: number }> = []; let placed = 0;
-  for (const row of requirements) {
+  for (const row of orderedRequirements) {
     const key = `${row.requirement.gradeId}:${row.requirement.subjectId}`; const needed = Math.max(0, row.requirement.periodsPerWeek - (counts.get(key) ?? 0)); const teachers = Array.from(new Set(eligibleByGradeSubject.get(key) ?? [])); let missing = needed;
-    const mustBeBeforeLunch = false;
-    const latestAllowedPeriod = periodsPerDay;
+    const mustBeBeforeLunch = isPreNoonTimetableSubject(row.subject.name);
+    const latestAllowedPeriod = mustBeBeforeLunch ? Math.min(5, periodsPerDay) : periodsPerDay;
     for (let lesson = 0; lesson < needed; lesson += 1) {
       let best: { teacherId: number; day: number; period: number; load: number } | null = null;
       for (let day = 1; day <= days; day += 1) for (let period = 1; period <= latestAllowedPeriod; period += 1) { if (occupied.has(`${row.requirement.gradeId}:${day}:${period}`)) continue; for (const teacherId of teachers) { if (teacherBusy.has(`${teacherId}:${day}:${period}`) || subjectDays.has(`${row.requirement.gradeId}:${row.requirement.subjectId}:${day}`)) continue; const load = teacherLoad.get(teacherId) ?? 0; if (!best || load < best.load) best = { teacherId, day, period, load }; } }

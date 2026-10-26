@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allocationContextConflict, assertScore, buildTimetableAuditRows, timetableEntriesAlignedWithAllocations, unallocatedTimetableEntries, canAccessAttendanceGrade, canCaptureAttendance, cbcLevel, isAttendanceAdmin, resolveImportGrade, timetableConflicts } from "./smis";
+import { allocationContextConflict, assertScore, buildTimetableAuditRows, timetableEntriesAlignedWithAllocations, unallocatedTimetableEntries, canAccessAttendanceGrade, canCaptureAttendance, cbcLevel, isAttendanceAdmin, isPreNoonTimetableSubject, resolveImportGrade, timetableConflicts } from "./smis";
 
 describe("Kenyan SMIS backend rules", () => {
   it("maps the CBC eight-level scale correctly", () => {
@@ -45,6 +45,11 @@ describe("Kenyan SMIS backend rules", () => {
     expect(conflicts).toContain("grade:1:1:8");
     expect(conflicts).toContain("teacher:1:1:3");
     expect(conflicts).toContain("room:1:1:8B");
+  });
+
+  it("classifies core subjects that must be scheduled before noon", () => {
+    expect(["English", "CBC-KISWAHILI", "Mathematics", "Physical Education", "Physical and Health Education"].every(isPreNoonTimetableSubject)).toBe(true);
+    expect(isPreNoonTimetableSubject("Agriculture")).toBe(false);
   });
 
 
