@@ -595,6 +595,97 @@ export function buildTimetableAuditRows(requirements: TimetableAuditRequirement[
   });
 }
 
+
+export type TimetableValidationAllocation = TimetableAuditAllocation & { activeEmployment?: boolean; role?: string | null };
+export type TimetableValidationEntry = TimetableAuditEntry & { dayOfWeek: number; period: number; room?: string | null };
+
+/**
+ * Produces a read-only validation report. Hard conflicts block approval; soft
+ * warnings are recommendations and do not silently alter allocations.
+ */
+export function buildTimetableValidationReport(
+  requirements: TimetableAuditRequirement[],
+  allocations: TimetableValidationAllocation[],
+  entries: TimetableValidationEntry[],
+) {
+  const activeAllocations = allocations.filter(row => row.status === "active" && row.allocationType !== "class_teacher");
+  const auditRows = buildTimetableAuditRows(requirements, activeAllocations, entries);
+  const hardConflicts = Array.from(new Set(timetableConflicts(entries)));
+  const activeTeacherIds = new Set(activeAllocations.map(row => row.teacherUserId));
+  const invalidEntries = entries.filter(entry => !activeAllocations.some(allocation => allocation.gradeId === entry.gradeId && allocation.subjectId === entry.subjectId && allocation.teacherUserId === entry.teacherUserId));
+  const inactiveTeacherEntries = entries.filter(entry => allocations.some(allocation => allocation.teacherUserId === entry.teacherUserId && allocation.activeEmployment === false));
+  const softWarnings: Array<{ kind: "consecutive_teacher" | "subject_clustering"; gradeId: number; day: number; periods: number[]; teacherUserId?: number; message: string }> = [];
+  const gradeNames = new Map(requirements.map(row => [row.gradeId, `${row.gradeName}${row.gradeStream ? ` ${row.gradeStream}` : ""}`]));
+  const subjectNames = new Map(requirements.map(row => [row.subjectId, row.subjectName]));
+  const byGradeDayPeriod = new Map<string, TimetableValidationEntry[]>();
+  for (const entry of entries) {
+    const key = `${entry.gradeId}:${entry.dayOfWeek}:${entry.period}`;
+    byGradeDayPeriod.set(key, [...(byGradeDayPeriod.get(key) ?? []), entry]);
+  }
+  // The configured school day has breaks after lesson periods 2 and 4 and lunch after 6.
+  const adjacentPairs: Array<[number, number]> = [[1, 2], [3, 4], [5, 6], [7, 8]];
+  for (const entry of entries) {
+    for (const [firstPeriod, secondPeriod] of adjacentPairs) {
+      if (entry.period !== secondPeriod) continue;
+      const previousRows = byGradeDayPeriod.get(`${entry.gradeId}:${entry.dayOfWeek}:${firstPeriod}`) ?? [];
+      if (!previousRows.some(previous => previous.teacherUserId === entry.teacherUserId)) continue;
+      const key = `${entry.gradeId}:${entry.dayOfWeek}:${firstPeriod}:${secondPeriod}:${entry.teacherUserId}`;
+      if (softWarnings.some(warning => `${warning.gradeId}:${warning.day}:${warning.periods[0]}:${warning.periods[1]}:${warning.teacherUserId}` === key)) continue;
+      softWarnings.push({ kind: "consecutive_teacher", gradeId: entry.gradeId, day: entry.dayOfWeek, periods: [firstPeriod, secondPeriod], teacherUserId: entry.teacherUserId, message: `Review ${gradeNames.get(entry.gradeId) ?? `Grade ${entry.gradeId}`} periods ${firstPeriod}-${secondPeriod}; the same teacher is scheduled consecutively. This remains a soft recommendation and may be an approved double period.` });
+    }
+  }
+  const morningSubjects = ["English", "Kiswahili", "Mathematics", "Physical Education", "Physical and Health Education"];
+  const normalizeSubject = (value: string) => value.replace(/^CBC[-\s]*/i, "").replace(/[^a-z]/gi, "").toLowerCase();
+  const morningPlacement = morningSubjects.map(subject => {
+    const subjectRequirements = requirements.filter(row => isPreNoonTimetableSubject(row.subjectName) && normalizeSubject(row.subjectName) === normalizeSubject(subject));
+    const subjectIds = new Set(subjectRequirements.map(row => row.subjectId));
+    const subjectEntries = entries.filter(entry => subjectIds.has(entry.subjectId));
+    const morning = subjectEntries.filter(entry => entry.period <= 6).length;
+    const afternoon = subjectEntries.filter(entry => entry.period > 6).length;
+    const expected = subjectRequirements.reduce((sum, row) => sum + row.periodsPerWeek, 0);
+    return { subject, expected, morning, afternoon, exceptions: afternoon ? `Could not place ${afternoon} lesson${afternoon === 1 ? "" : "s"} before lunch under the current teacher/class constraints.` : null };
+  }).filter(row => row.expected > 0);
+  const hardConflictDetails = hardConflicts.map(conflict => {
+    const parts = conflict.split(":");
+    if (parts[0] === "teacher") return { conflict, type: "teacher_clash", day: Number(parts[1]), period: Number(parts[2]), teacherUserId: Number(parts[3]), suggestion: "Move one affected class to an unoccupied lesson period for this teacher." };
+    if (parts[0] === "grade") return { conflict, type: "grade_clash", day: Number(parts[1]), period: Number(parts[2]), gradeId: Number(parts[3]), suggestion: "Keep one lesson in this class slot and move the other to an empty period." };
+    return { conflict, type: "room_clash", suggestion: "Assign a different room or move one lesson to an available period." };
+  });
+  const missingAllocations = auditRows.filter(row => row.missingTeacherAllocation).map(row => ({ gradeId: row.gradeId, subjectId: row.subjectId, grade: `${row.gradeName}${row.gradeStream ? ` ${row.gradeStream}` : ""}`, subject: row.subjectName }));
+  const totalExpected = auditRows.reduce((sum, row) => sum + row.expectedLessons, 0);
+  const totalScheduled = auditRows.reduce((sum, row) => sum + row.scheduledLessons, 0);
+  return {
+    hardConflicts: hardConflictDetails,
+    softWarnings,
+    missingAllocations,
+    invalidEntries: invalidEntries.map(entry => ({ id: entry.id, gradeId: entry.gradeId, subjectId: entry.subjectId, teacherUserId: entry.teacherUserId })),
+    inactiveTeacherEntries: inactiveTeacherEntries.map(entry => ({ id: entry.id, teacherUserId: entry.teacherUserId, gradeId: entry.gradeId, subjectId: entry.subjectId })),
+    subjectTotals: auditRows,
+    morningPlacement,
+    totalExpected,
+    totalScheduled,
+    totalUnplaced: Math.max(0, totalExpected - totalScheduled),
+    valid: hardConflictDetails.length === 0 && missingAllocations.length === 0 && invalidEntries.length === 0 && inactiveTeacherEntries.length === 0 && totalExpected === totalScheduled,
+    notes: activeTeacherIds.size === 0 ? ["No active teacher allocations are configured for the current academic year."] : [],
+  };
+}
+
+export async function getTimetableValidationReport(academicYear?: number) {
+  const db = await requireDb();
+  const settings = await getSettings();
+  const year = academicYear ?? Number(settings.academicYear);
+  const [requirementRows, allocationRows, entries] = await Promise.all([
+    db.select({ requirement: timetableRequirements, grade: grades, subject: subjects }).from(timetableRequirements).innerJoin(grades, eq(grades.id, timetableRequirements.gradeId)).innerJoin(subjects, eq(subjects.id, timetableRequirements.subjectId)).where(and(eq(timetableRequirements.academicYear, year), sql`${timetableRequirements.periodsPerWeek} > 0`)),
+    db.select({ allocation: teacherAllocations, staff: staffProfiles, user: users }).from(teacherAllocations).leftJoin(staffProfiles, eq(staffProfiles.userId, teacherAllocations.teacherUserId)).leftJoin(users, eq(users.id, teacherAllocations.teacherUserId)).where(eq(teacherAllocations.academicYear, year)),
+    db.select().from(timetableEntries),
+  ]);
+  return buildTimetableValidationReport(
+    requirementRows.map(row => ({ gradeId: row.requirement.gradeId, gradeName: row.grade.name, gradeStream: row.grade.stream, subjectId: row.requirement.subjectId, subjectName: row.subject.name, subjectCode: row.subject.code, periodsPerWeek: row.requirement.periodsPerWeek })),
+    allocationRows.map(row => ({ ...row.allocation, displayName: row.staff?.displayName ?? row.user?.name ?? null, teacherCode: row.staff?.teacherCode ?? null, activeEmployment: row.staff?.status === "active" })),
+    entries,
+  );
+}
+
 export async function listTimetableAudit(academicYear?: number) {
   const db = await requireDb();
   const settings = await getSettings();

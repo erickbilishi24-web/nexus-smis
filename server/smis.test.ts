@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allocationContextConflict, assertScore, buildTimetableAuditRows, hasAdjacentTeacherLesson, timetableEntriesAlignedWithAllocations, unallocatedTimetableEntries, canAccessAttendanceGrade, canCaptureAttendance, cbcLevel, isAttendanceAdmin, isPreNoonTimetableSubject, resolveImportGrade, timetableConflicts } from "./smis";
+import { allocationContextConflict, assertScore, buildTimetableAuditRows, buildTimetableValidationReport, hasAdjacentTeacherLesson, timetableEntriesAlignedWithAllocations, unallocatedTimetableEntries, canAccessAttendanceGrade, canCaptureAttendance, cbcLevel, isAttendanceAdmin, isPreNoonTimetableSubject, resolveImportGrade, timetableConflicts } from "./smis";
 
 describe("Kenyan SMIS backend rules", () => {
   it("maps the CBC eight-level scale correctly", () => {
@@ -88,6 +88,27 @@ describe("Kenyan SMIS backend rules", () => {
     const rows = buildTimetableAuditRows(requirements, allocations, entries);
     expect(rows[0]).toMatchObject({ expectedLessons: 5, scheduledLessons: 1, unplacedLessons: 4, missingTeacherAllocation: false, status: "under_scheduled" });
     expect(rows[1]).toMatchObject({ expectedLessons: 5, scheduledLessons: 0, unplacedLessons: 5, missingTeacherAllocation: true, status: "missing_teacher" });
+  });
+
+  it("builds a distinct hard-conflict and soft-warning timetable validation report", () => {
+    const requirements = [
+      { gradeId: 7, gradeName: "Grade 7", gradeStream: "Blue", subjectId: 2, subjectName: "CBC-KISWAHILI", subjectCode: "KISW", periodsPerWeek: 2 },
+      { gradeId: 7, gradeName: "Grade 7", gradeStream: "Blue", subjectId: 3, subjectName: "Mathematics", subjectCode: "MAT", periodsPerWeek: 1 },
+    ];
+    const allocations = [
+      { schoolId: 1, gradeId: 7, subjectId: 2, teacherUserId: 12, displayName: "Sarah Anupi", teacherCode: 4, status: "active", allocationType: "learning_area", activeEmployment: true },
+      { schoolId: 1, gradeId: 7, subjectId: 3, teacherUserId: 13, displayName: "John Andera", teacherCode: 1, status: "active", allocationType: "learning_area", activeEmployment: true },
+    ];
+    const entries = [
+      { id: 1, schoolId: 1, gradeId: 7, subjectId: 2, teacherUserId: 12, dayOfWeek: 1, period: 1 },
+      { id: 2, schoolId: 1, gradeId: 7, subjectId: 3, teacherUserId: 13, dayOfWeek: 1, period: 1 },
+      { id: 3, schoolId: 1, gradeId: 7, subjectId: 2, teacherUserId: 12, dayOfWeek: 1, period: 2 },
+    ];
+    const report = buildTimetableValidationReport(requirements, allocations, entries);
+    expect(report.hardConflicts.some(item => item.type === "grade_clash")).toBe(true);
+    expect(report.softWarnings).toHaveLength(1);
+    expect(report.morningPlacement.find(item => item.subject === "Kiswahili")).toMatchObject({ morning: 2, afternoon: 0 });
+    expect(report.valid).toBe(false);
   });
 
   it("resolves legacy combined learner class labels only when unambiguous", () => {
