@@ -718,19 +718,20 @@ export async function setTimetableRequirement(input: { gradeId: number; subjectI
   await writeAudit(userId, "timetable.requirement.set", "timetable_requirement", `${input.gradeId}:${input.subjectId}:${input.academicYear}`, input);
 }
 
-export async function generateAutomaticTimetable(input: { academicYear?: number; regenerate: boolean; days?: number; periodsPerDay?: number; classLessonTotals?: Array<{ gradeId: number; totalLessonsPerWeek: number }> }, userId: number) {
+export async function generateAutomaticTimetable(input: { academicYear?: number; regenerate: boolean; forcePlace?: boolean; days?: number; periodsPerDay?: number; classLessonTotals?: Array<{ gradeId: number; totalLessonsPerWeek: number }> }, userId: number) {
   const db = await requireDb();
   const settings = await getSettings();
   const academicYear = input.academicYear ?? Number(settings.academicYear);
   const days = input.days ?? 5; const periodsPerDay = input.periodsPerDay ?? 8;
   if (input.regenerate) await db.delete(timetableEntries);
   const requirements = await db.select({ requirement: timetableRequirements, grade: grades, subject: subjects }).from(timetableRequirements).innerJoin(grades, eq(grades.id, timetableRequirements.gradeId)).innerJoin(subjects, eq(subjects.id, timetableRequirements.subjectId)).where(eq(timetableRequirements.academicYear, academicYear));
+  const validationWarnings: string[] = [];
   for (const requested of input.classLessonTotals ?? []) {
     const classRequirements = requirements.filter(row => row.requirement.gradeId === requested.gradeId);
     const configured = classRequirements.reduce((sum, row) => sum + row.requirement.periodsPerWeek, 0);
-    if (requested.totalLessonsPerWeek < configured) throw new Error("No. of lessons not complete");
-    if (requested.totalLessonsPerWeek > configured) throw new Error("No. of lessons is Excess");
-    if (classRequirements.some(row => row.requirement.periodsPerWeek > days)) throw new Error("A subject cannot appear more than once per day");
+    if (requested.totalLessonsPerWeek < configured) validationWarnings.push(`Grade ${requested.gradeId}: configured lessons exceed the requested total`);
+    if (requested.totalLessonsPerWeek > configured) validationWarnings.push(`Grade ${requested.gradeId}: requested lessons exceed configured subjects`);
+    if (classRequirements.some(row => row.requirement.periodsPerWeek > days)) validationWarnings.push(`Grade ${requested.gradeId}: a subject has more weekly lessons than available school days`);
   }
   const allocations = await db.select().from(teacherAllocations).where(and(eq(teacherAllocations.academicYear, academicYear), eq(teacherAllocations.status, "active")));
   const eligibleByGradeSubject = new Map<string, number[]>();
@@ -815,9 +816,9 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
   const generatedRows = await db.select().from(timetableEntries);
   const duplicateSubjectDays = generatedRows.reduce((set, entry) => { const key = `${entry.gradeId}:${entry.subjectId}:${entry.dayOfWeek}`; if (set.has(key)) set.add(`DUPLICATE:${key}`); else set.add(key); return set; }, new Set<string>());
   const duplicateCount = Array.from(duplicateSubjectDays).filter(key => key.startsWith("DUPLICATE:")).length;
-  if (duplicateCount) throw new Error("TIMETABLE_SUBJECT_DUPLICATE_DAY");
-  await writeAudit(userId, "timetable.generate.automatic", "timetable", null, { academicYear, placed, unplaced, fallbackConflicts, duplicateCount, regenerate: input.regenerate });
-  return { placed, unplaced, fallbackConflicts, regenerated: input.regenerate, requirements: requirements.length, slots: days * periodsPerDay };
+  if (duplicateCount) validationWarnings.push(`${duplicateCount} duplicate subject-day record(s) detected after generation`);
+  await writeAudit(userId, "timetable.generate.automatic", "timetable", null, { academicYear, placed, unplaced, fallbackConflicts, validationWarnings, duplicateCount, regenerate: input.regenerate, forcePlace: Boolean(input.forcePlace) });
+  return { placed, unplaced, fallbackConflicts, validationWarnings, regenerated: input.regenerate, requirements: requirements.length, slots: days * periodsPerDay };
 }
 
 export async function getIntegratedReportCard(input: { learnerId: number; academicYear?: number; term?: string }, userId: number) {
