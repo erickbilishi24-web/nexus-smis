@@ -41,6 +41,7 @@ export const permissionsByRole: Record<string, string[]> = {
   admin: ["dashboard.view", "learners.view", "learners.add", "learners.edit", "learners.deactivate", "attendance.view", "attendance.edit", "assessments.view", "assessments.edit", "reports.view", "finance.view", "finance.edit", "payroll.view", "payroll.edit", "payroll.approve", "payroll.rules", "transport.view", "transport.edit", "transport.manage", "store.view", "store.edit", "timetable.view", "timetable.edit", "communication.edit", "alumni.edit", "archives.view", "archives.edit", "counselling.submit", "users.edit", "settings.edit", "audit.view", "allocations.view", "allocations.create", "allocations.edit", "allocations.deactivate", "allocations.replace", "allocations.bulk"],
   teacher: ["dashboard.view", "attendance.view", "assessments.view", "assessments.edit", "counselling.submit", "timetable.view", "allocations.view"],
   class_teacher: ["dashboard.view", "attendance.view", "attendance.edit", "assessments.view", "assessments.edit", "reports.view", "counselling.submit", "timetable.view", "allocations.view"],
+  exam_council: ["dashboard.view", "assessments.view", "marklists.view", "reports.view"],
   finance: ["dashboard.view", "finance.view", "finance.edit", "attendance.view", "attendance.edit"],
   storekeeper: ["dashboard.view", "store.view", "store.edit"],
   other: ["dashboard.view"],

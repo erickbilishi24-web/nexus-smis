@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { getDb } from "./db";
-import { grades, rolePermissions, staffProfiles, teacherAllocations, userPermissions, users } from "../drizzle/schema";
+import { grades, rolePermissions, staffProfiles, teacherAllocations, userPermissions, userRoles, users } from "../drizzle/schema";
 
 /** Modules and actions of the NEXUS permission matrix. Keys are `${module}.${action}`. */
 export const MODULES = [
@@ -15,11 +15,11 @@ export const MATRIX_KEYS: string[] = [...MODULES.flatMap(([module]) => ACTIONS.m
 
 export const ROLE_LABELS: Record<string, string> = {
   super_admin: "Super Administrator", admin: "Administrator", head_teacher: "Administrator", deputy_head: "Administrator",
-  teacher: "Teacher", senior_teacher: "Teacher", class_teacher: "Class Teacher", finance: "Accounts Officer", storekeeper: "Support Staff", other: "Support Staff",
+  teacher: "Teacher", senior_teacher: "Teacher", class_teacher: "Class Teacher", exam_council: "Exam Council", finance: "Accounts Officer", storekeeper: "Support Staff", other: "Support Staff",
 };
 /** Roles offered when creating or changing a user (stored in staff_profiles.role). */
-export const ASSIGNABLE_ROLES = ["super_admin", "admin", "teacher", "class_teacher", "finance", "other"] as const;
-export type StaffRole = "super_admin" | "admin" | "teacher" | "class_teacher" | "senior_teacher" | "deputy_head" | "head_teacher" | "finance" | "storekeeper" | "other";
+export const ASSIGNABLE_ROLES = ["super_admin", "admin", "teacher", "class_teacher", "exam_council", "finance", "other"] as const;
+export type StaffRole = "super_admin" | "admin" | "teacher" | "class_teacher" | "exam_council" | "senior_teacher" | "deputy_head" | "head_teacher" | "finance" | "storekeeper" | "other";
 
 /** Collapses legacy staff roles to the permission role that carries their defaults. */
 export function permissionRole(role: string) {
@@ -58,18 +58,20 @@ export async function roleMatrix(role: string) {
 /** Persistent role grants plus per-user overrides; absent grants fail closed. */
 export async function computePermissions(userId: number, accountRole: string) {
   const db = await requireDb();
-  const role = await resolveRole(userId, accountRole);
-  const matrix = await roleMatrix(role);
-  if (matrix.has("*")) return ["*"];
+  const legacyRole = await resolveRole(userId, accountRole);
+  const assigned = await db.select({ role: userRoles.role }).from(userRoles).where(eq(userRoles.userId, userId));
+  const roles = Array.from(new Set([legacyRole, ...assigned.map(row => row.role)]));
+  const matrices = await Promise.all(roles.map(role => roleMatrix(role)));
+  if (matrices.some(matrix => matrix.has("*"))) return ["*"];
   const result = new Set<string>();
-  for (const key of Array.from(matrix)) expand(key).forEach(k => result.add(k));
+  for (const matrix of matrices) for (const key of Array.from(matrix)) expand(key).forEach(k => result.add(k));
   for (const o of await db.select().from(userPermissions).where(eq(userPermissions.userId, userId))) {
     for (const k of expand(o.permissionKey)) o.allowed ? result.add(k) : result.delete(k);
   }
   // Attendance is role-bound: Teachers are view-only; the other selectable
   // staff roles can capture attendance regardless of stale per-user grants.
-  if (role === "teacher") result.delete("attendance.edit");
-  if (["admin", "class_teacher", "finance"].includes(role)) {
+  if (roles.includes("teacher") && !roles.some(role => ["admin", "class_teacher", "finance"].includes(permissionRole(role)))) result.delete("attendance.edit");
+  if (roles.some(role => ["admin", "class_teacher", "finance"].includes(permissionRole(role)))) {
     result.add("attendance.view");
     result.add("attendance.edit");
   }
@@ -79,6 +81,33 @@ export async function computePermissions(userId: number, accountRole: string) {
 export async function can(userId: number, accountRole: string, permission: string) {
   const perms = await computePermissions(userId, accountRole);
   return perms.includes("*") || perms.includes(permission);
+}
+
+export async function assignedRoles(userId: number): Promise<string[]> {
+  const db = await requireDb();
+  const account = (await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1))[0];
+  const legacy = (await db.select({ role: staffProfiles.role }).from(staffProfiles).where(eq(staffProfiles.userId, userId)).limit(1))[0]?.role ?? "other";
+  const additional = await db.select({ role: userRoles.role }).from(userRoles).where(eq(userRoles.userId, userId));
+  return Array.from(new Set([legacy, account?.role === "admin" ? "admin" : null, ...additional.map(row => row.role)].filter((role): role is string => Boolean(role))));
+}
+
+export async function canCreateAssessments(userId: number): Promise<boolean> {
+  const roles = await assignedRoles(userId);
+  return rolesCanCreateAssessments(roles);
+}
+
+export async function canViewWholeClassMarklist(userId: number, accountRole: string): Promise<boolean> {
+  const roles = await assignedRoles(userId);
+  void accountRole;
+  return rolesCanViewWholeClassMarklist(roles);
+}
+
+export function rolesCanCreateAssessments(roles: string[]) {
+  return roles.some(role => ["admin", "super_admin", "head_teacher", "deputy_head"].includes(role));
+}
+
+export function rolesCanViewWholeClassMarklist(roles: string[]) {
+  return roles.some(role => ["admin", "super_admin", "head_teacher", "deputy_head", "exam_council"].includes(role));
 }
 
 export type AccessProfile = { userId: number; role: StaffRole; label: string; level: "system" | "school" | "class" | "allocated"; gradeIds: number[]; pairs: string[] };

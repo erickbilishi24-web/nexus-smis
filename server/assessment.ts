@@ -2,6 +2,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { assessments, attendances, grades, learners, marks, reportCards, schoolSettings, staffProfiles, subjects, teacherAllocations, users } from "../drizzle/schema";
 import { getDb } from "./db";
 import { assertScore, cbcLevel, getSettings, writeAudit } from "./smis";
+import { assignedRoles } from "./access";
 
 export type AssessmentType = "mid_term" | "end_term";
 export type MarklistType = AssessmentType | "average";
@@ -32,7 +33,7 @@ export function averageAssessmentScores(midTerm: number | null, endTerm: number 
   return midTerm === null || endTerm === null ? null : Math.round(((midTerm + endTerm) / 2) * 100) / 100;
 }
 
-type ActorAccess = { isAdmin: boolean; profileRole: string | null };
+type ActorAccess = { isAdmin: boolean; isMarklistReviewer: boolean; profileRole: string | null };
 
 async function requireDb() {
   const db = await getDb();
@@ -47,8 +48,10 @@ async function actorAccess(userId: number): Promise<ActorAccess> {
     .leftJoin(staffProfiles, eq(staffProfiles.userId, users.id))
     .where(eq(users.id, userId)).limit(1))[0];
   const profileRole = row?.profileRole ?? null;
+  const roles = await assignedRoles(userId);
   return {
     isAdmin: row?.userRole === "admin" || ["admin", "super_admin", "head_teacher", "deputy_head"].includes(profileRole ?? ""),
+    isMarklistReviewer: roles.some(role => ["admin", "super_admin", "head_teacher", "deputy_head", "exam_council"].includes(role)),
     profileRole,
   };
 }
@@ -97,7 +100,7 @@ export async function listAssessmentScopes(userId: number) {
   const db = await requireDb();
   const access = await actorAccess(userId);
   const filters = [] as ReturnType<typeof eq>[];
-  if (!access.isAdmin) filters.push(eq(teacherAllocations.teacherUserId, userId));
+  if (!access.isAdmin && !access.isMarklistReviewer) filters.push(eq(teacherAllocations.teacherUserId, userId));
   const rows = await db.select({ allocation: teacherAllocations, grade: grades, subject: subjects, staff: staffProfiles })
     .from(teacherAllocations)
     .innerJoin(grades, eq(grades.id, teacherAllocations.gradeId))
@@ -314,7 +317,7 @@ export async function getClassMarklist(input: { academicYear: number; term: stri
     eq(teacherAllocations.term, input.term),
     eq(teacherAllocations.gradeId, input.gradeId),
   ];
-  if (!access.isAdmin) filters.push(eq(teacherAllocations.teacherUserId, userId));
+  if (!access.isAdmin && !access.isMarklistReviewer) filters.push(eq(teacherAllocations.teacherUserId, userId));
   const allocationRows = await db.select({ allocation: teacherAllocations, subject: subjects, staff: staffProfiles })
     .from(teacherAllocations)
     .innerJoin(subjects, eq(subjects.id, teacherAllocations.subjectId))

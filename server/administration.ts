@@ -3,8 +3,8 @@ import bcrypt from "bcryptjs";
 import { and, desc, eq, gte, inArray, like, lte, or, sql, type SQL } from "drizzle-orm";
 import type { Request } from "express";
 import { getDb } from "./db";
-import { auditLogs, grades, iamPasswordResets, iamSessions, rolePermissions, schools, staffProfiles, subjects, teacherAllocations, userPermissions, users } from "../drizzle/schema";
-import { ACTIONS, ASSIGNABLE_ROLES, MANAGE_PERMISSIONS, MATRIX_KEYS, MODULES, ROLE_LABELS, computePermissions, getAccessProfile, permissionRole, roleMatrix, type StaffRole } from "./access";
+import { auditLogs, grades, iamPasswordResets, iamSessions, rolePermissions, schools, staffProfiles, subjects, teacherAllocations, userPermissions, userRoles, users } from "../drizzle/schema";
+import { ACTIONS, ASSIGNABLE_ROLES, MANAGE_PERMISSIONS, MATRIX_KEYS, MODULES, ROLE_LABELS, assignedRoles, computePermissions, getAccessProfile, permissionRole, roleMatrix, type StaffRole } from "./access";
 import { getSettings, saveTeacherAllocation, writeAudit } from "./smis";
 
 export class AdminError extends Error {}
@@ -93,16 +93,20 @@ export async function listAdminUsers(filter: { search?: string; role?: string; s
   }).from(users).leftJoin(staffProfiles, eq(staffProfiles.userId, users.id)).orderBy(users.id);
   const logins = new Map((await db.select({ userId: iamSessions.userId, last: sql<Date>`max(${iamSessions.loginAt})` }).from(iamSessions).groupBy(iamSessions.userId)).map(r => [r.userId, r.last]));
   const assignments = await assignmentsByUser();
+  const roleRows = await db.select({ userId: userRoles.userId, role: userRoles.role }).from(userRoles);
+  const rolesByUser = new Map<number, string[]>();
+  for (const row of roleRows) rolesByUser.set(row.userId, [...(rolesByUser.get(row.userId) ?? []), row.role]);
   const term = filter.search?.trim().toLowerCase();
   return rows.filter(r => !actorProfile || actorProfile.level === "system" || r.schoolId === actor?.schoolId).map(r => {
     const role = (r.role ?? "other") as StaffRole;
+    const roles = Array.from(new Set([role, ...(rolesByUser.get(r.id) ?? [])]));
     const a = assignments.get(r.id);
     return {
       userId: r.id, staffProfileId: r.profileId, fullName: r.displayName ?? r.name ?? r.username ?? `User ${r.id}`, username: r.username, email: r.email, phone: r.phone,
-      staffId: r.staffId, role, roleLabel: ROLE_LABELS[role], department: r.department, classes: a?.classes ?? [], subjects: a?.subjects ?? [],
+      staffId: r.staffId, role, roles, roleLabels: roles.map(value => ROLE_LABELS[value] ?? value), roleLabel: roles.map(value => ROLE_LABELS[value] ?? value).join(" + "), department: r.department, classes: a?.classes ?? [], subjects: a?.subjects ?? [],
       status: stateOf(r), lastLogin: logins.get(r.id) ? new Date(logins.get(r.id)!) : null, passwordChangedAt: r.passwordChangedAt, createdAt: r.createdAt,
     };
-  }).filter(u => (!filter.role || permissionRole(u.role) === filter.role) && (!filter.status || u.status === filter.status)
+  }).filter(u => (!filter.role || u.roles.some(role => permissionRole(role) === filter.role)) && (!filter.status || u.status === filter.status)
     && (!term || [u.fullName, u.username, u.staffId, u.department, u.roleLabel, u.email].some(v => v?.toLowerCase().includes(term))));
 }
 
@@ -280,6 +284,31 @@ export async function changeAdminRole(input: { userId: number; role: (typeof ASS
   return { ok: true };
 }
 
+export async function setAdminRoles(input: { userId: number; roles: (typeof ASSIGNABLE_ROLES)[number][] }, actor: Actor, req?: Request) {
+  const db = await requireDb();
+  const current = await assertCanManage(actor, input.userId);
+  const roles = Array.from(new Set(input.roles));
+  if (!roles.length) fail("AT_LEAST_ONE_ROLE_REQUIRED");
+  if (input.userId === actor.id) fail("CANNOT_CHANGE_OWN_ROLE");
+  const actorIsManager = await hasManagePermissions(await actorRole(actor));
+  const nextIsManager = roles.some(role => ["super_admin", "admin"].includes(permissionRole(role)));
+  if (nextIsManager && !actorIsManager) fail("ONLY_SUPER_ADMIN_MANAGES_SUPER_ADMIN");
+  if (await hasManagePermissions(current) && !nextIsManager) await assertNotLastPermissionManager(input.userId);
+  const profile = (await db.select().from(staffProfiles).where(eq(staffProfiles.userId, input.userId)).limit(1))[0];
+  const user = (await db.select().from(users).where(eq(users.id, input.userId)).limit(1))[0];
+  if (!user) fail("USER_NOT_FOUND");
+  const primary = (roles.find(role => role !== "exam_council") ?? "other") as StaffRole;
+  if (profile) await db.update(staffProfiles).set({ role: primary }).where(eq(staffProfiles.userId, input.userId));
+  else await db.insert(staffProfiles).values({ userId: input.userId, teacherCode: await nextTeacherCode(), displayName: user.name ?? user.username ?? `User ${user.id}`, role: primary, status: "active" });
+  await db.delete(userRoles).where(eq(userRoles.userId, input.userId));
+  const additional = roles.filter(role => role !== primary);
+  if (additional.length) await db.insert(userRoles).values(additional.map(role => ({ userId: input.userId, role })));
+  await db.update(users).set({ role: nextIsManager ? "admin" : "user" }).where(eq(users.id, input.userId));
+  if (!["teacher", "class_teacher"].includes(permissionRole(primary))) await db.update(teacherAllocations).set({ status: "inactive" }).where(and(eq(teacherAllocations.teacherUserId, input.userId), eq(teacherAllocations.status, "active")));
+  await audit(actor.id, "admin.roles.change", input.userId, { from: current, to: roles }, req);
+  return { ok: true, roles };
+}
+
 export async function changeAdminAssignment(input: { userId: number; classGradeId?: number | null; subjectAllocations: { gradeId: number; subjectId: number }[] }, actor: Actor, req?: Request) {
   const role = await assertCanManage(actor, input.userId);
   await applyAssignments(actor.id, input.userId, role, input.classGradeId, input.subjectAllocations);
@@ -379,10 +408,14 @@ export async function getPermissionMatrixView(input: { role?: string; userId?: n
   const base = { modules: MODULES.map(([key, label]) => ({ key, label })), actions: [...ACTIONS], roles: roles.map(r => ({ value: r, label: ROLE_LABELS[r] })) };
   if (input.userId) {
     const role = (await getAccessProfile(input.userId)).role;
-    const granted = await roleMatrix(role);
+    const assigned = await assignedRoles(input.userId);
+    const inherited = new Set<string>();
+    for (const assignedRole of assigned) for (const key of Array.from(await roleMatrix(assignedRole))) inherited.add(key);
     const overrides = await db.select().from(userPermissions).where(eq(userPermissions.userId, input.userId));
     const o = new Map(overrides.map(r => [r.permissionKey, !!r.allowed]));
-    return { ...base, subject: { type: "user" as const, userId: input.userId, role, locked: granted.has(MANAGE_PERMISSIONS) }, granted: MATRIX_KEYS.filter(k => o.has(k) ? o.get(k) : granted.has(k)), inherited: MATRIX_KEYS.filter(k => granted.has(k)), overrides: Object.fromEntries(o) };
+    const effective = await computePermissions(input.userId, "user");
+    const effectiveSet = new Set(effective);
+    return { ...base, subject: { type: "user" as const, userId: input.userId, role, roles: assigned, locked: inherited.has(MANAGE_PERMISSIONS) || inherited.has("*") }, granted: MATRIX_KEYS.filter(k => o.has(k) ? o.get(k) : effectiveSet.has("*") || effectiveSet.has(k)), inherited: MATRIX_KEYS.filter(k => inherited.has("*") || inherited.has(k)), overrides: Object.fromEntries(o) };
   }
   const role = permissionRole(input.role ?? "teacher");
   const granted = await roleMatrix(role);

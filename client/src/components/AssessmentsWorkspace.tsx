@@ -27,6 +27,8 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
   const [mode, setMode] = useState<ViewMode>("entry");
   const reviewAccess = trpc.smis.assessments.reviewAccess.useQuery();
   const mayReview = canReview || reviewAccess.data === true;
+  const creationAccess = trpc.smis.assessments.creationAccess.useQuery();
+  const wholeClassAccess = trpc.smis.assessments.wholeClassAccess.useQuery();
   const catalog = trpc.smis.people.catalog.useQuery(undefined, { enabled: mayReview });
   const [newGrade, setNewGrade] = useState("");
   const [newStream, setNewStream] = useState("");
@@ -105,6 +107,9 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
     }
   }, [scopes.data, selectedScopeKey]);
   useEffect(() => {
+    if (wholeClassAccess.data === true && creationAccess.data === false) setMode("marklist");
+  }, [wholeClassAccess.data, creationAccess.data]);
+  useEffect(() => {
     if (!entry.data) return;
     setDraftScores(Object.fromEntries(entry.data.learners.map(row => [row.learnerId, row.score == null ? "" : String(row.score)])));
   }, [entry.data]);
@@ -182,7 +187,7 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
   return <div className="assessment-workspace page-enter space-y-5">
     <header className="flex flex-col gap-4 border-b border-[#dfdbd1] pb-5 lg:flex-row lg:items-end lg:justify-between">
       <div><p className="eyebrow">Assessments · single source of truth</p><h1 className="mt-1 font-editorial text-3xl text-[#193d32]">Mark entry & class marklist</h1><p className="mt-2 max-w-3xl text-sm leading-6 text-[#69796f]">Marks are linked to year, term, assessment type, class, subject and allocated teacher. Report cards read directly from these records.</p></div>
-      <div className="flex gap-2"><button type="button" className={`quiet-button ${mode === "entry" ? "bg-[#e7f0e7] text-[#1d6a57]" : ""}`} onClick={() => setMode("entry")}>Teacher entry</button><button type="button" className={`quiet-button ${mode === "marklist" ? "bg-[#e7f0e7] text-[#1d6a57]" : ""}`} onClick={() => setMode("marklist")}>Class marklist</button></div>
+      <div className="flex flex-wrap gap-2"><button type="button" className={`quiet-button ${mode === "entry" ? "bg-[#e7f0e7] text-[#1d6a57]" : ""}`} onClick={() => setMode("entry")}>Teacher entry</button>{wholeClassAccess.data === true && <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[#d8ded7] bg-[#fffefa] px-3 py-2 text-xs font-bold text-[#28483f]"><input type="checkbox" checked={mode === "marklist"} onChange={event => setMode(event.target.checked ? "marklist" : "entry")} />Whole Class Marklist (All Subjects)</label>}</div>
     </header>
     <section className="soft-card grid gap-3 rounded-xl p-4 sm:grid-cols-[1fr_10rem_1.2fr_auto] sm:items-end">
       <label className="text-xs font-bold text-[#53675d]">Allocated class & subject<select value={selectedScopeKey} onChange={event => selectScope(event.target.value)} className="mt-2 w-full rounded-lg border border-[#d8ded7] bg-[#fffefa] px-3 py-2.5 text-sm">
@@ -190,8 +195,8 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
         {scopes.data?.map(row => <option key={scopeKey(row)} value={scopeKey(row)}>{row.gradeName}{row.gradeStream ? ` ${row.gradeStream}` : ""} · {row.subjectName} · {row.term} {row.academicYear} · {row.teacherName}</option>)}
       </select></label>
       {mode === "entry" ? <label className="text-xs font-bold text-[#53675d]">Assessment type<select value={assessmentType} onChange={event => { setAssessmentType(event.target.value as AssessmentType); setAssessmentId(null); }} className="mt-2 w-full rounded-lg border border-[#d8ded7] bg-[#fffefa] px-3 py-2.5 text-sm"><option value="mid_term">Mid-Term</option><option value="end_term">End-Term</option></select></label> : <div className="text-xs text-[#718077]">Choose Mid-Term, End-Term, or Average below.</div>}
-      {mode === "entry" && <label className="text-xs font-bold text-[#53675d]">Create New Assessment<input value={customTitle} onChange={event => setCustomTitle(event.target.value)} maxLength={120} placeholder="Optional custom title" className="mt-2 w-full rounded-lg border border-[#d8ded7] bg-[#fffefa] px-3 py-2.5 text-sm" /></label>}
-      {mode === "entry" && <button type="button" onClick={openSelected} disabled={!scope || openAssessment.isPending} className="action-button justify-center disabled:opacity-50">{openAssessment.isPending ? "Loading…" : "Load learner roster"}</button>}
+      {mode === "entry" && creationAccess.data === true && <label className="text-xs font-bold text-[#53675d]">Create New Assessment<input value={customTitle} onChange={event => setCustomTitle(event.target.value)} maxLength={120} placeholder="Optional custom title" className="mt-2 w-full rounded-lg border border-[#d8ded7] bg-[#fffefa] px-3 py-2.5 text-sm" /></label>}
+      {mode === "entry" && creationAccess.data === true && <button type="button" onClick={openSelected} disabled={!scope || openAssessment.isPending} className="action-button justify-center disabled:opacity-50">{openAssessment.isPending ? "Loading…" : "Load learner roster"}</button>}
     </section>
     {!scopes.isLoading && !scopes.data?.length && <section className="rounded-xl border border-dashed border-[#ccd8ce] bg-[#f7f8f3] p-5">
       <h2 className="font-bold text-[#28483f]">No active teacher allocations</h2>

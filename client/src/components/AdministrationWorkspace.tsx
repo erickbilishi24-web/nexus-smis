@@ -14,7 +14,7 @@ import type { AppRouter } from "../../../server/routers";
 type Out = inferRouterOutputs<AppRouter>["smis"]["administration"];
 type Row = Out["list"][number];
 type Catalog = Out["catalog"];
-type Role = "super_admin" | "admin" | "teacher" | "class_teacher" | "finance" | "other";
+type Role = "super_admin" | "admin" | "teacher" | "class_teacher" | "exam_council" | "finance" | "other";
 type Alloc = { gradeId: number; subjectId: number };
 
 const field = "mt-1 w-full rounded-lg border border-[#d8ddd4] bg-[#fffefa] px-3 py-2 text-sm text-[#28483f] outline-none focus:border-[#1d6a57]";
@@ -152,12 +152,13 @@ function UserDialog({ mode, row, catalog, isSuper, onClose, onLink }: { mode: "c
 }
 
 function RoleDialog({ row, catalog, onClose }: { row: Row | null; catalog: Catalog; onClose: () => void }) {
-  const utils = trpc.useUtils(); const [role, setRole] = useState<Role>("teacher");
-  const m = trpc.smis.administration.changeRole.useMutation({ onSuccess: () => { toast.success("Role updated"); utils.smis.administration.invalidate(); onClose(); }, onError: e => toast.error(errText(e.message)) });
+  const utils = trpc.useUtils(); const [roles, setRoles] = useState<Role[]>(() => (row?.roles ?? [row?.role ?? "teacher"]) as Role[]);
+  const m = trpc.smis.administration.setRoles.useMutation({ onSuccess: () => { toast.success("Roles updated"); utils.smis.administration.invalidate(); onClose(); }, onError: e => toast.error(errText(e.message)) });
+  const toggle = (role: Role) => setRoles(current => current.includes(role) ? current.filter(value => value !== role) : [...current, role]);
   return <Dialog open={!!row} onOpenChange={o => !o && onClose()}><DialogContent>
-    <DialogHeader><DialogTitle>Change role · {row?.fullName}</DialogTitle><DialogDescription>Currently {row?.roleLabel}. Access changes take effect on the user's next request.</DialogDescription></DialogHeader>
-    <select className={field} value={role} onChange={e => setRole(e.target.value as Role)}>{catalog.roles.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}</select>
-    <DialogFooter><button className={ghost} onClick={onClose}>Cancel</button><button className="action-button" disabled={m.isPending} onClick={() => row && m.mutate({ userId: row.userId, role })}>Change role</button></DialogFooter>
+    <DialogHeader><DialogTitle>Manage roles · {row?.fullName}</DialogTitle><DialogDescription>Roles are additive. Job designation, class assignment and subject allocations remain separate. Access changes take effect on the user's next request.</DialogDescription></DialogHeader>
+    <div className="grid gap-2">{catalog.roles.map(r => <label key={r.value} className="flex items-center gap-3 rounded-lg border border-[#d8ddd4] px-3 py-2 text-sm"><input type="checkbox" checked={roles.includes(r.value as Role)} onChange={() => toggle(r.value as Role)} />{r.label}</label>)}</div>
+    <DialogFooter><button className={ghost} onClick={onClose}>Cancel</button><button className="action-button" disabled={m.isPending || !roles.length} onClick={() => row && m.mutate({ userId: row.userId, roles })}>Save roles</button></DialogFooter>
   </DialogContent></Dialog>;
 }
 

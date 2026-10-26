@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { permissionCatalog, permissionsByRole } from "./smis";
+import { rolesCanCreateAssessments, rolesCanViewWholeClassMarklist } from "./access";
 
 describe("NEXUS-SMIS permission model", () => {
   it("includes the critical granular permissions", () => {
@@ -31,5 +32,14 @@ describe("NEXUS-SMIS permission model", () => {
     expect(permissionsByRole.admin).toContain("archives.view");
     expect(permissionsByRole.admin).toContain("archives.edit");
     expect(permissionsByRole.admin).not.toContain("counselling.view");
+  });
+
+  it("keeps Exam Council read-only for consolidated marklists", () => {
+    expect(permissionsByRole.exam_council).toEqual(expect.arrayContaining(["assessments.view", "marklists.view"]));
+    expect(permissionsByRole.exam_council).not.toContain("assessments.edit");
+    expect(rolesCanViewWholeClassMarklist(["exam_council"])).toBe(true);
+    expect(rolesCanCreateAssessments(["exam_council"])).toBe(false);
+    expect(rolesCanCreateAssessments(["teacher", "exam_council"])).toBe(false);
+    expect(rolesCanCreateAssessments(["admin"])).toBe(true);
   });
 });

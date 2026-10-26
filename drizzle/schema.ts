@@ -81,7 +81,7 @@ export const staffProfiles = mysqlTable("staff_profiles", {
   designation: varchar("designation", { length: 120 }),
   email: varchar("email", { length: 320 }),
   phone: varchar("phone", { length: 40 }),
-  role: mysqlEnum("role", ["super_admin", "admin", "teacher", "class_teacher", "senior_teacher", "deputy_head", "head_teacher", "finance", "storekeeper", "other"]).notNull().default("other"),
+  role: mysqlEnum("role", ["super_admin", "admin", "teacher", "class_teacher", "exam_council", "senior_teacher", "deputy_head", "head_teacher", "finance", "storekeeper", "other"]).notNull().default("other"),
   status: mysqlEnum("status", ["active", "disabled"]).notNull().default("active"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, table => ({ staffSchoolNameIdx: index("staff_school_name_idx").on(table.schoolId, table.displayName) }));
@@ -436,6 +436,14 @@ export const userPermissions = mysqlTable("user_permissions", {
   permissionKey: varchar("permissionKey", { length: 120 }).notNull(),
   allowed: int("allowed").notNull().default(1),
 });
+
+/** Additive role assignments. The legacy staff_profiles.role remains the fallback role. */
+export const userRoles = mysqlTable("user_roles", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  role: varchar("role", { length: 40 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => ({ userRoleUnique: uniqueIndex("user_role_unique").on(table.userId, table.role) }));
 
 export const expenditures = mysqlTable("expenditures", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
