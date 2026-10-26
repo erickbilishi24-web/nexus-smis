@@ -4,7 +4,7 @@ import { trpc } from "@/lib/trpc";
 import { attendanceGradeLevel } from "../../../shared/attendance";
 
 type ScheduleRow = {
-  entry: { dayOfWeek: number; period: number; gradeId: number; subjectId: number; teacherUserId: number; room: string | null };
+  entry: { dayOfWeek: number; period: number; gradeId: number; subjectId: number; teacherUserId: number; room: string | null; isForcePlaced?: boolean };
   grade: { name: string; stream: string | null } | null;
   subject: { code: string; name: string } | null;
   staff?: { teacherCode: number | null; displayName: string } | null;
@@ -56,8 +56,8 @@ function PeriodCells({ entries, day, gradeId, multiGrade = false, firstRow = fal
     if (current) {
       while (period + span <= 9 && !breakAfter[period + span - 1] && sameLesson(current, cellFor(period + span, gradeId))) span += 1;
     }
-    cells.push(<td key={`p${period}`} colSpan={span} className={`personal-time-subject-cell ${current ? "has-lesson" : "is-empty"}`}>
-      {current ? <><b>{subjectCode(current, shortNames)}</b><span>{gradeLabel(current)}</span>{current.entry.room && <small>{current.entry.room}</small>}{multiGrade && current.staff?.teacherCode != null && <small className="personal-time-code">{String(current.staff.teacherCode).padStart(2, "0")}</small>}</> : <span className="personal-time-empty">—</span>}
+    cells.push(<td key={`p${period}`} colSpan={span} title={current?.entry.isForcePlaced ? "Force-placed lesson · review this placement" : undefined} className={`personal-time-subject-cell ${current ? "has-lesson" : "is-empty"} ${current?.entry.isForcePlaced ? "ring-2 ring-inset ring-[#b7791f] bg-[#fff1c7]" : ""}`}>
+      {current ? <><b>{subjectCode(current, shortNames)}</b>{current.entry.isForcePlaced && <small className="font-bold text-[#8a5b16]">Force-placed · review</small>}<span>{gradeLabel(current)}</span>{current.entry.room && <small>{current.entry.room}</small>}{multiGrade && current.staff?.teacherCode != null && <small className="personal-time-code">{String(current.staff.teacherCode).padStart(2, "0")}</small>}</> : <span className="personal-time-empty">—</span>}
     </td>);
     period += span;
     const breakInfo = breakAfter[period - 1];

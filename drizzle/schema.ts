@@ -258,6 +258,7 @@ export const timetableEntries = mysqlTable("timetable_entries", {
   dayOfWeek: int("dayOfWeek").notNull(),
   period: int("period").notNull(),
   room: varchar("room", { length: 80 }),
+  isForcePlaced: boolean("isForcePlaced").notNull().default(false),
 }, table => ({ timetableGradeSlotUnique: uniqueIndex("timetable_grade_slot_unique").on(table.gradeId, table.dayOfWeek, table.period) }));
 
 export const timetableRequirements = mysqlTable("timetable_requirements", {

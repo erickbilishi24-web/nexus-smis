@@ -1,0 +1,1 @@
+ALTER TABLE `timetable_entries` ADD `isForcePlaced` boolean DEFAULT false NOT NULL;

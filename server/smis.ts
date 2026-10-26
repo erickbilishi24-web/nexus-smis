@@ -557,7 +557,7 @@ export async function recordStoreMovement(input: { itemId: number; movementType:
   return { ok: true };
 }
 
-type TimetableVersionEntry = { gradeId: number; subjectId: number; teacherUserId: number; dayOfWeek: number; period: number; room?: string | null; schoolId?: number | null };
+type TimetableVersionEntry = { gradeId: number; subjectId: number; teacherUserId: number; dayOfWeek: number; period: number; room?: string | null; schoolId?: number | null; isForcePlaced?: boolean };
 
 type TimetableVersionMetadata = { label?: string; placed?: number; unplaced?: Array<{ grade: string; subject: string; missing: number }>; entries: TimetableVersionEntry[] };
 
@@ -592,7 +592,7 @@ export async function restoreTimetableVersion(versionId: number, userId: number)
   const schoolGrades = await db.select({ id: grades.id }).from(grades).where(eq(grades.schoolId, schoolId));
   const gradeIds = schoolGrades.map(row => row.id);
   if (gradeIds.length) await db.delete(timetableEntries).where(inArray(timetableEntries.gradeId, gradeIds));
-  if (entries.length) await db.insert(timetableEntries).values(entries.map(entry => ({ gradeId: entry.gradeId, subjectId: entry.subjectId, teacherUserId: entry.teacherUserId, dayOfWeek: entry.dayOfWeek, period: entry.period, room: entry.room ?? null, schoolId })));
+  if (entries.length) await db.insert(timetableEntries).values(entries.map(entry => ({ gradeId: entry.gradeId, subjectId: entry.subjectId, teacherUserId: entry.teacherUserId, dayOfWeek: entry.dayOfWeek, period: entry.period, room: entry.room ?? null, schoolId, isForcePlaced: Boolean(entry.isForcePlaced) })));
   await writeAudit(userId, "timetable.version.restore", "timetable", versionId, { restoredVersionId: versionId, entryCount: entries.length });
   return { restoredVersionId: versionId, placed: entries.length };
 }
@@ -863,7 +863,7 @@ export function areLanguageSubjectsAdjacent(subjectAtClassSlot: Map<string, stri
 }
 
 
-export async function saveEditedTimetable(entries: Array<{ dayOfWeek: number; period: number; gradeId: number; subjectId: number; teacherUserId: number; room?: string | null }>, userId: number) {
+export async function saveEditedTimetable(entries: Array<{ dayOfWeek: number; period: number; gradeId: number; subjectId: number; teacherUserId: number; room?: string | null; isForcePlaced?: boolean }>, userId: number) {
   const conflicts = timetableConflicts(entries);
   if (conflicts.length) throw new Error(`TIMETABLE_CLASH:${conflicts.join(",")}`);
   const db = await requireDb();
@@ -874,13 +874,13 @@ export async function saveEditedTimetable(entries: Array<{ dayOfWeek: number; pe
   if (unallocated.length) throw new Error(`UNALLOCATED_SUBJECT:${unallocated[0].gradeId}:${unallocated[0].subjectId}:${unallocated[0].teacherUserId}`);
   await db.transaction(async tx => {
     await tx.delete(timetableEntries).where(eq(timetableEntries.schoolId, schoolId));
-    if (entries.length) await tx.insert(timetableEntries).values(entries.map(entry => ({ ...entry, room: entry.room ?? null, schoolId })));
+    if (entries.length) await tx.insert(timetableEntries).values(entries.map(entry => ({ ...entry, room: entry.room ?? null, schoolId, isForcePlaced: Boolean(entry.isForcePlaced) })));
   });
   await writeAudit(userId, "timetable.edit.save", "timetable", null, { count: entries.length });
   return { saved: entries.length };
 }
 
-export async function generateTimetable(entries: Array<{ dayOfWeek: number; period: number; gradeId: number; subjectId: number; teacherUserId: number; room?: string | null }>, userId: number) {
+export async function generateTimetable(entries: Array<{ dayOfWeek: number; period: number; gradeId: number; subjectId: number; teacherUserId: number; room?: string | null; isForcePlaced?: boolean }>, userId: number) {
   const conflicts = timetableConflicts(entries);
   if (conflicts.length) throw new Error(`TIMETABLE_CLASH:${conflicts.join(",")}`);
   const db = await requireDb();
@@ -889,7 +889,7 @@ export async function generateTimetable(entries: Array<{ dayOfWeek: number; peri
   const activeAllocations = await db.select({ gradeId: teacherAllocations.gradeId, subjectId: teacherAllocations.subjectId, teacherUserId: teacherAllocations.teacherUserId, status: teacherAllocations.status, allocationType: teacherAllocations.allocationType }).from(teacherAllocations).where(and(eq(teacherAllocations.academicYear, Number(settings.academicYear)), eq(teacherAllocations.status, "active")));
   const unallocated = unallocatedTimetableEntries(entries, activeAllocations);
   if (unallocated.length) throw new Error(`UNALLOCATED_SUBJECT:${unallocated[0].gradeId}:${unallocated[0].subjectId}:${unallocated[0].teacherUserId}`);
-  if (entries.length) await db.insert(timetableEntries).values(entries.map(entry => ({ gradeId: entry.gradeId, subjectId: entry.subjectId, teacherUserId: entry.teacherUserId, dayOfWeek: entry.dayOfWeek, period: entry.period, room: entry.room ?? null, schoolId })));
+  if (entries.length) await db.insert(timetableEntries).values(entries.map(entry => ({ gradeId: entry.gradeId, subjectId: entry.subjectId, teacherUserId: entry.teacherUserId, dayOfWeek: entry.dayOfWeek, period: entry.period, room: entry.room ?? null, schoolId, isForcePlaced: Boolean(entry.isForcePlaced) })));
   await writeAudit(userId, "timetable.generate", "timetable", null, { count: entries.length });
   return { placed: entries.length, conflicts: [] };
 }
@@ -914,7 +914,7 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
   const academicYear = input.academicYear ?? Number(settings.academicYear);
   if (input.regenerate) {
     const current = await db.select({ entry: timetableEntries, gradeSchoolId: grades.schoolId }).from(timetableEntries).innerJoin(grades, eq(grades.id, timetableEntries.gradeId)).where(eq(grades.schoolId, schoolId));
-    if (current.length) await snapshotTimetableVersion(userId, "Previous timetable", current.map(row => ({ gradeId: row.entry.gradeId, subjectId: row.entry.subjectId, teacherUserId: row.entry.teacherUserId, dayOfWeek: row.entry.dayOfWeek, period: row.entry.period, room: row.entry.room, schoolId })));
+    if (current.length) await snapshotTimetableVersion(userId, "Previous timetable", current.map(row => ({ gradeId: row.entry.gradeId, subjectId: row.entry.subjectId, teacherUserId: row.entry.teacherUserId, dayOfWeek: row.entry.dayOfWeek, period: row.entry.period, room: row.entry.room, schoolId, isForcePlaced: Boolean(row.entry.isForcePlaced) })));
   }
   const days = input.days ?? 5; const periodsPerDay = input.periodsPerDay ?? 8;
   if (input.regenerate) await db.delete(timetableEntries);
@@ -1048,7 +1048,7 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
       }
       if (!slot) break;
       const teacherId = teachersForForcePlacement[lesson % teachersForForcePlacement.length];
-      await db.insert(timetableEntries).values({ schoolId, gradeId: row.requirement.gradeId, subjectId: row.requirement.subjectId, teacherUserId: teacherId, dayOfWeek: slot.day, period: slot.period, room: null });
+      await db.insert(timetableEntries).values({ schoolId, gradeId: row.requirement.gradeId, subjectId: row.requirement.subjectId, teacherUserId: teacherId, dayOfWeek: slot.day, period: slot.period, room: null, isForcePlaced: true });
       occupied.add(`${row.requirement.gradeId}:${slot.day}:${slot.period}`);
       subjectDays.add(`${row.requirement.gradeId}:${row.requirement.subjectId}:${slot.day}`);
       subjectAtClassSlot.set(`${row.requirement.gradeId}:${slot.day}:${slot.period}`, String(row.requirement.subjectId));
@@ -1082,7 +1082,7 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
       }
       if (!slot) break;
       const teacherId = teachersForLastChance[lesson % teachersForLastChance.length];
-      await db.insert(timetableEntries).values({ schoolId, gradeId: row.requirement.gradeId, subjectId: row.requirement.subjectId, teacherUserId: teacherId, dayOfWeek: slot.day, period: slot.period, room: null });
+      await db.insert(timetableEntries).values({ schoolId, gradeId: row.requirement.gradeId, subjectId: row.requirement.subjectId, teacherUserId: teacherId, dayOfWeek: slot.day, period: slot.period, room: null, isForcePlaced: true });
       occupied.add(`${row.requirement.gradeId}:${slot.day}:${slot.period}`);
       subjectAtClassSlot.set(`${row.requirement.gradeId}:${slot.day}:${slot.period}`, String(row.requirement.subjectId));
       teacherAtClassSlot.set(`${row.requirement.gradeId}:${slot.day}:${slot.period}`, teacherId);
@@ -1122,7 +1122,7 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
         }
         if (!slot) break;
         const teacherId = teachersForRecovery[scheduled % teachersForRecovery.length];
-        await db.insert(timetableEntries).values({ schoolId, gradeId: row.requirement.gradeId, subjectId: row.requirement.subjectId, teacherUserId: teacherId, dayOfWeek: slot.day, period: slot.period, room: null });
+        await db.insert(timetableEntries).values({ schoolId, gradeId: row.requirement.gradeId, subjectId: row.requirement.subjectId, teacherUserId: teacherId, dayOfWeek: slot.day, period: slot.period, room: null, isForcePlaced: true });
         freshOccupied.add(`${row.requirement.gradeId}:${slot.day}:${slot.period}`);
         freshSubjectDays.add(`${row.requirement.gradeId}:${row.requirement.subjectId}:${slot.day}`);
         scheduled += 1;
@@ -1145,7 +1145,7 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
   await writeAudit(userId, "timetable.generate.automatic", "timetable", null, { academicYear, placed, unplaced, fallbackConflicts, validationWarnings, duplicateCount, regenerate: input.regenerate, forcePlace: Boolean(input.forcePlace) });
   if (input.regenerate) {
     const generated = await db.select({ entry: timetableEntries, gradeSchoolId: grades.schoolId }).from(timetableEntries).innerJoin(grades, eq(grades.id, timetableEntries.gradeId)).where(eq(grades.schoolId, schoolId));
-    await snapshotTimetableVersion(userId, "Generated timetable", generated.map(row => ({ gradeId: row.entry.gradeId, subjectId: row.entry.subjectId, teacherUserId: row.entry.teacherUserId, dayOfWeek: row.entry.dayOfWeek, period: row.entry.period, room: row.entry.room, schoolId })), { placed, unplaced });
+    await snapshotTimetableVersion(userId, "Generated timetable", generated.map(row => ({ gradeId: row.entry.gradeId, subjectId: row.entry.subjectId, teacherUserId: row.entry.teacherUserId, dayOfWeek: row.entry.dayOfWeek, period: row.entry.period, room: row.entry.room, schoolId, isForcePlaced: Boolean(row.entry.isForcePlaced) })), { placed, unplaced });
   }
   return { placed, unplaced, fallbackConflicts, validationWarnings, regenerated: input.regenerate, requirements: requirements.length, slots: days * periodsPerDay };
 }

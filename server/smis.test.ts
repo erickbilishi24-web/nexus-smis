@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { areLanguageSubjectsAdjacent, allocationContextConflict, assertScore, buildTimetableAuditRows, buildTimetableValidationReport, hasAdjacentTeacherLesson, timetableEntriesAlignedWithAllocations, unallocatedTimetableEntries, canAccessAttendanceGrade, canCaptureAttendance, cbcLevel, isAttendanceAdmin, isPreNoonTimetableSubject, resolveImportGrade, timetableConflicts } from "./smis";
+import { swapTimetableDraftEntries, type TimetableDraftEntry } from "../shared/timetable";
 
 describe("Kenyan SMIS backend rules", () => {
   it("maps the CBC eight-level scale correctly", () => {
@@ -140,5 +141,22 @@ describe("language adjacency timetable rule", () => {
     const slots = new Map([["7:1:2", "2"]]);
     expect(areLanguageSubjectsAdjacent(slots, subjects, 7, 1, 1, 1)).toBe(true);
     expect(areLanguageSubjectsAdjacent(slots, subjects, 7, 1, 1, 3)).toBe(false);
+  });
+});
+
+describe("manual timetable drag-and-drop draft swaps", () => {
+  const first: TimetableDraftEntry = { sourceId: 11, gradeId: 7, subjectId: 2, teacherUserId: 12, dayOfWeek: 1, period: 1, room: null, isForcePlaced: true };
+  const second: TimetableDraftEntry = { sourceId: 12, gradeId: 7, subjectId: 3, teacherUserId: 13, dayOfWeek: 1, period: 2, room: null, isForcePlaced: false };
+
+  it("swaps two lessons while preserving their force-placement markers", () => {
+    const result = swapTimetableDraftEntries({ "7:1:1": first, "7:1:2": second }, "7:1:1", "7:1:2", 7, 1, 2);
+    expect(result["7:1:1"]).toMatchObject({ subjectId: 3, teacherUserId: 13, isForcePlaced: false });
+    expect(result["7:1:2"]).toMatchObject({ subjectId: 2, teacherUserId: 12, isForcePlaced: true });
+  });
+
+  it("moves a lesson into an empty slot without discarding its metadata", () => {
+    const result = swapTimetableDraftEntries({ "7:1:1": first }, "7:1:1", "7:1:3", 7, 1, 3);
+    expect(result["7:1:1"]).toBeUndefined();
+    expect(result["7:1:3"]).toMatchObject({ subjectId: 2, dayOfWeek: 1, period: 3, isForcePlaced: true });
   });
 });
