@@ -847,6 +847,21 @@ export function isPreNoonTimetableSubject(subjectName: string) {
 export function hasAdjacentTeacherLesson(teacherAtClassSlot: Map<string, number>, gradeId: number, teacherId: number, day: number, period: number) {
   return teacherAtClassSlot.get(`${gradeId}:${day}:${period - 1}`) === teacherId || teacherAtClassSlot.get(`${gradeId}:${day}:${period + 1}`) === teacherId;
 }
+export function areLanguageSubjectsAdjacent(subjectAtClassSlot: Map<string, string>, subjectNameById: Map<number, string>, gradeId: number, subjectId: number, day: number, period: number) {
+  const normalize = (value: string) => value.replace(/^CBC[-\s]*/i, "").replace(/[^a-z]/gi, "").toLowerCase();
+  const current = normalize(subjectNameById.get(subjectId) ?? "");
+  const isLanguage = current === "english" || current === "kiswahili";
+  if (!isLanguage) return false;
+  const adjacentPeriods = period % 2 === 1 ? [period + 1] : [period - 1];
+  for (const adjacentPeriod of adjacentPeriods) {
+    const adjacentSubjectId = subjectAtClassSlot.get(`${gradeId}:${day}:${adjacentPeriod}`);
+    if (!adjacentSubjectId) continue;
+    const adjacent = normalize(subjectNameById.get(Number(adjacentSubjectId)) ?? adjacentSubjectId);
+    if ((current === "english" && adjacent === "kiswahili") || (current === "kiswahili" && adjacent === "english")) return true;
+  }
+  return false;
+}
+
 
 export async function saveEditedTimetable(entries: Array<{ dayOfWeek: number; period: number; gradeId: number; subjectId: number; teacherUserId: number; room?: string | null }>, userId: number) {
   const conflicts = timetableConflicts(entries);
@@ -939,7 +954,7 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
   const existing = timetableEntriesAlignedWithAllocations(existingRows.filter(entry => !incompatiblePreNoonRows.some(row => row.id === entry.id)), allocations);
   const staleIds = existingRows.filter(entry => !existing.some(valid => valid.id === entry.id)).map(entry => entry.id);
   if (staleIds.length) await db.delete(timetableEntries).where(inArray(timetableEntries.id, staleIds));
-  const occupied = new Set(existing.map(entry => `${entry.gradeId}:${entry.dayOfWeek}:${entry.period}`)); const subjectDays = new Set(existing.map(entry => `${entry.gradeId}:${entry.subjectId}:${entry.dayOfWeek}`)); const teacherBusy = new Set(existing.map(entry => `${entry.teacherUserId}:${entry.dayOfWeek}:${entry.period}`)); const teacherAtClassSlot = new Map(existing.map(entry => [`${entry.gradeId}:${entry.dayOfWeek}:${entry.period}`, entry.teacherUserId] as const)); const teacherLoad = new Map<number, number>();
+  const subjectNameById = new Map(requirements.map(row => [row.subject.id, row.subject.name])); const occupied = new Set(existing.map(entry => `${entry.gradeId}:${entry.dayOfWeek}:${entry.period}`)); const subjectDays = new Set(existing.map(entry => `${entry.gradeId}:${entry.subjectId}:${entry.dayOfWeek}`)); const teacherBusy = new Set(existing.map(entry => `${entry.teacherUserId}:${entry.dayOfWeek}:${entry.period}`)); const teacherAtClassSlot = new Map(existing.map(entry => [`${entry.gradeId}:${entry.dayOfWeek}:${entry.period}`, entry.teacherUserId] as const)); const subjectAtClassSlot = new Map(existing.map(entry => [`${entry.gradeId}:${entry.dayOfWeek}:${entry.period}`, String(entry.subjectId)] as const)); const teacherLoad = new Map<number, number>();
   for (const entry of existing) teacherLoad.set(entry.teacherUserId, (teacherLoad.get(entry.teacherUserId) ?? 0) + 1);
   const counts = new Map<string, number>(); for (const entry of existing) counts.set(`${entry.gradeId}:${entry.subjectId}`, (counts.get(`${entry.gradeId}:${entry.subjectId}`) ?? 0) + 1);
   const unplaced: Array<{ grade: string; subject: string; missing: number }> = []; const fallbackConflicts: Array<{ grade: string; subject: string; teacherId: number; day: number; period: number }> = []; let placed = 0;
@@ -949,10 +964,10 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
     const latestAllowedPeriod = mustBeBeforeLunch ? Math.min(5, periodsPerDay) : periodsPerDay;
     for (let lesson = 0; lesson < needed; lesson += 1) {
       let best: { teacherId: number; day: number; period: number; load: number } | null = null;
-      for (let day = 1; day <= days; day += 1) for (let period = 1; period <= latestAllowedPeriod; period += 1) { if (occupied.has(`${row.requirement.gradeId}:${day}:${period}`)) continue; for (const teacherId of teachers) { if (teacherBusy.has(`${teacherId}:${day}:${period}`) || subjectDays.has(`${row.requirement.gradeId}:${row.requirement.subjectId}:${day}`) || hasAdjacentTeacherLesson(teacherAtClassSlot, row.requirement.gradeId, teacherId, day, period)) continue; const load = teacherLoad.get(teacherId) ?? 0; if (!best || load < best.load) best = { teacherId, day, period, load }; } }
+      for (let day = 1; day <= days; day += 1) for (let period = 1; period <= latestAllowedPeriod; period += 1) { if (occupied.has(`${row.requirement.gradeId}:${day}:${period}`)) continue; for (const teacherId of teachers) { if (teacherBusy.has(`${teacherId}:${day}:${period}`) || subjectDays.has(`${row.requirement.gradeId}:${row.requirement.subjectId}:${day}`) || areLanguageSubjectsAdjacent(subjectAtClassSlot, subjectNameById, row.requirement.gradeId, row.requirement.subjectId, day, period) || hasAdjacentTeacherLesson(teacherAtClassSlot, row.requirement.gradeId, teacherId, day, period)) continue; const load = teacherLoad.get(teacherId) ?? 0; if (!best || load < best.load) best = { teacherId, day, period, load }; } }
       if (!best) continue;
       await db.insert(timetableEntries).values({ schoolId, gradeId: row.requirement.gradeId, subjectId: row.requirement.subjectId, teacherUserId: best.teacherId, dayOfWeek: best.day, period: best.period, room: null });
-      occupied.add(`${row.requirement.gradeId}:${best.day}:${best.period}`); subjectDays.add(`${row.requirement.gradeId}:${row.requirement.subjectId}:${best.day}`); teacherBusy.add(`${best.teacherId}:${best.day}:${best.period}`); teacherAtClassSlot.set(`${row.requirement.gradeId}:${best.day}:${best.period}`, best.teacherId); teacherLoad.set(best.teacherId, best.load + 1); placed += 1; missing -= 1;
+      occupied.add(`${row.requirement.gradeId}:${best.day}:${best.period}`); subjectDays.add(`${row.requirement.gradeId}:${row.requirement.subjectId}:${best.day}`); teacherBusy.add(`${best.teacherId}:${best.day}:${best.period}`); teacherAtClassSlot.set(`${row.requirement.gradeId}:${best.day}:${best.period}`, best.teacherId); subjectAtClassSlot.set(`${row.requirement.gradeId}:${best.day}:${best.period}`, String(row.requirement.subjectId)); teacherLoad.set(best.teacherId, best.load + 1); placed += 1; missing -= 1;
     }
     if (missing > 0 && teachers.length) {
       for (let lesson = 0; lesson < missing; lesson += 1) {
@@ -963,6 +978,7 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
           // must be free at this day/period, regardless of the display code.
           // If every available teacher would be adjacent to another lesson, allow
           // the soft spacing exception, but never reuse a busy teacher slot.
+          if (areLanguageSubjectsAdjacent(subjectAtClassSlot, subjectNameById, row.requirement.gradeId, row.requirement.subjectId, day, period)) continue;
           const availableTeacher = teachers.find(teacherId => !teacherBusy.has(`${teacherId}:${day}:${period}`) && !hasAdjacentTeacherLesson(teacherAtClassSlot, row.requirement.gradeId, teacherId, day, period))
             ?? teachers.find(teacherId => !teacherBusy.has(`${teacherId}:${day}:${period}`));
           if (availableTeacher == null) continue;
@@ -970,14 +986,14 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
         }
         if (!fallback) break;
         await db.insert(timetableEntries).values({ schoolId, gradeId: row.requirement.gradeId, subjectId: row.requirement.subjectId, teacherUserId: fallback.teacherId, dayOfWeek: fallback.day, period: fallback.period, room: null });
-        occupied.add(`${row.requirement.gradeId}:${fallback.day}:${fallback.period}`); subjectDays.add(`${row.requirement.gradeId}:${row.requirement.subjectId}:${fallback.day}`); teacherAtClassSlot.set(`${row.requirement.gradeId}:${fallback.day}:${fallback.period}`, fallback.teacherId); teacherLoad.set(fallback.teacherId, (teacherLoad.get(fallback.teacherId) ?? 0) + 1); fallbackConflicts.push({ grade: row.grade.name, subject: row.subject.name, teacherId: fallback.teacherId, day: fallback.day, period: fallback.period }); placed += 1; missing -= 1;
+        occupied.add(`${row.requirement.gradeId}:${fallback.day}:${fallback.period}`); subjectDays.add(`${row.requirement.gradeId}:${row.requirement.subjectId}:${fallback.day}`); teacherAtClassSlot.set(`${row.requirement.gradeId}:${fallback.day}:${fallback.period}`, fallback.teacherId); subjectAtClassSlot.set(`${row.requirement.gradeId}:${fallback.day}:${fallback.period}`, String(row.requirement.subjectId)); teacherLoad.set(fallback.teacherId, (teacherLoad.get(fallback.teacherId) ?? 0) + 1); fallbackConflicts.push({ grade: row.grade.name, subject: row.subject.name, teacherId: fallback.teacherId, day: fallback.day, period: fallback.period }); placed += 1; missing -= 1;
       }
     }
     if (missing > 0) unplaced.push({ grade: row.grade.name, subject: `${row.subject.name}${mustBeBeforeLunch ? " (pre-lunch constraint)" : ""}`, missing });
   }
   if (input.regenerate && unplaced.length) {
     await db.delete(timetableEntries);
-    occupied.clear(); subjectDays.clear(); teacherBusy.clear(); teacherAtClassSlot.clear(); teacherLoad.clear(); counts.clear(); unplaced.length = 0; fallbackConflicts.length = 0; placed = 0;
+    occupied.clear(); subjectDays.clear(); teacherBusy.clear(); teacherAtClassSlot.clear(); subjectAtClassSlot.clear(); teacherLoad.clear(); counts.clear(); unplaced.length = 0; fallbackConflicts.length = 0; placed = 0;
     for (const row of orderedRequirements) {
       const key = `${row.requirement.gradeId}:${row.requirement.subjectId}`; const teachers = Array.from(new Set(eligibleByGradeSubject.get(key) ?? [])); const mustBeBeforeLunch = isPreNoonTimetableSubject(row.subject.name); const latestAllowedPeriod = mustBeBeforeLunch ? Math.min(5, periodsPerDay) : periodsPerDay; let missing = row.requirement.periodsPerWeek;
       for (let lesson = 0; lesson < row.requirement.periodsPerWeek; lesson += 1) {
@@ -986,9 +1002,9 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
           if (subjectDays.has(`${row.requirement.gradeId}:${row.requirement.subjectId}:${day}`)) continue;
           const dayLoad = Array.from(occupied).filter(keyValue => keyValue.startsWith(`${row.requirement.gradeId}:${day}:`)).length;
           for (let period = 1; period <= latestAllowedPeriod; period += 1) {
-            if (occupied.has(`${row.requirement.gradeId}:${day}:${period}`) || !teachers.length) continue;
-            const availableTeachers = teachers.filter(candidate => !teacherBusy.has(`${candidate}:${day}:${period}`) && !hasAdjacentTeacherLesson(teacherAtClassSlot, row.requirement.gradeId, candidate, day, period));
-            const nonBusyTeachers = teachers.filter(candidate => !teacherBusy.has(`${candidate}:${day}:${period}`));
+            if (occupied.has(`${row.requirement.gradeId}:${day}:${period}`) || areLanguageSubjectsAdjacent(subjectAtClassSlot, subjectNameById, row.requirement.gradeId, row.requirement.subjectId, day, period) || !teachers.length) continue;
+            const availableTeachers = teachers.filter(candidate => !teacherBusy.has(`${candidate}:${day}:${period}`) && !areLanguageSubjectsAdjacent(subjectAtClassSlot, subjectNameById, row.requirement.gradeId, row.requirement.subjectId, day, period) && !hasAdjacentTeacherLesson(teacherAtClassSlot, row.requirement.gradeId, candidate, day, period));
+            const nonBusyTeachers = teachers.filter(candidate => !teacherBusy.has(`${candidate}:${day}:${period}`) && !areLanguageSubjectsAdjacent(subjectAtClassSlot, subjectNameById, row.requirement.gradeId, row.requirement.subjectId, day, period));
             const candidateTeachers = availableTeachers.length ? availableTeachers : nonBusyTeachers;
             if (!candidateTeachers.length) continue;
             const teacherId = candidateTeachers.reduce((selected, candidate) => (teacherLoad.get(candidate) ?? 0) < (teacherLoad.get(selected) ?? Number.MAX_SAFE_INTEGER) ? candidate : selected, candidateTeachers[0]);
@@ -997,12 +1013,132 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
         }
         if (!best) break;
         await db.insert(timetableEntries).values({ schoolId, gradeId: row.requirement.gradeId, subjectId: row.requirement.subjectId, teacherUserId: best.teacherId, dayOfWeek: best.day, period: best.period, room: null });
-        occupied.add(`${row.requirement.gradeId}:${best.day}:${best.period}`); subjectDays.add(`${row.requirement.gradeId}:${row.requirement.subjectId}:${best.day}`); teacherBusy.add(`${best.teacherId}:${best.day}:${best.period}`); teacherAtClassSlot.set(`${row.requirement.gradeId}:${best.day}:${best.period}`, best.teacherId); teacherLoad.set(best.teacherId, (teacherLoad.get(best.teacherId) ?? 0) + 1); placed += 1; missing -= 1;
+        occupied.add(`${row.requirement.gradeId}:${best.day}:${best.period}`); subjectDays.add(`${row.requirement.gradeId}:${row.requirement.subjectId}:${best.day}`); teacherBusy.add(`${best.teacherId}:${best.day}:${best.period}`); teacherAtClassSlot.set(`${row.requirement.gradeId}:${best.day}:${best.period}`, best.teacherId); subjectAtClassSlot.set(`${row.requirement.gradeId}:${best.day}:${best.period}`, String(row.requirement.subjectId)); teacherLoad.set(best.teacherId, (teacherLoad.get(best.teacherId) ?? 0) + 1); placed += 1; missing -= 1;
       }
       if (missing > 0) unplaced.push({ grade: row.grade.name, subject: `${row.subject.name}${mustBeBeforeLunch ? " (pre-lunch constraint)" : ""}`, missing });
     }
   }
-  const generatedRows = await db.select().from(timetableEntries);
+  // Final completion pass: never silently omit a configured subject. If normal
+  // spacing, pre-noon, or teacher-load rules leave lessons unplaced, use any
+  // open class slot and record the relaxed constraint as a warning. The
+  // once-per-day subject rule remains hard so a subject is never repeated in
+  // the same class on the same day.
+  const forceRows = await db.select().from(timetableEntries);
+  const forceCounts = new Map<string, number>();
+  for (const entry of forceRows) forceCounts.set(`${entry.gradeId}:${entry.subjectId}`, (forceCounts.get(`${entry.gradeId}:${entry.subjectId}`) ?? 0) + 1);
+  const fallbackTeachers = allocations.filter(row => row.allocationType !== "class_teacher").map(row => row.teacherUserId);
+  for (const row of orderedRequirements) {
+    const key = `${row.requirement.gradeId}:${row.requirement.subjectId}`;
+    let missing = Math.max(0, row.requirement.periodsPerWeek - (forceCounts.get(key) ?? 0));
+    if (!missing) continue;
+    const subjectTeachers = Array.from(new Set(eligibleByGradeSubject.get(key) ?? []));
+    const gradeTeachers = Array.from(new Set(allocations.filter(item => item.allocationType !== "class_teacher" && item.gradeId === row.requirement.gradeId).map(item => item.teacherUserId)));
+    const teachersForForcePlacement = subjectTeachers.length ? subjectTeachers : (gradeTeachers.length ? gradeTeachers : Array.from(new Set(fallbackTeachers)));
+    if (!teachersForForcePlacement.length) {
+      validationWarnings.push(`${row.grade.name}: ${row.subject.name} has no teacher available for force placement`);
+      continue;
+    }
+    for (let lesson = 0; lesson < missing; lesson += 1) {
+      let slot: { day: number; period: number } | null = null;
+      for (let day = 1; day <= days && !slot; day += 1) {
+        if (subjectDays.has(`${row.requirement.gradeId}:${row.requirement.subjectId}:${day}`)) continue;
+        for (let period = 1; period <= periodsPerDay; period += 1) {
+          if (!occupied.has(`${row.requirement.gradeId}:${day}:${period}`)) { slot = { day, period }; break; }
+        }
+      }
+      if (!slot) break;
+      const teacherId = teachersForForcePlacement[lesson % teachersForForcePlacement.length];
+      await db.insert(timetableEntries).values({ schoolId, gradeId: row.requirement.gradeId, subjectId: row.requirement.subjectId, teacherUserId: teacherId, dayOfWeek: slot.day, period: slot.period, room: null });
+      occupied.add(`${row.requirement.gradeId}:${slot.day}:${slot.period}`);
+      subjectDays.add(`${row.requirement.gradeId}:${row.requirement.subjectId}:${slot.day}`);
+      subjectAtClassSlot.set(`${row.requirement.gradeId}:${slot.day}:${slot.period}`, String(row.requirement.subjectId));
+      teacherAtClassSlot.set(`${row.requirement.gradeId}:${slot.day}:${slot.period}`, teacherId);
+      teacherLoad.set(teacherId, (teacherLoad.get(teacherId) ?? 0) + 1);
+      forceCounts.set(key, (forceCounts.get(key) ?? 0) + 1);
+      fallbackConflicts.push({ grade: row.grade.name, subject: row.subject.name, teacherId, day: slot.day, period: slot.period });
+      validationWarnings.push(`${row.grade.name}: ${row.subject.name} was force-placed in Day ${slot.day}, period ${slot.period}; review teacher spacing or pre-noon preferences.`);
+      placed += 1;
+    }
+  }
+  // Absolute last resort: if the once-per-day rule still leaves a configured
+  // lesson unplaced, use any remaining class slot, including a day that already
+  // contains that subject. This path is intentionally visible in warnings so
+  // the timetable never hides a configured subject behind a blank cell.
+  const lastChanceRows = await db.select().from(timetableEntries);
+  const lastChanceCounts = new Map<string, number>();
+  for (const entry of lastChanceRows) lastChanceCounts.set(`${entry.gradeId}:${entry.subjectId}`, (lastChanceCounts.get(`${entry.gradeId}:${entry.subjectId}`) ?? 0) + 1);
+  for (const row of orderedRequirements) {
+    const key = `${row.requirement.gradeId}:${row.requirement.subjectId}`;
+    let missing = Math.max(0, row.requirement.periodsPerWeek - (lastChanceCounts.get(key) ?? 0));
+    if (!missing) continue;
+    const subjectTeachers = Array.from(new Set(eligibleByGradeSubject.get(key) ?? []));
+    const gradeTeachers = Array.from(new Set(allocations.filter(item => item.allocationType !== "class_teacher" && item.gradeId === row.requirement.gradeId).map(item => item.teacherUserId)));
+    const teachersForLastChance = subjectTeachers.length ? subjectTeachers : (gradeTeachers.length ? gradeTeachers : Array.from(new Set(fallbackTeachers)));
+    if (!teachersForLastChance.length) continue;
+    for (let lesson = 0; lesson < missing; lesson += 1) {
+      let slot: { day: number; period: number } | null = null;
+      for (let day = 1; day <= days && !slot; day += 1) for (let period = 1; period <= periodsPerDay; period += 1) {
+        if (!occupied.has(`${row.requirement.gradeId}:${day}:${period}`)) { slot = { day, period }; break; }
+      }
+      if (!slot) break;
+      const teacherId = teachersForLastChance[lesson % teachersForLastChance.length];
+      await db.insert(timetableEntries).values({ schoolId, gradeId: row.requirement.gradeId, subjectId: row.requirement.subjectId, teacherUserId: teacherId, dayOfWeek: slot.day, period: slot.period, room: null });
+      occupied.add(`${row.requirement.gradeId}:${slot.day}:${slot.period}`);
+      subjectAtClassSlot.set(`${row.requirement.gradeId}:${slot.day}:${slot.period}`, String(row.requirement.subjectId));
+      teacherAtClassSlot.set(`${row.requirement.gradeId}:${slot.day}:${slot.period}`, teacherId);
+      lastChanceCounts.set(key, (lastChanceCounts.get(key) ?? 0) + 1);
+      fallbackConflicts.push({ grade: row.grade.name, subject: row.subject.name, teacherId, day: slot.day, period: slot.period });
+      validationWarnings.push(`${row.grade.name}: ${row.subject.name} was placed using the final available slot on Day ${slot.day}, period ${slot.period}.`);
+      placed += 1;
+    }
+  }
+  // When the administrator explicitly approves recovery, use a fresh view of
+  // persisted entries. The normal candidate maps can contain the previous
+  // timetable version after a regenerate, which made the approval appear to
+  // succeed while leaving the same lessons unplaced. Keep the once-per-day
+  // subject rule, but otherwise use any genuinely open class slot.
+  if (input.forcePlace) {
+    const freshRows = await db.select({ entry: timetableEntries, gradeSchoolId: grades.schoolId })
+      .from(timetableEntries)
+      .innerJoin(grades, eq(grades.id, timetableEntries.gradeId))
+      .where(eq(grades.schoolId, schoolId));
+    const freshOccupied = new Set(freshRows.map(({ entry }) => `${entry.gradeId}:${entry.dayOfWeek}:${entry.period}`));
+    const freshSubjectDays = new Set(freshRows.map(({ entry }) => `${entry.gradeId}:${entry.subjectId}:${entry.dayOfWeek}`));
+    for (const row of orderedRequirements) {
+      const key = `${row.requirement.gradeId}:${row.requirement.subjectId}`;
+      let scheduled = freshRows.filter(({ entry }) => entry.gradeId === row.requirement.gradeId && entry.subjectId === row.requirement.subjectId).length;
+      const teachersForRecovery = Array.from(new Set(eligibleByGradeSubject.get(key) ?? []));
+      if (!teachersForRecovery.length) continue;
+      while (scheduled < row.requirement.periodsPerWeek) {
+        let slot: { day: number; period: number } | null = null;
+        for (let day = 1; day <= days && !slot; day += 1) {
+          if (freshSubjectDays.has(`${row.requirement.gradeId}:${row.requirement.subjectId}:${day}`)) continue;
+          for (let period = 1; period <= periodsPerDay; period += 1) {
+            if (!freshOccupied.has(`${row.requirement.gradeId}:${day}:${period}`)) {
+              slot = { day, period };
+              break;
+            }
+          }
+        }
+        if (!slot) break;
+        const teacherId = teachersForRecovery[scheduled % teachersForRecovery.length];
+        await db.insert(timetableEntries).values({ schoolId, gradeId: row.requirement.gradeId, subjectId: row.requirement.subjectId, teacherUserId: teacherId, dayOfWeek: slot.day, period: slot.period, room: null });
+        freshOccupied.add(`${row.requirement.gradeId}:${slot.day}:${slot.period}`);
+        freshSubjectDays.add(`${row.requirement.gradeId}:${row.requirement.subjectId}:${slot.day}`);
+        scheduled += 1;
+        placed += 1;
+        validationWarnings.push(`${row.grade.name}: ${row.subject.name} was placed using approved recovery mode on Day ${slot.day}, period ${slot.period}.`);
+      }
+    }
+  }
+  unplaced.length = 0;
+  const completedRows = await db.select().from(timetableEntries);
+  for (const row of orderedRequirements) {
+    const key = `${row.requirement.gradeId}:${row.requirement.subjectId}`;
+    const remaining = Math.max(0, row.requirement.periodsPerWeek - completedRows.filter(entry => entry.gradeId === row.requirement.gradeId && entry.subjectId === row.requirement.subjectId).length);
+    if (remaining > 0) unplaced.push({ grade: row.grade.name, subject: row.subject.name, missing: remaining });
+  }
+  const generatedRows = completedRows;
   const duplicateSubjectDays = generatedRows.reduce((set, entry) => { const key = `${entry.gradeId}:${entry.subjectId}:${entry.dayOfWeek}`; if (set.has(key)) set.add(`DUPLICATE:${key}`); else set.add(key); return set; }, new Set<string>());
   const duplicateCount = Array.from(duplicateSubjectDays).filter(key => key.startsWith("DUPLICATE:")).length;
   if (duplicateCount) validationWarnings.push(`${duplicateCount} duplicate subject-day record(s) detected after generation`);

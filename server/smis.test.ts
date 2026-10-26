@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allocationContextConflict, assertScore, buildTimetableAuditRows, buildTimetableValidationReport, hasAdjacentTeacherLesson, timetableEntriesAlignedWithAllocations, unallocatedTimetableEntries, canAccessAttendanceGrade, canCaptureAttendance, cbcLevel, isAttendanceAdmin, isPreNoonTimetableSubject, resolveImportGrade, timetableConflicts } from "./smis";
+import { areLanguageSubjectsAdjacent, allocationContextConflict, assertScore, buildTimetableAuditRows, buildTimetableValidationReport, hasAdjacentTeacherLesson, timetableEntriesAlignedWithAllocations, unallocatedTimetableEntries, canAccessAttendanceGrade, canCaptureAttendance, cbcLevel, isAttendanceAdmin, isPreNoonTimetableSubject, resolveImportGrade, timetableConflicts } from "./smis";
 
 describe("Kenyan SMIS backend rules", () => {
   it("maps the CBC eight-level scale correctly", () => {
@@ -130,5 +130,15 @@ describe("Kenyan SMIS backend rules", () => {
     expect(allocationContextConflict({ gradeId: 2, subjectId: 2, allocationType: "learning_area", startsOn: "2027-01-01", endsOn: "2027-01-31" }, { ...activeEnglish, startsOn: "2026-01-01", endsOn: "2026-12-31" })).toBe(true);
     expect(allocationContextConflict({ gradeId: 2, subjectId: 0, allocationType: "class_teacher" }, { ...activeEnglish, allocationType: "class_teacher" })).toBe(true);
     expect(allocationContextConflict({ gradeId: 2, subjectId: 2, allocationType: "learning_area" }, { ...activeEnglish, status: "inactive" })).toBe(false);
+  });
+});
+
+
+describe("language adjacency timetable rule", () => {
+  it("keeps English and Kiswahili apart within the same class day", () => {
+    const subjects = new Map([[1, "English"], [2, "Kiswahili"]]);
+    const slots = new Map([["7:1:2", "2"]]);
+    expect(areLanguageSubjectsAdjacent(slots, subjects, 7, 1, 1, 1)).toBe(true);
+    expect(areLanguageSubjectsAdjacent(slots, subjects, 7, 1, 1, 3)).toBe(false);
   });
 });
