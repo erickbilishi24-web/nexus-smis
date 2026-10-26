@@ -24,7 +24,7 @@ describe("multi-school administration security helpers", () => {
 
   it("protects the last active Super Administrator while allowing another manager's presence", () => {
     expect(() => assertAdminAccountDeletionAllowed(7, 8, true, false)).toThrow("LAST_SUPER_ADMIN_PROTECTED");
-    expect(() => assertAdminAccountDeletionAllowed(7, 8, true, true)).not.toThrow();
+    expect(() => assertAdminAccountDeletionAllowed(7, 8, true, true, true)).toThrow("SUPER_ADMIN_ACCOUNT_PROTECTED");
     expect(() => assertAdminAccountDeletionAllowed(7, 8, false, false)).not.toThrow();
   });
 });

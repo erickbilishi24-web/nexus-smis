@@ -151,8 +151,9 @@ async function assertNotLastPermissionManager(targetUserId: number) {
 export function assertStrongPassword(password: string) {
   if (password.length < 10 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) fail("PASSWORD_TOO_WEAK");
 }
-export function assertAdminAccountDeletionAllowed(actorUserId: number, targetUserId: number, isPermissionManager: boolean, hasOtherActivePermissionManager: boolean) {
+export function assertAdminAccountDeletionAllowed(actorUserId: number, targetUserId: number, isPermissionManager: boolean, hasOtherActivePermissionManager: boolean, isSuperAdminTarget = false) {
   if (actorUserId === targetUserId) fail("CANNOT_DELETE_OWN_ACCOUNT");
+  if (isSuperAdminTarget) fail("SUPER_ADMIN_ACCOUNT_PROTECTED");
   if (isPermissionManager && !hasOtherActivePermissionManager) fail("LAST_SUPER_ADMIN_PROTECTED");
 }
 export const normalizeSchoolCode = (value: string) => value.trim().toUpperCase();
@@ -327,7 +328,7 @@ export async function deleteAdminUser(input: { userId: number }, actor: Actor, r
   const hasOtherActivePermissionManager = isPermissionManager
     ? (await activePermissionManagers()).some(user => user.userId !== input.userId)
     : true;
-  assertAdminAccountDeletionAllowed(actor.id, input.userId, isPermissionManager, hasOtherActivePermissionManager);
+  assertAdminAccountDeletionAllowed(actor.id, input.userId, isPermissionManager, hasOtherActivePermissionManager, targetRole === "super_admin");
 
   await db.transaction(async tx => {
     await tx.insert(auditLogs).values({
