@@ -202,6 +202,16 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgb(29 106 87 / 2
   table-layout: fixed;
 }
 
+.marklist-print .marklist-col-sno { width: 3%; }
+.marklist-print .marklist-col-admission { width: 8%; }
+.marklist-print .marklist-col-name { width: 17%; }
+.marklist-print .marklist-col-stream { width: 4%; }
+.marklist-print .marklist-col-position { width: 4%; }
+.marklist-print .marklist-col-empty { width: 1.5%; }
+.marklist-print .marklist-col-subject { width: 3.05%; }
+.marklist-print .marklist-col-summary { width: 3.45%; }
+.marklist-print .marklist-col-level { width: 3.5%; }
+
 .marklist-print th,
 .marklist-print td {
   overflow: hidden;
@@ -209,9 +219,38 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgb(29 106 87 / 2
   white-space: nowrap;
 }
 
-.marklist-print th:nth-child(3),
-.marklist-print td:nth-child(3) {
-  width: 18%;
+.marklist-print .marklist-empty-column {
+  width: 1.5%;
+  padding-left: 1px;
+  padding-right: 1px;
+  font-size: .58rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.marklist-print .marklist-content-column {
+  width: 3.05%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 900px) {
+  .marklist-print {
+    border-radius: .65rem;
+  }
+  .marklist-print table {
+    font-size: 7px;
+  }
+  .marklist-print .marklist-col-name { width: 15%; }
+  .marklist-print .marklist-col-admission { width: 7%; }
+  .marklist-print .marklist-col-subject,
+  .marklist-print .marklist-content-column { width: 3.25%; }
+  .marklist-print .marklist-empty-column { width: 1.2%; }
+  .marklist-print th,
+  .marklist-print td {
+    padding-left: 2px;
+    padding-right: 2px;
+  }
 }
 
 @media print {
@@ -261,7 +300,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgb(29 106 87 / 2
     width: 100%;
     min-width: 0 !important;
     table-layout: fixed;
-    font-size: 6.5pt;
+    font-size: 5.8pt;
   }
 
   .assessment-workspace .marklist-print th,
@@ -270,9 +309,18 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgb(29 106 87 / 2
     white-space: nowrap;
   }
 
-  .assessment-workspace .marklist-print th:nth-child(3),
-  .assessment-workspace .marklist-print td:nth-child(3) {
-    min-width: 38mm;
+  .assessment-workspace .marklist-print .marklist-col-name {
+    width: 17%;
+  }
+
+  .assessment-workspace .marklist-print .marklist-empty-column {
+    width: 1.2%;
+    font-size: 4.8pt;
+    white-space: normal;
+  }
+
+  .assessment-workspace .marklist-print .marklist-content-column {
+    width: 3.05%;
     white-space: normal;
   }
 

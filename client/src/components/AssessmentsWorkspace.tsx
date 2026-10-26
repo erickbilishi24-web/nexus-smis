@@ -149,7 +149,15 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
     summaryPoints[9 + data.subjects.length] = "CLASS AVG";
     summaryPoints[10 + data.subjects.length] = averageClassPoints ?? "—";
     const sheet = XLSX.utils.aoa_to_sheet([headings, ...rows, [], summaryMarks, summaryPoints]);
-    sheet["!cols"] = headings.map((_, index) => ({ wch: index === 2 ? 27 : index < 2 ? 12 : 10 }));
+    sheet["!cols"] = headings.map((_, index) => {
+      if (index === 0) return { wch: 6 };
+      if (index === 1) return { wch: 13 };
+      if (index === 2) return { wch: 27 };
+      if (index === 6 || index === 7) return { wch: 3 };
+      const subjectIndex = index - 8;
+      if (subjectIndex >= 0 && subjectIndex < data.subjects.length) return { wch: subjectSummary[subjectIndex]?.averageMark === null ? 3 : 10 };
+      return { wch: 9 };
+    });
     const book = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(book, sheet, `${marklistLabel(marklistType)} Marklist`);
     XLSX.writeFile(book, `NEXUS-${data.grade.name}-${data.academicYear}-${marklistType}.xlsx`);
@@ -250,17 +258,23 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
       </section>
       {marklist.data && printRows && <div className="marklist-print overflow-x-auto rounded-xl border border-[#e7e2d7] bg-white">
         <table className="w-full min-w-0 border-collapse text-[9px] leading-tight">
+          <colgroup>
+            <col className="marklist-col-sno" /><col className="marklist-col-admission" /><col className="marklist-col-name" /><col className="marklist-col-stream" />
+            <col className="marklist-col-position" /><col className="marklist-col-position" /><col className="marklist-col-empty" /><col className="marklist-col-empty" />
+            {marklist.data.subjects.map((subject, index) => <col key={subject.id} className={subjectSummary[index]?.averageMark === null ? "marklist-col-empty" : "marklist-col-subject"} />)}
+            <col className="marklist-col-summary" /><col className="marklist-col-summary" /><col className="marklist-col-summary" /><col className="marklist-col-summary" /><col className="marklist-col-summary" /><col className="marklist-col-level" />
+          </colgroup>
           <thead className="bg-[#e9e8e2] text-[#333]">
             <tr>
-              <th className="border border-[#a9a89f] px-1 py-1.5">S.No</th><th className="border border-[#a9a89f] px-1 py-1.5">ASS NO</th><th className="min-w-40 border border-[#a9a89f] px-1.5 py-1.5 text-left">STUDENT NAME</th><th className="border border-[#a9a89f] px-1 py-1.5">STREAM</th><th className="border border-[#a9a89f] px-1 py-1.5">STREAM POS</th><th className="border border-[#a9a89f] px-1 py-1.5">OVERALL POS</th><th className="border border-[#a9a89f] px-1 py-1.5">PRV STR POS</th><th className="border border-[#a9a89f] px-1 py-1.5">PRV OVR POS</th>
-              {marklist.data.subjects.map(subject => <th key={subject.id} title={subject.name} className="min-w-[42px] border border-[#a9a89f] px-1 py-1.5">{subjectAbbreviation(subject.name, subject.code)}</th>)}
+              <th className="border border-[#a9a89f] px-1 py-1.5">S.No</th><th className="border border-[#a9a89f] px-1 py-1.5">ASS NO</th><th className="border border-[#a9a89f] px-1.5 py-1.5 text-left">STUDENT NAME</th><th className="border border-[#a9a89f] px-1 py-1.5">STREAM</th><th className="border border-[#a9a89f] px-1 py-1.5">STREAM POS</th><th className="border border-[#a9a89f] px-1 py-1.5">OVERALL POS</th><th className="marklist-empty-column border border-[#a9a89f] px-1 py-1.5" title="Previous stream position">PRV STR POS</th><th className="marklist-empty-column border border-[#a9a89f] px-1 py-1.5" title="Previous overall position">PRV OVR POS</th>
+              {marklist.data.subjects.map((subject, index) => <th key={subject.id} title={subject.name} className={`${subjectSummary[index]?.averageMark === null ? "marklist-empty-column" : "marklist-content-column"} border border-[#a9a89f] px-1 py-1.5`}>{subjectAbbreviation(subject.name, subject.code)}</th>)}
               <th className="border border-[#a9a89f] px-1 py-1.5">SUB.<br/>ENTRY</th><th className="border border-[#a9a89f] px-1 py-1.5">TOTAL<br/>MARKS</th><th className="border border-[#a9a89f] px-1 py-1.5">AVG<br/>MARKS</th><th className="border border-[#a9a89f] px-1 py-1.5">TOTAL<br/>POINTS</th><th className="border border-[#a9a89f] px-1 py-1.5">AVG<br/>POINTS</th><th className="border border-[#a9a89f] px-1 py-1.5">LEVEL</th>
             </tr>
           </thead>
           <tbody>{printRows.map(({ learner, position, totalPoints, averagePoints, level }, index) => <tr key={learner.learnerId} className="even:bg-[#f8f7f3]">
             <td className="border border-[#c9c8bf] px-1 py-1 text-center">{index + 1}</td><td className="border border-[#c9c8bf] px-1 py-1 text-center font-mono">{learner.admissionNumber}</td><td className="border border-[#c9c8bf] px-2 py-1 font-semibold">{learner.fullName}</td><td className="border border-[#c9c8bf] px-1 py-1 text-center">{marklist.data!.grade.stream || "—"}</td>
-            <td className="border border-[#c9c8bf] px-1 py-1 text-center">{position ?? "—"}</td><td className="border border-[#c9c8bf] px-1 py-1 text-center">{position ?? "—"}</td><td className="border border-[#c9c8bf] px-1 py-1 text-center">—</td><td className="border border-[#c9c8bf] px-1 py-1 text-center">—</td>
-            {learner.marks.map(mark => <td key={mark.subjectId} className="border border-[#c9c8bf] px-1 py-1 text-center">{mark.score === null ? "X" : `${formatNumber(mark.score)} ${levelForScore(mark.score)}`}</td>)}
+            <td className="border border-[#c9c8bf] px-1 py-1 text-center">{position ?? "—"}</td><td className="border border-[#c9c8bf] px-1 py-1 text-center">{position ?? "—"}</td><td className="marklist-empty-column border border-[#c9c8bf] px-1 py-1 text-center">—</td><td className="marklist-empty-column border border-[#c9c8bf] px-1 py-1 text-center">—</td>
+            {learner.marks.map((mark, index) => <td key={mark.subjectId} className={`${subjectSummary[index]?.averageMark === null ? "marklist-empty-column" : "marklist-content-column"} border border-[#c9c8bf] px-1 py-1 text-center`}>{mark.score === null ? "X" : `${formatNumber(mark.score)} ${levelForScore(mark.score)}`}</td>)}
             <td className="border border-[#c9c8bf] px-1 py-1 text-center">{learner.enteredCount}</td><td className="border border-[#c9c8bf] px-1 py-1 text-center">{formatNumber(learner.total)}</td><td className="border border-[#c9c8bf] px-1 py-1 text-center">{formatNumber(learner.average)}</td><td className="border border-[#c9c8bf] px-1 py-1 text-center">{totalPoints}</td><td className="border border-[#c9c8bf] px-1 py-1 text-center">{formatNumber(averagePoints)}</td><td className="border border-[#c9c8bf] px-1 py-1 text-center font-bold">{level ?? "—"}</td>
           </tr>)}</tbody>
         </table>
