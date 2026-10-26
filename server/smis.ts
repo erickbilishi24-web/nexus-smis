@@ -174,7 +174,7 @@ export async function getDashboardSnapshot(userId?: number, accountRole?: string
 
 export type LearnerStatus = "active" | "inactive";
 export type PeopleStaffStatus = "active" | "inactive";
-export type PeopleStaffRole = "admin" | "teacher" | "class_teacher" | "finance";
+export type PeopleStaffRole = "super_admin" | "admin" | "teacher" | "class_teacher" | "senior_teacher" | "deputy_head" | "head_teacher" | "finance" | "storekeeper" | "other";
 export function peoplePageWindow(page = 0, pageSize = 50) {
   const safePage = Math.max(0, Math.floor(page));
   const safePageSize = Math.min(100, Math.max(10, Math.floor(pageSize)));
