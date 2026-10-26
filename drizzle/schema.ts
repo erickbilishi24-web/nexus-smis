@@ -258,7 +258,7 @@ export const timetableEntries = mysqlTable("timetable_entries", {
   dayOfWeek: int("dayOfWeek").notNull(),
   period: int("period").notNull(),
   room: varchar("room", { length: 80 }),
-}, table => ({ timetableGradeSlotUnique: uniqueIndex("timetable_grade_slot_unique").on(table.gradeId, table.dayOfWeek, table.period), timetableTeacherSlotUnique: uniqueIndex("timetable_teacher_slot_unique").on(table.teacherUserId, table.dayOfWeek, table.period) }));
+}, table => ({ timetableGradeSlotUnique: uniqueIndex("timetable_grade_slot_unique").on(table.gradeId, table.dayOfWeek, table.period) }));
 
 export const timetableRequirements = mysqlTable("timetable_requirements", {
   id: int("id").autoincrement().primaryKey(),

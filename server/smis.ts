@@ -762,7 +762,7 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
   const occupied = new Set(existing.map(entry => `${entry.gradeId}:${entry.dayOfWeek}:${entry.period}`)); const subjectDays = new Set(existing.map(entry => `${entry.gradeId}:${entry.subjectId}:${entry.dayOfWeek}`)); const teacherBusy = new Set(existing.map(entry => `${entry.teacherUserId}:${entry.dayOfWeek}:${entry.period}`)); const teacherLoad = new Map<number, number>();
   for (const entry of existing) teacherLoad.set(entry.teacherUserId, (teacherLoad.get(entry.teacherUserId) ?? 0) + 1);
   const counts = new Map<string, number>(); for (const entry of existing) counts.set(`${entry.gradeId}:${entry.subjectId}`, (counts.get(`${entry.gradeId}:${entry.subjectId}`) ?? 0) + 1);
-  const unplaced: Array<{ grade: string; subject: string; missing: number }> = []; let placed = 0;
+  const unplaced: Array<{ grade: string; subject: string; missing: number }> = []; const fallbackConflicts: Array<{ grade: string; subject: string; teacherId: number; day: number; period: number }> = []; let placed = 0;
   for (const row of orderedRequirements) {
     const key = `${row.requirement.gradeId}:${row.requirement.subjectId}`; const needed = Math.max(0, row.requirement.periodsPerWeek - (counts.get(key) ?? 0)); const teachers = Array.from(new Set(eligibleByGradeSubject.get(key) ?? [])); let missing = needed;
     const mustBeBeforeLunch = isPreNoonTimetableSubject(row.subject.name);
@@ -774,14 +774,50 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
       await db.insert(timetableEntries).values({ gradeId: row.requirement.gradeId, subjectId: row.requirement.subjectId, teacherUserId: best.teacherId, dayOfWeek: best.day, period: best.period, room: null });
       occupied.add(`${row.requirement.gradeId}:${best.day}:${best.period}`); subjectDays.add(`${row.requirement.gradeId}:${row.requirement.subjectId}:${best.day}`); teacherBusy.add(`${best.teacherId}:${best.day}:${best.period}`); teacherLoad.set(best.teacherId, best.load + 1); placed += 1; missing -= 1;
     }
+    if (missing > 0 && teachers.length) {
+      for (let lesson = 0; lesson < missing; lesson += 1) {
+        let fallback: { teacherId: number; day: number; period: number } | null = null;
+        for (let day = 1; day <= days && !fallback; day += 1) for (let period = 1; period <= latestAllowedPeriod && !fallback; period += 1) {
+          if (occupied.has(`${row.requirement.gradeId}:${day}:${period}`) || subjectDays.has(`${row.requirement.gradeId}:${row.requirement.subjectId}:${day}`)) continue;
+          fallback = { teacherId: teachers[0], day, period };
+        }
+        if (!fallback) break;
+        await db.insert(timetableEntries).values({ gradeId: row.requirement.gradeId, subjectId: row.requirement.subjectId, teacherUserId: fallback.teacherId, dayOfWeek: fallback.day, period: fallback.period, room: null });
+        occupied.add(`${row.requirement.gradeId}:${fallback.day}:${fallback.period}`); subjectDays.add(`${row.requirement.gradeId}:${row.requirement.subjectId}:${fallback.day}`); teacherLoad.set(fallback.teacherId, (teacherLoad.get(fallback.teacherId) ?? 0) + 1); fallbackConflicts.push({ grade: row.grade.name, subject: row.subject.name, teacherId: fallback.teacherId, day: fallback.day, period: fallback.period }); placed += 1; missing -= 1;
+      }
+    }
     if (missing > 0) unplaced.push({ grade: row.grade.name, subject: `${row.subject.name}${mustBeBeforeLunch ? " (pre-lunch constraint)" : ""}`, missing });
+  }
+  if (input.regenerate && unplaced.length) {
+    await db.delete(timetableEntries);
+    occupied.clear(); subjectDays.clear(); teacherBusy.clear(); teacherLoad.clear(); counts.clear(); unplaced.length = 0; fallbackConflicts.length = 0; placed = 0;
+    for (const row of orderedRequirements) {
+      const key = `${row.requirement.gradeId}:${row.requirement.subjectId}`; const teachers = Array.from(new Set(eligibleByGradeSubject.get(key) ?? [])); const mustBeBeforeLunch = isPreNoonTimetableSubject(row.subject.name); const latestAllowedPeriod = mustBeBeforeLunch ? Math.min(5, periodsPerDay) : periodsPerDay; let missing = row.requirement.periodsPerWeek;
+      for (let lesson = 0; lesson < row.requirement.periodsPerWeek; lesson += 1) {
+        let best: { teacherId: number; day: number; period: number; dayLoad: number } | null = null;
+        for (let day = 1; day <= days; day += 1) {
+          if (subjectDays.has(`${row.requirement.gradeId}:${row.requirement.subjectId}:${day}`)) continue;
+          const dayLoad = Array.from(occupied).filter(keyValue => keyValue.startsWith(`${row.requirement.gradeId}:${day}:`)).length;
+          for (let period = 1; period <= latestAllowedPeriod; period += 1) {
+            if (occupied.has(`${row.requirement.gradeId}:${day}:${period}`) || !teachers.length) continue;
+            const teacherId = teachers.reduce((selected, candidate) => (teacherLoad.get(candidate) ?? 0) < (teacherLoad.get(selected) ?? Number.MAX_SAFE_INTEGER) ? candidate : selected, teachers[0]);
+            if (!best || dayLoad < best.dayLoad) best = { teacherId, day, period, dayLoad };
+          }
+        }
+        if (!best) break;
+        const conflictedTeacherSlot = teacherBusy.has(`${best.teacherId}:${best.day}:${best.period}`);
+        await db.insert(timetableEntries).values({ gradeId: row.requirement.gradeId, subjectId: row.requirement.subjectId, teacherUserId: best.teacherId, dayOfWeek: best.day, period: best.period, room: null });
+        occupied.add(`${row.requirement.gradeId}:${best.day}:${best.period}`); subjectDays.add(`${row.requirement.gradeId}:${row.requirement.subjectId}:${best.day}`); teacherBusy.add(`${best.teacherId}:${best.day}:${best.period}`); teacherLoad.set(best.teacherId, (teacherLoad.get(best.teacherId) ?? 0) + 1); if (conflictedTeacherSlot) fallbackConflicts.push({ grade: row.grade.name, subject: row.subject.name, teacherId: best.teacherId, day: best.day, period: best.period }); placed += 1; missing -= 1;
+      }
+      if (missing > 0) unplaced.push({ grade: row.grade.name, subject: `${row.subject.name}${mustBeBeforeLunch ? " (pre-lunch constraint)" : ""}`, missing });
+    }
   }
   const generatedRows = await db.select().from(timetableEntries);
   const duplicateSubjectDays = generatedRows.reduce((set, entry) => { const key = `${entry.gradeId}:${entry.subjectId}:${entry.dayOfWeek}`; if (set.has(key)) set.add(`DUPLICATE:${key}`); else set.add(key); return set; }, new Set<string>());
   const duplicateCount = Array.from(duplicateSubjectDays).filter(key => key.startsWith("DUPLICATE:")).length;
   if (duplicateCount) throw new Error("TIMETABLE_SUBJECT_DUPLICATE_DAY");
-  await writeAudit(userId, "timetable.generate.automatic", "timetable", null, { academicYear, placed, unplaced, duplicateCount, regenerate: input.regenerate });
-  return { placed, unplaced, regenerated: input.regenerate, requirements: requirements.length, slots: days * periodsPerDay };
+  await writeAudit(userId, "timetable.generate.automatic", "timetable", null, { academicYear, placed, unplaced, fallbackConflicts, duplicateCount, regenerate: input.regenerate });
+  return { placed, unplaced, fallbackConflicts, regenerated: input.regenerate, requirements: requirements.length, slots: days * periodsPerDay };
 }
 
 export async function getIntegratedReportCard(input: { learnerId: number; academicYear?: number; term?: string }, userId: number) {

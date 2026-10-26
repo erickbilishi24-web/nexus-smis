@@ -1,0 +1,1 @@
+ALTER TABLE `timetable_entries` DROP INDEX `timetable_teacher_slot_unique`;
