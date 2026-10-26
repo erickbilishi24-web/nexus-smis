@@ -289,22 +289,22 @@ export async function changeAdminAssignment(input: { userId: number; classGradeI
 
 /* ---------------------------------------------------- Account state, passwords */
 
-export async function setAccountState(input: { userId: number; action: "activate" | "suspend" | "lock" | "unlock"; reason?: string }, actor: Actor, req?: Request) {
+export async function setAccountState(input: { userId: number; action: "activate" | "suspend" | "deactivate" | "lock" | "unlock"; reason?: string }, actor: Actor, req?: Request) {
   const db = await requireDb();
   const role = await assertCanManage(actor, input.userId);
   const u = (await db.select().from(users).where(eq(users.id, input.userId)).limit(1))[0];
   const targetStaff = (await db.select({ role: staffProfiles.role }).from(staffProfiles).where(eq(staffProfiles.userId, input.userId)).limit(1))[0];
   const state = stateOf(u);
   if (input.userId === actor.id && input.action !== "activate") fail("CANNOT_RESTRICT_OWN_ACCOUNT");
-  if (targetStaff?.role === "super_admin" && (input.action === "suspend" || input.action === "lock")) fail("SUPER_ADMIN_ACCOUNT_PROTECTED");
-  if (await hasManagePermissions(role) && (input.action === "suspend" || input.action === "lock")) await assertNotLastPermissionManager(input.userId);
+  if (targetStaff?.role === "super_admin" && (input.action === "suspend" || input.action === "deactivate" || input.action === "lock")) fail("SUPER_ADMIN_ACCOUNT_PROTECTED");
+  if (await hasManagePermissions(role) && (input.action === "suspend" || input.action === "deactivate" || input.action === "lock")) await assertNotLastPermissionManager(input.userId);
   const revoke = () => db.update(iamSessions).set({ status: "revoked", logoutAt: new Date() }).where(and(eq(iamSessions.userId, input.userId), eq(iamSessions.status, "active")));
   const staffStatus = (status: "active" | "disabled") => db.update(staffProfiles).set({ status }).where(eq(staffProfiles.userId, input.userId));
   if (input.action === "activate") {
     if (state === "active") fail("ALREADY_ACTIVE");
     if (state === "pending") fail("USER_HAS_NOT_SET_PASSWORD");
     await db.update(users).set({ accountStatus: "active", accountLocked: 0, failedLoginAttempts: 0 }).where(eq(users.id, input.userId)); await staffStatus("active");
-  } else if (input.action === "suspend") {
+  } else if (input.action === "suspend" || input.action === "deactivate") {
     if (state === "suspended") fail("ALREADY_SUSPENDED");
     await db.update(users).set({ accountStatus: "disabled" }).where(eq(users.id, input.userId)); await staffStatus("disabled"); await revoke();
   } else if (input.action === "lock") {
@@ -314,7 +314,7 @@ export async function setAccountState(input: { userId: number; action: "activate
     if (state !== "locked") fail("NOT_LOCKED");
     await db.update(users).set({ accountStatus: "active", accountLocked: 0, failedLoginAttempts: 0 }).where(eq(users.id, input.userId));
   }
-  await audit(actor.id, `admin.account.${input.action}`, input.userId, { from: state, reason: input.reason ?? null }, req);
+  await audit(actor.id, `admin.account.${input.action}`, input.userId, { from: state, reason: input.reason ?? null, reversible: input.action === "deactivate" }, req);
   return { ok: true };
 }
 
