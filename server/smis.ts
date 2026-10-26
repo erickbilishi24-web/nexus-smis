@@ -848,6 +848,23 @@ export function hasAdjacentTeacherLesson(teacherAtClassSlot: Map<string, number>
   return teacherAtClassSlot.get(`${gradeId}:${day}:${period - 1}`) === teacherId || teacherAtClassSlot.get(`${gradeId}:${day}:${period + 1}`) === teacherId;
 }
 
+export async function saveEditedTimetable(entries: Array<{ dayOfWeek: number; period: number; gradeId: number; subjectId: number; teacherUserId: number; room?: string | null }>, userId: number) {
+  const conflicts = timetableConflicts(entries);
+  if (conflicts.length) throw new Error(`TIMETABLE_CLASH:${conflicts.join(",")}`);
+  const db = await requireDb();
+  const schoolId = await actorSchoolId(userId);
+  const settings = await getSettings(schoolId);
+  const activeAllocations = await db.select({ gradeId: teacherAllocations.gradeId, subjectId: teacherAllocations.subjectId, teacherUserId: teacherAllocations.teacherUserId, status: teacherAllocations.status, allocationType: teacherAllocations.allocationType }).from(teacherAllocations).where(and(eq(teacherAllocations.schoolId, schoolId), eq(teacherAllocations.academicYear, Number(settings.academicYear)), eq(teacherAllocations.status, "active")));
+  const unallocated = unallocatedTimetableEntries(entries, activeAllocations);
+  if (unallocated.length) throw new Error(`UNALLOCATED_SUBJECT:${unallocated[0].gradeId}:${unallocated[0].subjectId}:${unallocated[0].teacherUserId}`);
+  await db.transaction(async tx => {
+    await tx.delete(timetableEntries).where(eq(timetableEntries.schoolId, schoolId));
+    if (entries.length) await tx.insert(timetableEntries).values(entries.map(entry => ({ ...entry, room: entry.room ?? null, schoolId })));
+  });
+  await writeAudit(userId, "timetable.edit.save", "timetable", null, { count: entries.length });
+  return { saved: entries.length };
+}
+
 export async function generateTimetable(entries: Array<{ dayOfWeek: number; period: number; gradeId: number; subjectId: number; teacherUserId: number; room?: string | null }>, userId: number) {
   const conflicts = timetableConflicts(entries);
   if (conflicts.length) throw new Error(`TIMETABLE_CLASH:${conflicts.join(",")}`);
