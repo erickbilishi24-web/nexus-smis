@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import { and, desc, eq, gte, inArray, like, lte, or, sql, type SQL } from "drizzle-orm";
 import type { Request } from "express";
 import { getDb } from "./db";
-import { auditLogs, grades, iamPasswordResets, iamSessions, rolePermissions, schoolSettings, schools, staffProfiles, subjects, teacherAllocations, userPermissions, userRoles, users } from "../drizzle/schema";
+import { auditLogs, grades, iamPasswordResets, iamSessions, rolePermissions, schoolMemberships, schoolSettings, schools, staffProfiles, subjects, teacherAllocations, userPermissions, userRoles, users } from "../drizzle/schema";
 import { ACTIONS, ASSIGNABLE_ROLES, MANAGE_PERMISSIONS, MATRIX_KEYS, MODULES, ROLE_LABELS, assignedRoles, computePermissions, getAccessProfile, permissionRole, roleMatrix, type StaffRole } from "./access";
 import { getSettings, saveTeacherAllocation, writeAudit } from "./smis";
 
@@ -49,6 +49,52 @@ export async function getPublicSchoolIdentity(schoolCode: string) {
   if (!row || row.status !== "active") return null;
   const settings = (await db.select({ logoPath: schoolSettings.logoPath, motto: schoolSettings.motto }).from(schoolSettings).where(eq(schoolSettings.schoolId, row.id)).limit(1))[0];
   return { ...row, logoPath: settings?.logoPath ?? null, motto: settings?.motto ?? null };
+}
+
+export async function updateSchool(input: { schoolId: number; schoolName: string }, actor: Actor, req?: Request) {
+  const profile = await getAccessProfile(actor.id);
+  if (profile.level !== "system") fail("ONLY_PLATFORM_SUPER_ADMIN");
+  const db = await requireDb();
+  const schoolName = input.schoolName.trim();
+  if (schoolName.length < 2) fail("SCHOOL_NAME_REQUIRED");
+  const row = (await db.select({ id: schools.id, schoolCode: schools.schoolCode }).from(schools).where(eq(schools.id, input.schoolId)).limit(1))[0];
+  if (!row) fail("SCHOOL_NOT_FOUND");
+  await db.update(schools).set({ schoolName }).where(eq(schools.id, input.schoolId));
+  await audit(actor.id, "admin.school.update", null, { schoolId: input.schoolId, schoolCode: row.schoolCode, schoolName }, req);
+  return { ok: true };
+}
+export async function setSchoolStatus(input: { schoolId: number; status: "active" | "suspended" | "archived" }, actor: Actor, req?: Request) {
+  const profile = await getAccessProfile(actor.id);
+  if (profile.level !== "system") fail("ONLY_PLATFORM_SUPER_ADMIN");
+  const db = await requireDb();
+  const row = (await db.select({ id: schools.id, schoolCode: schools.schoolCode, status: schools.status }).from(schools).where(eq(schools.id, input.schoolId)).limit(1))[0];
+  if (!row) fail("SCHOOL_NOT_FOUND");
+  if (row.status === "archived" && input.status !== "active") fail("SCHOOL_ALREADY_ARCHIVED");
+  await db.update(schools).set({ status: input.status }).where(eq(schools.id, input.schoolId));
+  await audit(actor.id, `admin.school.${input.status}`, null, { schoolId: input.schoolId, schoolCode: row.schoolCode, previousStatus: row.status }, req);
+  return { ok: true, status: input.status };
+}
+
+export async function listMySchoolMemberships(actorUserId: number) {
+  const db = await requireDb();
+  const account = (await db.select({ schoolId: users.schoolId }).from(users).where(eq(users.id, actorUserId)).limit(1))[0];
+  const rows = await db.select({ membership: schoolMemberships, school: schools }).from(schoolMemberships).innerJoin(schools, eq(schools.id, schoolMemberships.schoolId)).where(and(eq(schoolMemberships.userId, actorUserId), eq(schoolMemberships.status, "active"), or(eq(schools.status, "active"), eq(schools.status, "pending_activation"))));
+  const memberships = rows.map(row => ({ id: row.school.id, schoolCode: row.school.schoolCode, schoolName: row.school.schoolName, status: row.school.status, isCurrent: row.school.id === account?.schoolId }));
+  if (account?.schoolId && !memberships.some(row => row.id === account.schoolId)) {
+    const legacy = (await db.select({ id: schools.id, schoolCode: schools.schoolCode, schoolName: schools.schoolName, status: schools.status }).from(schools).where(eq(schools.id, account.schoolId)).limit(1))[0];
+    if (legacy) memberships.unshift({ ...legacy, isCurrent: true });
+  }
+  return memberships;
+}
+export async function switchMySchool(input: { schoolId: number }, actorUserId: number, req?: Request) {
+  const db = await requireDb();
+  const account = (await db.select({ id: users.id, schoolId: users.schoolId }).from(users).where(eq(users.id, actorUserId)).limit(1))[0];
+  if (!account) fail("USER_NOT_FOUND");
+  const membership = (await db.select({ schoolId: schoolMemberships.schoolId }).from(schoolMemberships).innerJoin(schools, eq(schools.id, schoolMemberships.schoolId)).where(and(eq(schoolMemberships.userId, actorUserId), eq(schoolMemberships.schoolId, input.schoolId), eq(schoolMemberships.status, "active"), eq(schools.status, "active"))).limit(1))[0];
+  if (!membership) fail("SCHOOL_MEMBERSHIP_REQUIRED");
+  await db.update(users).set({ schoolId: input.schoolId }).where(eq(users.id, actorUserId));
+  await audit(actorUserId, "admin.school.switch", null, { fromSchoolId: account.schoolId, toSchoolId: input.schoolId }, req);
+  return { ok: true, schoolId: input.schoolId };
 }
 
 export async function listSchools(actor: Actor) {

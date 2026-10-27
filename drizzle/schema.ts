@@ -42,11 +42,19 @@ export const schools = mysqlTable("schools", {
   id: int("id").autoincrement().primaryKey(),
   schoolCode: varchar("schoolCode", { length: 40 }).notNull().unique(),
   schoolName: varchar("schoolName", { length: 200 }).notNull(),
-  status: mysqlEnum("status", ["active", "pending_activation", "suspended", "disabled"]).notNull().default("pending_activation"),
+  status: mysqlEnum("status", ["active", "pending_activation", "suspended", "disabled", "archived"]).notNull().default("pending_activation"),
   createdByUserId: int("createdByUserId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
+export const schoolMemberships = mysqlTable("school_memberships", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  schoolId: int("schoolId").notNull(),
+  status: mysqlEnum("status", ["active", "suspended", "revoked"]).notNull().default("active"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => ({ schoolMembershipUnique: uniqueIndex("school_membership_unique").on(table.userId, table.schoolId) }));
 export const schoolSettings = mysqlTable("school_settings", {
   id: int("id").autoincrement().primaryKey(),
   schoolId: int("schoolId"),
