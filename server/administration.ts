@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import { and, desc, eq, gte, inArray, like, lte, or, sql, type SQL } from "drizzle-orm";
 import type { Request } from "express";
 import { getDb } from "./db";
-import { auditLogs, grades, iamPasswordResets, iamSessions, rolePermissions, schools, staffProfiles, subjects, teacherAllocations, userPermissions, userRoles, users } from "../drizzle/schema";
+import { auditLogs, grades, iamPasswordResets, iamSessions, rolePermissions, schoolSettings, schools, staffProfiles, subjects, teacherAllocations, userPermissions, userRoles, users } from "../drizzle/schema";
 import { ACTIONS, ASSIGNABLE_ROLES, MANAGE_PERMISSIONS, MATRIX_KEYS, MODULES, ROLE_LABELS, assignedRoles, computePermissions, getAccessProfile, permissionRole, roleMatrix, type StaffRole } from "./access";
 import { getSettings, saveTeacherAllocation, writeAudit } from "./smis";
 
@@ -40,6 +40,15 @@ export async function adminCatalog(actorUserId?: number) {
     academicYear: settings.academicYear, term: settings.currentTerm,
     departments: Array.from(new Set((await db.select({ d: staffProfiles.department }).from(staffProfiles)).map(r => r.d).filter(Boolean))) as string[],
   };
+}
+
+export async function getPublicSchoolIdentity(schoolCode: string) {
+  const db = await requireDb();
+  const code = normalizeSchoolCode(schoolCode);
+  const row = (await db.select({ id: schools.id, schoolCode: schools.schoolCode, schoolName: schools.schoolName, status: schools.status }).from(schools).where(eq(schools.schoolCode, code)).limit(1))[0];
+  if (!row || row.status !== "active") return null;
+  const settings = (await db.select({ logoPath: schoolSettings.logoPath, motto: schoolSettings.motto }).from(schoolSettings).where(eq(schoolSettings.schoolId, row.id)).limit(1))[0];
+  return { ...row, logoPath: settings?.logoPath ?? null, motto: settings?.motto ?? null };
 }
 
 export async function listSchools(actor: Actor) {

@@ -5,7 +5,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { MANAGE_PERMISSIONS, canCreateAssessments, canViewWholeClassMarklist } from "./access";
-import { AdminError, AUDIT_MODULES, adminCatalog, adminOverview, changeAdminAssignment, changeAdminRole, createAdminUser, createSchool, deleteAdminUser, getAdminUser, getPermissionMatrixView, listAdminUsers, listAuditTrail, listSchools, resetAdminPassword, setAccountState, setAdminRoles, setRolePermission, setUserPermissionOverride, updateAdminUser } from "./administration";
+import { AdminError, AUDIT_MODULES, adminCatalog, adminOverview, changeAdminAssignment, changeAdminRole, createAdminUser, createSchool, deleteAdminUser, getAdminUser, getPermissionMatrixView, listAdminUsers, listAuditTrail, listSchools, getPublicSchoolIdentity, resetAdminPassword, setAccountState, setAdminRoles, setRolePermission, setUserPermissionOverride, updateAdminUser } from "./administration";
 import { correctLockedAssessmentMark, ensureAssessment, getAssessmentEntries, getAssessmentReportCard, getClassMarklist, listAssessmentScopes, listReportLearners, saveAssessmentMarks, setAssessmentFinalState, submitAssessment } from "./assessment";
 import { adminResetIamPassword, changeIamPassword, loginWithIam, logoutIam, requestIamPasswordReset, resetIamPassword, safeAuthProfile } from "./iam";
 import { listFeedback, submitFeedback } from "./feedback";
@@ -153,12 +153,13 @@ export const appRouter = router({
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(({ ctx }) => safeAuthProfile(ctx.user)),
-    login: publicProcedure.input(z.object({ identifier: z.string().min(1).max(320), password: z.string().min(1).max(200) })).mutation(async ({ input, ctx }) => {
+    schoolIdentity: publicProcedure.input(z.object({ schoolCode: z.string().min(3).max(40) })).query(({ input }) => getPublicSchoolIdentity(input.schoolCode)),
+    login: publicProcedure.input(z.object({ identifier: z.string().min(1).max(320), password: z.string().min(1).max(200), schoolCode: z.string().min(3).max(40).optional() })).mutation(async ({ input, ctx }) => {
       try {
         return await loginWithIam(input, ctx.req, ctx.res);
       } catch (error) {
         const code = error instanceof Error ? error.message : "INVALID_CREDENTIALS";
-        throw new TRPCError({ code: code === "ACCOUNT_LOCKED" || code === "ACCOUNT_DISABLED" ? "FORBIDDEN" : "UNAUTHORIZED", message: code });
+        throw new TRPCError({ code: code === "ACCOUNT_LOCKED" || code === "ACCOUNT_DISABLED" || code === "SCHOOL_NOT_AVAILABLE" || code === "SCHOOL_MEMBERSHIP_REQUIRED" ? "FORBIDDEN" : "UNAUTHORIZED", message: code });
       }
     }),
     logout: publicProcedure.mutation(async ({ ctx }) => {

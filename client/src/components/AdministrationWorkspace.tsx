@@ -58,6 +58,7 @@ export function SchoolRegistryPanel({ isSuper }: { isSuper: boolean }) {
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [status, setStatus] = useState<"active" | "pending_activation">("active");
+  const schoolLoginUrl = (schoolCode: string) => `${window.location.origin}/school/${encodeURIComponent(schoolCode)}/login`;
   const schools = trpc.smis.administration.schools.useQuery();
   const create = trpc.smis.administration.createSchool.useMutation({
     onSuccess: () => {
@@ -94,10 +95,10 @@ export function SchoolRegistryPanel({ isSuper }: { isSuper: boolean }) {
       )}
       <div className="overflow-x-auto">
         <table className="w-full min-w-[560px] text-left text-sm">
-          <thead><tr className="border-b border-[#e2e6dc] text-[0.68rem] uppercase tracking-wide text-[#718077]"><th className="px-3 py-3">Code</th><th className="px-3 py-3">School</th><th className="px-3 py-3">Status</th><th className="px-3 py-3">Registered</th></tr></thead>
+          <thead><tr className="border-b border-[#e2e6dc] text-[0.68rem] uppercase tracking-wide text-[#718077]"><th className="px-3 py-3">Code</th><th className="px-3 py-3">School</th><th className="px-3 py-3">Status</th><th className="px-3 py-3">Login link</th><th className="px-3 py-3">Registered</th></tr></thead>
           <tbody>
-            {schools.data?.map(s => <tr key={s.id} className="border-b border-[#eef0e8]"><td className="px-3 py-3 font-mono text-xs text-[#1d6a57]">{s.schoolCode}</td><td className="px-3 py-3 font-semibold text-[#28483f]">{s.schoolName}</td><td className="px-3 py-3"><StatusPill status={s.status === "pending_activation" ? "pending" : s.status} /></td><td className="px-3 py-3 text-xs text-[#718077]">{fmt(s.createdAt)}</td></tr>)}
-            {!schools.isLoading && !schools.data?.length && <tr><td colSpan={4} className="px-3 py-8 text-center text-[#718077]">{isSuper ? "No schools registered." : "No school is assigned to this account."}</td></tr>}
+            {schools.data?.map(s => <tr key={s.id} className="border-b border-[#eef0e8]"><td className="px-3 py-3 font-mono text-xs text-[#1d6a57]">{s.schoolCode}</td><td className="px-3 py-3 font-semibold text-[#28483f]">{s.schoolName}</td><td className="px-3 py-3"><StatusPill status={s.status === "pending_activation" ? "pending" : s.status} /></td><td className="px-3 py-3"><div className="flex min-w-[220px] items-center gap-2"><span className="truncate text-[0.68rem] text-[#718077]">{schoolLoginUrl(s.schoolCode)}</span><button type="button" className={ghost} title="Copy school login link" aria-label={`Copy login link for ${s.schoolName}`} disabled={s.status !== "active"} onClick={() => navigator.clipboard.writeText(schoolLoginUrl(s.schoolCode)).then(() => toast.success("School login link copied"))}><ClipboardCopy size={13} /></button></div></td><td className="px-3 py-3 text-xs text-[#718077]">{fmt(s.createdAt)}</td></tr>)}
+            {!schools.isLoading && !schools.data?.length && <tr><td colSpan={5} className="px-3 py-8 text-center text-[#718077]">{isSuper ? "No schools registered." : "No school is assigned to this account."}</td></tr>}
           </tbody>
         </table>
       </div>

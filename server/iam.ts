@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import { and, eq, or } from "drizzle-orm";
 import { getDb } from "./db";
-import { auditLogs, iamPasswordResets, iamSessions, staffProfiles, users, type User } from "../drizzle/schema";
+import { auditLogs, iamPasswordResets, iamSessions, schools, staffProfiles, users, type User } from "../drizzle/schema";
 import type { Request, Response } from "express";
 
 export const IAM_COOKIE_NAME = "nexus_iam_session";
@@ -25,7 +25,7 @@ export function safeAuthProfile(user: User | null) {
   } : null;
 }
 
-type LoginInput = { identifier: string; password: string };
+type LoginInput = { identifier: string; password: string; schoolCode?: string };
 
 function cookieOptions() {
   return { httpOnly: true, secure: true, sameSite: "none" as const, path: "/", maxAge: SESSION_MAX_AGE_MS };
@@ -75,6 +75,12 @@ export async function loginWithIam(input: LoginInput, req: Request, res: Respons
   const staff = (await db.select({ role: staffProfiles.role }).from(staffProfiles).where(eq(staffProfiles.userId, row.id)).limit(1))[0];
   const isSuperAdmin = staff?.role === "super_admin";
   if (row.accountLocked && !isSuperAdmin) throw new Error("ACCOUNT_LOCKED");
+  if (input.schoolCode) {
+    const requestedCode = input.schoolCode.trim().toUpperCase();
+    const requestedSchool = (await db.select({ id: schools.id, status: schools.status }).from(schools).where(eq(schools.schoolCode, requestedCode)).limit(1))[0];
+    if (!requestedSchool || requestedSchool.status !== "active") throw new Error("SCHOOL_NOT_AVAILABLE");
+    if (!isSuperAdmin && row.schoolId !== requestedSchool.id) throw new Error("SCHOOL_MEMBERSHIP_REQUIRED");
+  }
   const valid = await bcrypt.compare(input.password, row.passwordHash);
   if (!valid) {
     const failed = row.failedLoginAttempts + 1;
