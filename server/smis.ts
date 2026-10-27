@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, inArray, like, lte, ne, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, isNull, like, lte, ne, or, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db";
 import { computePermissions } from "./access";
@@ -31,6 +31,7 @@ import {
   subjects,
   teacherAllocations,
   timetableEntries,
+  timetablePlans,
   timetableRequirements,
   userPermissions,
   users,
@@ -605,6 +606,34 @@ export async function listTimetable() {
   const allocations = await db.select({ gradeId: teacherAllocations.gradeId, subjectId: teacherAllocations.subjectId, teacherUserId: teacherAllocations.teacherUserId, schoolId: teacherAllocations.schoolId, status: teacherAllocations.status, allocationType: teacherAllocations.allocationType }).from(teacherAllocations).where(and(eq(teacherAllocations.academicYear, Number(settings.academicYear)), eq(teacherAllocations.status, "active")));
   const alignedIds = new Set(timetableEntriesAlignedWithAllocations(rows.map(row => ({ ...row.entry, schoolId: row.entry.schoolId ?? row.grade?.schoolId ?? null })), allocations).map(entry => entry.id));
   return rows.filter(row => alignedIds.has(row.entry.id));
+}
+
+export async function listTimetablePlans(userId: number) {
+  const db = await requireDb();
+  const schoolId = await actorSchoolId(userId);
+  return db.select().from(timetablePlans).where(eq(timetablePlans.schoolId, schoolId)).orderBy(desc(timetablePlans.updatedAt), desc(timetablePlans.id));
+}
+
+export async function createTimetablePlan(input: { name: string; section: string; academicYear: number; term?: string | null; description?: string | null }, userId: number) {
+  const db = await requireDb();
+  const schoolId = await actorSchoolId(userId);
+  const name = input.name.trim();
+  if (!name) throw new Error("TIMETABLE_NAME_REQUIRED");
+  const duplicate = await db.select({ id: timetablePlans.id }).from(timetablePlans).where(and(eq(timetablePlans.schoolId, schoolId), eq(timetablePlans.name, name), eq(timetablePlans.academicYear, input.academicYear), input.term ? eq(timetablePlans.term, input.term) : isNull(timetablePlans.term))).limit(1);
+  if (duplicate.length) throw new Error("TIMETABLE_PLAN_ALREADY_EXISTS");
+  const result = await db.insert(timetablePlans).values({ schoolId, name, section: input.section.trim(), academicYear: input.academicYear, term: input.term?.trim() || null, description: input.description?.trim() || null, createdByUserId: userId });
+  await writeAudit(userId, "timetable.plan.create", "timetable_plan", String(result[0].insertId), { name, section: input.section, academicYear: input.academicYear, term: input.term ?? null });
+  return { id: Number(result[0].insertId) };
+}
+
+export async function archiveTimetablePlan(planId: number, userId: number) {
+  const db = await requireDb();
+  const schoolId = await actorSchoolId(userId);
+  const plan = (await db.select().from(timetablePlans).where(and(eq(timetablePlans.id, planId), eq(timetablePlans.schoolId, schoolId))).limit(1))[0];
+  if (!plan) throw new Error("TIMETABLE_PLAN_NOT_FOUND");
+  await db.update(timetablePlans).set({ status: "archived" }).where(eq(timetablePlans.id, planId));
+  await writeAudit(userId, "timetable.plan.archive", "timetable_plan", String(planId), { name: plan.name });
+  return { ok: true };
 }
 
 export type TimetableAuditRequirement = { gradeId: number; gradeName: string; gradeStream?: string | null; subjectId: number; subjectName: string; subjectCode?: string | null; periodsPerWeek: number };

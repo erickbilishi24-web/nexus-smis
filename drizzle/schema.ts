@@ -260,7 +260,20 @@ export const timetableEntries = mysqlTable("timetable_entries", {
   room: varchar("room", { length: 80 }),
   isForcePlaced: boolean("isForcePlaced").notNull().default(false),
 }, table => ({ timetableGradeSlotUnique: uniqueIndex("timetable_grade_slot_unique").on(table.gradeId, table.dayOfWeek, table.period) }));
-
+/** Named timetable workspaces. Existing entries remain the default master timetable until explicitly associated. */
+export const timetablePlans = mysqlTable("timetable_plans", {
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId"),
+  name: varchar("name", { length: 120 }).notNull(),
+  section: varchar("section", { length: 60 }).notNull(),
+  academicYear: int("academicYear").notNull(),
+  term: varchar("term", { length: 40 }),
+  description: varchar("description", { length: 500 }),
+  status: mysqlEnum("status", ["draft", "active", "archived"]).notNull().default("draft"),
+  createdByUserId: int("createdByUserId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => ({ timetablePlanScopeUnique: uniqueIndex("timetable_plan_scope_unique").on(table.schoolId, table.name, table.academicYear, table.term) }));
 export const timetableRequirements = mysqlTable("timetable_requirements", {
   id: int("id").autoincrement().primaryKey(),
   schoolId: int("schoolId"),

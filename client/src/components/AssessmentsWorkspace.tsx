@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Download, Printer, Save, Send, ShieldCheck } from "lucide-react";
+import { Activity, Download, Printer, Save, Send, ShieldCheck } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { rankMarklistRows } from "@shared/marklist";
 import { toast } from "sonner";
@@ -40,6 +40,8 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
   const [selectedScopeKey, setSelectedScopeKey] = useState("");
   const [assessmentId, setAssessmentId] = useState<number | null>(null);
   const [draftScores, setDraftScores] = useState<Record<number, string>>({});
+  const [analysisOpen, setAnalysisOpen] = useState(false);
+  const [analysisTarget, setAnalysisTarget] = useState("50");
   const scopes = trpc.smis.assessments.scopes.useQuery();
   const utils = trpc.useUtils();
   const scope = useMemo(() => scopes.data?.find(row => scopeKey(row) === selectedScopeKey), [scopes.data, selectedScopeKey]);
@@ -191,6 +193,19 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
   const averageClassMark = classAverages.length ? classAverages.reduce((sum, score) => sum + score, 0) / classAverages.length : null;
   const classPointAverages = printRows?.map(row => row.averagePoints).filter((point): point is number => point !== null) ?? [];
   const averageClassPoints = classPointAverages.length ? classPointAverages.reduce((sum, point) => sum + point, 0) / classPointAverages.length : null;
+  const analysis = useMemo(() => {
+    if (!marklist.data || !printRows) return null;
+    const target = Math.max(0, Math.min(100, Number(analysisTarget) || 0));
+    const complete = printRows.filter(row => row.learner.missingCount === 0 && row.learner.enteredCount > 0);
+    const incomplete = printRows.length - complete.length;
+    const categories = Object.fromEntries(["BE", "AE", "ME", "EE"].map(prefix => [prefix, printRows.reduce((count, row) => count + (row.learner.marks.some(mark => (levelForScore(mark.score)?.startsWith(prefix) ?? false)) ? 1 : 0), 0)]));
+    const subjects = subjectSummary.map(item => {
+      const scores = marklist.data!.learners.map(learner => learner.marks.find(mark => mark.subjectId === item.subject.id)?.score).filter((score): score is number => score !== null && score !== undefined);
+      const below = scores.filter(score => score < target).length;
+      return { ...item, highest: scores.length ? Math.max(...scores) : null, lowest: scores.length ? Math.min(...scores) : null, entered: scores.length, below, belowPercent: scores.length ? Math.round((below / scores.length) * 100) : 0 };
+    }).sort((a, b) => (b.averageMark ?? -1) - (a.averageMark ?? -1));
+    return { target, complete: complete.length, incomplete, assessed: printRows.length, mean: averageClassMark, categories, subjects, support: complete.filter(row => (row.learner.average ?? 0) < target).slice(0, 8), enrichment: complete.filter(row => (row.learner.average ?? 0) >= 75).slice(0, 8) };
+  }, [analysisTarget, averageClassMark, marklist.data, printRows, subjectSummary]);
 
   return <div className="assessment-workspace page-enter space-y-5">
     <header className="flex flex-col gap-4 border-b border-[#dfdbd1] pb-5 lg:flex-row lg:items-end lg:justify-between">
@@ -252,10 +267,16 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
           <div className="flex rounded-lg bg-[#edf2ed] p-1" role="group" aria-label="Choose marklist type">
             {(["mid_term", "end_term", "average"] as const).map(type => <button key={type} type="button" aria-pressed={marklistType === type} onClick={() => setMarklistType(type)} className={`rounded-md px-3 py-2 text-xs font-bold transition ${marklistType === type ? "bg-[#1d6a57] text-white shadow-sm" : "text-[#53675d] hover:bg-white"}`}>{marklistLabel(type)}</button>)}
           </div>
+          <button type="button" onClick={() => setAnalysisOpen(value => !value)} className={`quiet-button ${analysisOpen ? "bg-[#e7f0e7] text-[#1d6a57]" : ""}`}><Activity size={15} />{analysisOpen ? "Hide analysis" : "ANALYZE"}</button>
           <button type="button" onClick={() => window.print()} className="quiet-button"><Printer size={15} />Print / PDF</button>
           <button type="button" onClick={exportExcel} className="action-button"><Download size={15} />Excel</button>
         </div>
       </section>
+      {analysisOpen && analysis && <section className="print:hidden soft-card rounded-xl border border-[#cfe0d3] bg-[#fbfdf9] p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="eyebrow">Calculated assessment analysis</p><h2 className="mt-1 text-lg font-bold text-[#28483f]">{marklist.data?.grade.name}{marklist.data?.grade.stream ? ` · ${marklist.data.grade.stream}` : ""} performance summary</h2><p className="mt-1 text-xs text-[#718077]">Read-only analysis from the latest saved marks. It does not change, approve, or publish results.</p></div><label className="text-xs font-bold text-[#53675d]">Target %<input type="number" min="0" max="100" value={analysisTarget} onChange={event => setAnalysisTarget(event.target.value)} className="ml-2 w-20 rounded-md border border-[#d8ded7] bg-white px-2 py-1.5" /></label></div>
+        <div className="mt-4 grid gap-2 sm:grid-cols-4"><div className="rounded-lg bg-[#edf2ed] p-3"><p className="text-[.62rem] uppercase text-[#53675d]">Learners assessed</p><p className="mt-1 text-xl font-bold text-[#1d6a57]">{analysis.assessed}</p></div><div className="rounded-lg bg-[#eaf1fb] p-3"><p className="text-[.62rem] uppercase text-[#53675d]">Class mean</p><p className="mt-1 text-xl font-bold text-[#365887]">{formatNumber(analysis.mean)}%</p></div><div className="rounded-lg bg-[#e7f0e7] p-3"><p className="text-[.62rem] uppercase text-[#53675d]">Complete results</p><p className="mt-1 text-xl font-bold text-[#1d6a57]">{analysis.complete}</p></div><div className="rounded-lg bg-[#fff7df] p-3"><p className="text-[.62rem] uppercase text-[#76591d]">Missing / incomplete</p><p className="mt-1 text-xl font-bold text-[#8c651e]">{analysis.incomplete}</p></div></div>
+        <div className="mt-4 grid gap-4 lg:grid-cols-[1.2fr_.8fr]"><div className="overflow-x-auto rounded-lg border border-[#e5e1d8] bg-white"><table className="w-full text-left text-xs"><thead className="bg-[#edf2ed] text-[.62rem] uppercase text-[#53675d]"><tr><th className="p-2">Subject</th><th className="p-2">Mean</th><th className="p-2">High</th><th className="p-2">Low</th><th className="p-2">Below target</th></tr></thead><tbody>{analysis.subjects.map(item => <tr key={item.subject.id} className="border-t border-[#eee9df]"><td className="p-2 font-bold text-[#28483f]">{subjectAbbreviation(item.subject.name, item.subject.code)}</td><td className="p-2">{formatNumber(item.averageMark)}%</td><td className="p-2">{formatNumber(item.highest)}%</td><td className="p-2">{formatNumber(item.lowest)}%</td><td className={`p-2 font-bold ${item.belowPercent > 50 ? "text-[#9c4038]" : "text-[#1d6a57]"}`}>{item.below} ({item.belowPercent}%)</td></tr>)}</tbody></table></div><div className="space-y-3"><div className="rounded-lg border border-[#e5e1d8] bg-white p-3"><p className="text-xs font-bold text-[#28483f]">CBC distribution</p><div className="mt-2 grid grid-cols-4 gap-1 text-center text-[.65rem]">{Object.entries(analysis.categories).map(([label, count]) => <div key={label} className="rounded bg-[#f3f5ef] p-2"><b>{label}</b><br />{count}</div>)}</div></div><div className="rounded-lg border border-[#e5e1d8] bg-white p-3 text-xs"><p className="font-bold text-[#28483f]">Calculated recommendations</p><p className="mt-2 text-[#718077]">{analysis.subjects.filter(item => item.belowPercent > 50).length ? `Prioritise revision for ${analysis.subjects.filter(item => item.belowPercent > 50).map(item => subjectAbbreviation(item.subject.name, item.subject.code)).join(", ")}.` : "No subject is below the configured target for more than half of entered marks."}</p><p className="mt-2 text-[#718077]">{analysis.support.length} complete-result learner{analysis.support.length === 1 ? "" : "s"} below target; {analysis.enrichment.length} at or above 75% for enrichment.</p></div></div></div>
+      </section>}
       {marklist.data && printRows && <div className="marklist-print overflow-x-auto rounded-xl border border-[#e7e2d7] bg-white">
         <table className="w-full min-w-0 border-collapse text-[9px] leading-tight">
           <colgroup>
