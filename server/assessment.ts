@@ -129,12 +129,13 @@ export async function listAssessmentScopes(userId: number) {
 export async function listReportLearners(userId: number) {
   const db = await requireDb();
   const access = await actorAccess(userId);
+  const schoolId = await actorSchoolId(userId);
   const rows = await db.select({ learner: learners, grade: grades })
     .from(learners)
     .leftJoin(grades, eq(grades.id, learners.gradeId))
     .where(access.isAdmin
-      ? eq(learners.status, "active")
-      : and(eq(learners.status, "active"), eq(grades.classTeacherUserId, userId)))
+      ? and(eq(learners.status, "active"), eq(learners.schoolId, schoolId))
+      : and(eq(learners.status, "active"), eq(learners.schoolId, schoolId), eq(grades.classTeacherUserId, userId)))
     .orderBy(learners.fullName);
   return rows.map(({ learner, grade }) => ({
     ...learner,

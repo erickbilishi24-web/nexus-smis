@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { CalendarDays, Check, Download, FileCheck2, Printer, Save } from "lucide-react";
+import { CalendarDays, Check, Download, FileCheck2, Landmark, Printer, Save } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -26,6 +26,7 @@ export function AttendanceWorkspace() {
   const [draft, setDraft] = useState<Record<number, AttendanceStatus | "">>({});
   const utils = trpc.useUtils();
   const settings = trpc.smis.settings.get.useQuery();
+  const memberships = trpc.smis.administration.memberships.useQuery();
   const roster = trpc.smis.attendance.register.useQuery({ date, session });
   const rows = roster.data ?? [];
   const visibleRows = useMemo(() => rows.filter(row => attendanceGradeLevel(row.grade) === gradeLevel), [rows, gradeLevel]);
@@ -70,7 +71,7 @@ export function AttendanceWorkspace() {
       <div className="flex items-center justify-center gap-4 border-b-2 border-[#1d6a57] pb-3">{settings.data?.logoPath && <img src={settings.data.logoPath} alt="School logo" className="h-16 w-16 object-contain" />}<div><p className="text-[9pt] font-bold uppercase tracking-[.18em] text-[#1d6a57]">{settings.data?.schoolName ?? "Ebunangwe Junior School"}</p><h2 className="text-[18pt] font-black uppercase">Learner Attendance Register</h2><p className="text-[10pt] font-semibold">Grade {gradeLevel} · {date} · {session === "morning" ? "Present Morning" : "Present Afternoon"}</p></div></div>
     </div>
     <header className="print:hidden flex flex-col gap-4 border-b border-[#dfdbd1] pb-5 sm:flex-row sm:items-end sm:justify-between">
-      <div><p className="eyebrow">Daily register · persistent school records</p><h1 className="mt-1 font-editorial text-3xl text-[#193d32]">Learner attendance</h1><p className="mt-2 text-sm text-[#69796f]">Capture both daily sessions, submit the register for approval, and review attendance trends by period.</p></div>
+      <div><div className="flex flex-wrap items-center gap-2"><p className="eyebrow">Daily register · persistent school records</p><span className="inline-flex items-center gap-1 rounded-full border border-[#b8d3c6] bg-[#eef7f0] px-2.5 py-1 text-[.62rem] font-bold text-[#1d6a57]" title="Current school workspace"><Landmark size={12} />{settings.data?.schoolName ?? "Current school"}{(() => { const current = memberships.data?.find(row => row.isCurrent); return current?.schoolCode ? <span className="ml-1 opacity-75">· {current.schoolCode}</span> : null; })()}</span>{(memberships.data?.length ?? 0) > 1 && <button type="button" onClick={() => { const select = document.querySelector<HTMLSelectElement>('[aria-label="Switch school workspace"]'); select?.scrollIntoView({ behavior: "smooth", block: "center" }); select?.focus(); }} className="rounded-full border border-[#b8d3c6] bg-white px-2.5 py-1 text-[.62rem] font-bold text-[#1d6a57] hover:bg-[#e8f3eb]">Switch school</button>}</div><h1 className="mt-1 font-editorial text-3xl text-[#193d32]">Learner attendance</h1><p className="mt-2 text-sm text-[#69796f]">Capture both daily sessions, submit the register for approval, and review attendance trends by period.</p></div>
       <label className="text-xs font-bold text-[#53675d]">Register date<div className="mt-1 flex items-center gap-2 rounded-lg border border-[#d8ded7] bg-white px-3"><CalendarDays size={15} className="text-[#1d6a57]" /><input type="date" disabled={save.isPending} value={date} onChange={event => { setDate(event.target.value); setDraft({}); }} className="py-2.5 text-sm outline-none disabled:opacity-60" /></div></label>
     </header>
     <section className="print:hidden flex flex-wrap items-center gap-2 rounded-xl border border-[#d8ded7] bg-[#fffefa] p-2"><span className="px-2 text-xs font-bold uppercase tracking-wider text-[#718077]">Session</span>{(["morning", "afternoon"] as const).map(value => <button key={value} type="button" onClick={() => { setSession(value); setDraft({}); }} aria-pressed={session === value} className={`rounded-lg px-4 py-2 text-sm font-bold ${session === value ? "bg-[#1d6a57] text-white" : "text-[#53675d] hover:bg-[#edf2ed]"}`}>{value === "morning" ? "Present Morning" : "Present Afternoon"}</button>)}</section>
