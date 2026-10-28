@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { assessments, attendances, grades, learners, marks, reportCards, schoolSettings, staffProfiles, subjects, teacherAllocations, users } from "../drizzle/schema";
 import { getDb } from "./db";
-import { assertScore, cbcLevel, getSettings, writeAudit } from "./smis";
+import { assertScore, actorSchoolId, cbcLevel, getSettings, writeAudit } from "./smis";
 import { assignedRoles } from "./access";
 
 export type AssessmentType = "mid_term" | "end_term";
@@ -99,7 +99,9 @@ async function assessmentForScope(scope: AssessmentScope) {
 export async function listAssessmentScopes(userId: number) {
   const db = await requireDb();
   const access = await actorAccess(userId);
-  const filters = [] as ReturnType<typeof eq>[];
+  const schoolId = await actorSchoolId(userId);
+  const filters = [
+    eq(teacherAllocations.schoolId, schoolId),] as ReturnType<typeof eq>[];
   if (!access.isAdmin && !access.isMarklistReviewer) filters.push(eq(teacherAllocations.teacherUserId, userId));
   const rows = await db.select({ allocation: teacherAllocations, grade: grades, subject: subjects, staff: staffProfiles })
     .from(teacherAllocations)
@@ -312,7 +314,9 @@ export async function correctLockedAssessmentMark(input: { assessmentId: number;
 export async function getClassMarklist(input: { academicYear: number; term: string; assessmentType: MarklistType; gradeId: number }, userId: number) {
   const db = await requireDb();
   const access = await actorAccess(userId);
+  const schoolId = await actorSchoolId(userId);
   const filters = [
+    eq(teacherAllocations.schoolId, schoolId),
     eq(teacherAllocations.academicYear, input.academicYear),
     eq(teacherAllocations.term, input.term),
     eq(teacherAllocations.gradeId, input.gradeId),
@@ -326,10 +330,10 @@ export async function getClassMarklist(input: { academicYear: number; term: stri
     .orderBy(subjects.name);
   if (!allocationRows.length) throw new Error("MARKLIST_SCOPE_FORBIDDEN");
 
-  const grade = (await db.select().from(grades).where(eq(grades.id, input.gradeId)).limit(1))[0];
+  const grade = (await db.select().from(grades).where(and(eq(grades.id, input.gradeId), eq(grades.schoolId, schoolId))).limit(1))[0];
   if (!grade) throw new Error("GRADE_NOT_FOUND");
-  const school = (await db.select().from(schoolSettings).limit(1))[0] ?? null;
-  const roster = await db.select().from(learners).where(and(eq(learners.gradeId, input.gradeId), eq(learners.status, "active"))).orderBy(learners.fullName);
+  const school = (await db.select().from(schoolSettings).where(eq(schoolSettings.schoolId, schoolId)).limit(1))[0] ?? null;
+  const roster = await db.select().from(learners).where(and(eq(learners.schoolId, schoolId), eq(learners.gradeId, input.gradeId), eq(learners.status, "active"))).orderBy(learners.fullName);
   const subjectRows = Array.from(new Map(allocationRows.map(row => [row.subject.id, {
     id: row.subject.id,
     name: row.subject.name,
@@ -344,6 +348,7 @@ export async function getClassMarklist(input: { academicYear: number; term: stri
     eq(assessments.term, input.term),
     inArray(assessments.assessmentType, selectedAssessmentTypes),
     eq(assessments.gradeId, input.gradeId),
+    eq(assessments.schoolId, schoolId),
   ));
   const assessmentBySubjectType = new Map(assessmentsForPeriod.map(row => [`${row.subjectId}:${row.assessmentType}`, row]));
   for (const subject of subjectRows) {
@@ -361,7 +366,7 @@ export async function getClassMarklist(input: { academicYear: number; term: stri
   }
   const assessmentIds = assessmentsForPeriod.map(row => row.id);
   const saved = assessmentIds.length
-    ? await db.select().from(marks).where(inArray(marks.assessmentId, assessmentIds))
+    ? await db.select().from(marks).where(and(inArray(marks.assessmentId, assessmentIds), eq(marks.schoolId, schoolId)))
     : [];
   const assessmentTypeById = new Map(assessmentsForPeriod.map(row => [row.id, row.assessmentType]));
   const marksBySubjectLearnerType = new Map(saved.map(row => [`${row.subjectId}:${row.learnerId}:${assessmentTypeById.get(row.assessmentId)}`, row]));

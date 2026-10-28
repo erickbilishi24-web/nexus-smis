@@ -1,7 +1,7 @@
 import { desc, eq, like, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import { expenditures, guardians, learnerGuardians, notifications, permissions, userPermissions } from "../drizzle/schema";
-import { effectivePermissions, peoplePageWindow, permissionCatalog, requireDb, writeAudit } from "./smis";
+import { actorSchoolId, effectivePermissions, peoplePageWindow, permissionCatalog, requireDb, writeAudit } from "./smis";
 import { attendances, learners, marks, feeStructures, payments, storeItems, storeMovements, subjects, grades } from "../drizzle/schema";
 
 export async function listGuardians(search?: string) {
@@ -17,32 +17,36 @@ export async function saveGuardian(input: { fullName: string; phone?: string | n
   return { id: guardianId };
 }
 
-export async function listExpenditures() {
+export async function listExpenditures(userId: number) {
   const db = await requireDb();
-  return db.select().from(expenditures).orderBy(desc(expenditures.expenditureDate)).limit(100);
+  const schoolId = await actorSchoolId(userId);
+  return db.select().from(expenditures).where(eq(expenditures.schoolId, schoolId)).orderBy(desc(expenditures.expenditureDate)).limit(100);
 }
 
-export async function listExpendituresPage(input: { page?: number; pageSize?: number }) {
+export async function listExpendituresPage(input: { page?: number; pageSize?: number }, userId: number) {
   const db = await requireDb();
+  const schoolId = await actorSchoolId(userId);
   const { page, pageSize, offset } = peoplePageWindow(input.page, input.pageSize);
   const [rows, totalRows] = await Promise.all([
-    db.select().from(expenditures).orderBy(desc(expenditures.expenditureDate)).limit(pageSize).offset(offset),
-    db.select({ total: sql<number>`count(*)` }).from(expenditures),
+    db.select().from(expenditures).where(eq(expenditures.schoolId, schoolId)).orderBy(desc(expenditures.expenditureDate)).limit(pageSize).offset(offset),
+    db.select({ total: sql<number>`count(*)` }).from(expenditures).where(eq(expenditures.schoolId, schoolId)),
   ]);
   return { rows, total: Number(totalRows[0]?.total ?? 0), page, pageSize };
 }
 
 export async function recordExpenditure(input: { expenditureDate: string; amount: number; category: string; description: string; responsiblePerson: string }, userId: number) {
   const db = await requireDb();
+  const schoolId = await actorSchoolId(userId);
   if (input.amount <= 0) throw new Error("INVALID_AMOUNT");
-  const row = (await db.insert(expenditures).values({ ...input, expenditureDate: new Date(input.expenditureDate), amount: String(input.amount), createdByUserId: userId }).$returningId())[0];
+  const row = (await db.insert(expenditures).values({ ...input, schoolId, expenditureDate: new Date(input.expenditureDate), amount: String(input.amount), createdByUserId: userId }).$returningId())[0];
   await writeAudit(userId, "finance.expenditure", "expenditure", row.id, input);
   return { ok: true, id: row.id };
 }
 
-export async function financialSummary() {
+export async function financialSummary(userId: number) {
   const db = await requireDb();
-  const [paymentRows, expenditureRows] = await Promise.all([db.select().from(payments), db.select().from(expenditures)]);
+  const schoolId = await actorSchoolId(userId);
+  const [paymentRows, expenditureRows] = await Promise.all([db.select().from(payments).where(eq(payments.schoolId, schoolId)), db.select().from(expenditures).where(eq(expenditures.schoolId, schoolId))]);
   return { collected: paymentRows.reduce((s, row) => s + Number(row.amount), 0), expenditure: expenditureRows.reduce((s, row) => s + Number(row.amount), 0), balance: paymentRows.reduce((s, row) => s + Number(row.amount), 0) - expenditureRows.reduce((s, row) => s + Number(row.amount), 0) };
 }
 
