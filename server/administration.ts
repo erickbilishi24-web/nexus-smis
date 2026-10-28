@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { and, desc, eq, gte, inArray, like, lte, or, sql, type SQL } from "drizzle-orm";
 import type { Request } from "express";
 import { getDb } from "./db";
+import { ENV } from "./_core/env";
 import { auditLogs, grades, iamPasswordResets, iamSessions, rolePermissions, schoolMemberships, schoolSettings, schools, staffProfiles, subjects, teacherAllocations, userPermissions, userRoles, users } from "../drizzle/schema";
 import { ACTIONS, ASSIGNABLE_ROLES, MANAGE_PERMISSIONS, MATRIX_KEYS, MODULES, ROLE_LABELS, assignedRoles, computePermissions, getAccessProfile, permissionRole, roleMatrix, type StaffRole } from "./access";
 import { getSettings, saveTeacherAllocation, writeAudit } from "./smis";
@@ -37,7 +38,7 @@ export async function adminCatalog(actorUserId?: number) {
     grades: (await db.select().from(grades).orderBy(grades.name)).map(g => ({ id: g.id, name: `${g.name}${g.stream ? ` ${g.stream}` : ""}`, baseName: g.name, stream: g.stream })),
     subjects: await db.select({ id: subjects.id, name: subjects.name, code: subjects.code }).from(subjects).orderBy(subjects.name),
     schools: (await db.select({ id: schools.id, schoolCode: schools.schoolCode, schoolName: schools.schoolName, status: schools.status }).from(schools).orderBy(schools.schoolName)).filter(s => !actorProfile || actorProfile.level === "system" || s.id === actorSchoolId),
-    academicYear: settings.academicYear, term: settings.currentTerm,
+    academicYear: settings.academicYear, term: settings.currentTerm, publicAppUrl: ENV.publicAppUrl,
     departments: Array.from(new Set((await db.select({ d: staffProfiles.department }).from(staffProfiles)).map(r => r.d).filter(Boolean))) as string[],
   };
 }

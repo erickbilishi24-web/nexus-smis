@@ -60,7 +60,9 @@ export function SchoolRegistryPanel({ isSuper }: { isSuper: boolean }) {
   const [status, setStatus] = useState<"active" | "pending_activation">("active");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingName, setEditingName] = useState("");
-  const schoolLoginUrl = (schoolCode: string) => `${window.location.origin}/school/${encodeURIComponent(schoolCode)}/login`;
+  const catalog = trpc.smis.administration.catalog.useQuery();
+  const publicAppUrl = catalog.data?.publicAppUrl ?? window.location.origin;
+  const schoolLoginUrl = (schoolCode: string) => `${publicAppUrl}/school/${encodeURIComponent(schoolCode)}/login`;
   const schools = trpc.smis.administration.schools.useQuery();
   const update = trpc.smis.administration.updateSchool.useMutation({ onSuccess: () => { toast.success("School details updated"); setEditingId(null); void utils.smis.administration.invalidate(); }, onError: e => toast.error(errText(e.message)) });
   const lifecycle = trpc.smis.administration.setSchoolStatus.useMutation({ onSuccess: result => { toast.success(`School ${result.status}`); void utils.smis.administration.invalidate(); }, onError: e => toast.error(errText(e.message)) });

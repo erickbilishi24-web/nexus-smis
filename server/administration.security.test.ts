@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { assertAdminAccountDeletionAllowed, assertStrongPassword, generateTemporaryPassword, isValidSchoolCode, normalizeSchoolCode } from "./administration";
+import { DEFAULT_PUBLIC_APP_URL, resolvePublicAppUrl } from "./_core/env";
 
 describe("multi-school administration security helpers", () => {
   it("normalizes school codes before validation", () => {
@@ -7,6 +8,12 @@ describe("multi-school administration security helpers", () => {
     expect(isValidSchoolCode("  school-001 ")).toBe(true);
     expect(isValidSchoolCode("ab")).toBe(false);
     expect(isValidSchoolCode("school code")).toBe(false);
+  });
+
+  it("uses a valid configured public host and rejects an underscore alias", () => {
+    expect(resolvePublicAppUrl("https://nexus-smis.example.com/")).toBe("https://nexus-smis.example.com");
+    expect(resolvePublicAppUrl("https://nexus_smis.example.com")).toBe(DEFAULT_PUBLIC_APP_URL);
+    expect(resolvePublicAppUrl("not-a-url")).toBe(DEFAULT_PUBLIC_APP_URL);
   });
 
   it("generates a strong temporary password without exposing a fixed credential", () => {
