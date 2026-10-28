@@ -620,11 +620,12 @@ export async function restoreTimetableVersion(versionId: number, userId: number)
   return { restoredVersionId: versionId, placed: entries.length };
 }
 
-export async function listTimetable() {
+export async function listTimetable(userId: number) {
   const db = await requireDb();
-  const settings = await getSettings();
-  const rows = await db.select({ entry: timetableEntries, grade: grades, subject: subjects, teacher: users, staff: staffProfiles }).from(timetableEntries).leftJoin(grades, eq(grades.id, timetableEntries.gradeId)).leftJoin(subjects, eq(subjects.id, timetableEntries.subjectId)).leftJoin(users, eq(users.id, timetableEntries.teacherUserId)).leftJoin(staffProfiles, eq(staffProfiles.userId, timetableEntries.teacherUserId)).orderBy(timetableEntries.dayOfWeek, timetableEntries.period);
-  const allocations = await db.select({ gradeId: teacherAllocations.gradeId, subjectId: teacherAllocations.subjectId, teacherUserId: teacherAllocations.teacherUserId, schoolId: teacherAllocations.schoolId, status: teacherAllocations.status, allocationType: teacherAllocations.allocationType }).from(teacherAllocations).where(and(eq(teacherAllocations.academicYear, Number(settings.academicYear)), eq(teacherAllocations.status, "active")));
+  const schoolId = await actorSchoolId(userId);
+  const settings = await getSettings(schoolId);
+  const rows = await db.select({ entry: timetableEntries, grade: grades, subject: subjects, teacher: users, staff: staffProfiles }).from(timetableEntries).leftJoin(grades, eq(grades.id, timetableEntries.gradeId)).leftJoin(subjects, eq(subjects.id, timetableEntries.subjectId)).leftJoin(users, eq(users.id, timetableEntries.teacherUserId)).leftJoin(staffProfiles, eq(staffProfiles.userId, timetableEntries.teacherUserId)).where(eq(timetableEntries.schoolId, schoolId)).orderBy(timetableEntries.dayOfWeek, timetableEntries.period);
+  const allocations = await db.select({ gradeId: teacherAllocations.gradeId, subjectId: teacherAllocations.subjectId, teacherUserId: teacherAllocations.teacherUserId, schoolId: teacherAllocations.schoolId, status: teacherAllocations.status, allocationType: teacherAllocations.allocationType }).from(teacherAllocations).where(and(eq(teacherAllocations.schoolId, schoolId), eq(teacherAllocations.academicYear, Number(settings.academicYear)), eq(teacherAllocations.status, "active")));
   const alignedIds = new Set(timetableEntriesAlignedWithAllocations(rows.map(row => ({ ...row.entry, schoolId: row.entry.schoolId ?? row.grade?.schoolId ?? null })), allocations).map(entry => entry.id));
   return rows.filter(row => alignedIds.has(row.entry.id));
 }
@@ -782,14 +783,15 @@ export function buildTimetableValidationReport(
   };
 }
 
-export async function getTimetableValidationReport(academicYear?: number) {
+export async function getTimetableValidationReport(academicYear?: number, userId?: number) {
   const db = await requireDb();
-  const settings = await getSettings();
+  const schoolId = userId == null ? null : await actorSchoolId(userId);
+  const settings = await getSettings(schoolId ?? undefined);
   const year = academicYear ?? Number(settings.academicYear);
   const [requirementRows, allocationRows, entries] = await Promise.all([
-    db.select({ requirement: timetableRequirements, grade: grades, subject: subjects }).from(timetableRequirements).innerJoin(grades, eq(grades.id, timetableRequirements.gradeId)).innerJoin(subjects, eq(subjects.id, timetableRequirements.subjectId)).where(and(eq(timetableRequirements.academicYear, year), sql`${timetableRequirements.periodsPerWeek} > 0`)),
-    db.select({ allocation: teacherAllocations, staff: staffProfiles, user: users }).from(teacherAllocations).leftJoin(staffProfiles, eq(staffProfiles.userId, teacherAllocations.teacherUserId)).leftJoin(users, eq(users.id, teacherAllocations.teacherUserId)).where(eq(teacherAllocations.academicYear, year)),
-    db.select().from(timetableEntries),
+    db.select({ requirement: timetableRequirements, grade: grades, subject: subjects }).from(timetableRequirements).innerJoin(grades, eq(grades.id, timetableRequirements.gradeId)).innerJoin(subjects, eq(subjects.id, timetableRequirements.subjectId)).where(and(schoolId == null ? undefined : eq(grades.schoolId, schoolId), eq(timetableRequirements.academicYear, year), sql`${timetableRequirements.periodsPerWeek} > 0`)),
+    db.select({ allocation: teacherAllocations, staff: staffProfiles, user: users }).from(teacherAllocations).leftJoin(staffProfiles, eq(staffProfiles.userId, teacherAllocations.teacherUserId)).leftJoin(users, eq(users.id, teacherAllocations.teacherUserId)).where(and(schoolId == null ? undefined : eq(teacherAllocations.schoolId, schoolId), eq(teacherAllocations.academicYear, year))),
+    db.select().from(timetableEntries).where(schoolId == null ? undefined : eq(timetableEntries.schoolId, schoolId)),
   ]);
   return buildTimetableValidationReport(
     requirementRows.map(row => ({ gradeId: row.requirement.gradeId, gradeName: row.grade.name, gradeStream: row.grade.stream, subjectId: row.requirement.subjectId, subjectName: row.subject.name, subjectCode: row.subject.code, periodsPerWeek: row.requirement.periodsPerWeek })),
@@ -798,13 +800,14 @@ export async function getTimetableValidationReport(academicYear?: number) {
   );
 }
 
-export async function listTimetableAudit(academicYear?: number) {
+export async function listTimetableAudit(academicYear?: number, userId?: number) {
   const db = await requireDb();
-  const settings = await getSettings();
+  const schoolId = userId == null ? null : await actorSchoolId(userId);
+  const settings = await getSettings(schoolId ?? undefined);
   const year = academicYear ?? Number(settings.academicYear);
-  const requirementRows = await db.select({ requirement: timetableRequirements, grade: grades, subject: subjects }).from(timetableRequirements).innerJoin(grades, eq(grades.id, timetableRequirements.gradeId)).innerJoin(subjects, eq(subjects.id, timetableRequirements.subjectId)).where(and(eq(timetableRequirements.academicYear, year), sql`${timetableRequirements.periodsPerWeek} > 0`)).orderBy(grades.name, subjects.name);
-  const allocationRows = await db.select({ allocation: teacherAllocations, staff: staffProfiles }).from(teacherAllocations).leftJoin(staffProfiles, eq(staffProfiles.userId, teacherAllocations.teacherUserId)).where(and(eq(teacherAllocations.academicYear, year), eq(teacherAllocations.status, "active")));
-  const entries = await db.select().from(timetableEntries);
+  const requirementRows = await db.select({ requirement: timetableRequirements, grade: grades, subject: subjects }).from(timetableRequirements).innerJoin(grades, eq(grades.id, timetableRequirements.gradeId)).innerJoin(subjects, eq(subjects.id, timetableRequirements.subjectId)).where(and(schoolId == null ? undefined : eq(grades.schoolId, schoolId), eq(timetableRequirements.academicYear, year), sql`${timetableRequirements.periodsPerWeek} > 0`)).orderBy(grades.name, subjects.name);
+  const allocationRows = await db.select({ allocation: teacherAllocations, staff: staffProfiles }).from(teacherAllocations).leftJoin(staffProfiles, eq(staffProfiles.userId, teacherAllocations.teacherUserId)).where(and(schoolId == null ? undefined : eq(teacherAllocations.schoolId, schoolId), eq(teacherAllocations.academicYear, year), eq(teacherAllocations.status, "active")));
+  const entries = await db.select().from(timetableEntries).where(schoolId == null ? undefined : eq(timetableEntries.schoolId, schoolId));
   return buildTimetableAuditRows(
     requirementRows.map(row => ({ gradeId: row.requirement.gradeId, gradeName: row.grade.name, gradeStream: row.grade.stream, subjectId: row.requirement.subjectId, subjectName: row.subject.name, subjectCode: row.subject.code, periodsPerWeek: row.requirement.periodsPerWeek })),
     allocationRows.map(row => ({ ...row.allocation, displayName: row.staff?.displayName ?? null, teacherCode: row.staff?.teacherCode ?? null })),
@@ -849,9 +852,10 @@ export async function getPersonalTimetable(userId: number) {
   return { teacherName: profile?.displayName ?? user?.name ?? user?.username ?? "Teacher", teacherCode: profile?.teacherCode ?? null, entries: visibleEntries };
 }
 
-export async function listTeacherCodes() {
+export async function listTeacherCodes(userId: number) {
   const db = await requireDb();
-  return db.select({ profile: staffProfiles, user: users }).from(staffProfiles).leftJoin(users, eq(users.id, staffProfiles.userId)).orderBy(staffProfiles.createdAt, staffProfiles.id);
+  const schoolId = await actorSchoolId(userId);
+  return db.select({ profile: staffProfiles, user: users }).from(staffProfiles).leftJoin(users, eq(users.id, staffProfiles.userId)).where(eq(staffProfiles.schoolId, schoolId)).orderBy(staffProfiles.createdAt, staffProfiles.id);
 }
 
 export async function updateTeacherCode(input: { staffProfileId: number; teacherCode: number }, userId: number) {
@@ -1697,8 +1701,15 @@ export async function createLearningArea(input: { name: string; code: string }, 
 
 export async function listAllocations(filters?: { academicYear?: number; term?: string; status?: "active" | "inactive" | "replaced" }, userId?: number) {
   const db = await requireDb();
+  const schoolId = userId == null ? null : await actorSchoolId(userId);
   const actor = userId ? (await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1))[0] : null;
-  const where = filters?.academicYear || filters?.term || filters?.status || actor?.role === "user" ? and(filters?.academicYear ? eq(teacherAllocations.academicYear, filters.academicYear) : undefined, filters?.term ? eq(teacherAllocations.term, filters.term) : undefined, filters?.status ? eq(teacherAllocations.status, filters.status) : undefined, actor?.role === "user" && userId ? eq(teacherAllocations.teacherUserId, userId) : undefined) : undefined;
+  const where = and(
+    schoolId == null ? undefined : eq(teacherAllocations.schoolId, schoolId),
+    filters?.academicYear ? eq(teacherAllocations.academicYear, filters.academicYear) : undefined,
+    filters?.term ? eq(teacherAllocations.term, filters.term) : undefined,
+    filters?.status ? eq(teacherAllocations.status, filters.status) : undefined,
+    actor?.role === "user" && userId ? eq(teacherAllocations.teacherUserId, userId) : undefined,
+  );
   return db.select({ allocation: teacherAllocations, staff: staffProfiles, grade: grades, subject: subjects }).from(teacherAllocations).leftJoin(staffProfiles, eq(staffProfiles.userId, teacherAllocations.teacherUserId)).leftJoin(grades, eq(grades.id, teacherAllocations.gradeId)).leftJoin(subjects, eq(subjects.id, teacherAllocations.subjectId)).where(where).orderBy(desc(teacherAllocations.id));
 }
 
