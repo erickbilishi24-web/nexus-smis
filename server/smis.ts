@@ -46,13 +46,15 @@ export const permissionsByRole: Record<string, string[]> = {
   finance: ["dashboard.view", "finance.view", "finance.edit", "attendance.view", "attendance.edit"],
   storekeeper: ["dashboard.view", "store.view", "store.edit"],
   other: ["dashboard.view"],
+  nurse: ["dashboard.view", "health.view", "health.create", "health.edit"],
+  boarding_master: ["dashboard.view", "boarding.view", "boarding.create", "boarding.edit"],
 };
 
 export const permissionCatalog = [
   ["learners.view", "View learners"], ["learners.add", "Add learners"], ["learners.edit", "Edit learners"], ["learners.deactivate", "Deactivate learners"],
   ["attendance.view", "View attendance"], ["attendance.edit", "Enter and edit attendance"], ["assessments.view", "View marks"], ["assessments.edit", "Enter and edit marks"],
   ["reports.view", "View reports"], ["finance.view", "View finance"], ["finance.edit", "Record payments and expenditure"], ["payroll.view", "View confidential payroll records"], ["payroll.edit", "Prepare payroll and adjustments"], ["payroll.approve", "Approve payroll independently"], ["payroll.rules", "Configure payroll statutory rules"], ["transport.view", "View transport and fleet"], ["transport.edit", "Run transport operations"], ["transport.manage", "Manage fleet and routes"], ["store.view", "View inventory"], ["store.edit", "Manage inventory"],
-  ["timetable.view", "View timetable"], ["timetable.edit", "Edit timetable"], ["allocations.view", "View teacher allocations"], ["allocations.create", "Create allocations"], ["allocations.edit", "Edit allocations"], ["allocations.deactivate", "Deactivate allocations"], ["allocations.replace", "Replace teachers"], ["allocations.bulk", "Bulk allocation"], ["communication.edit", "Manage communication"], ["alumni.edit", "Manage alumni"], ["archives.view", "View academic archives and alumni"], ["archives.edit", "Process learner exits"], ["counselling.submit", "Submit counselling referrals"], ["counselling.view", "View confidential counselling cases"], ["counselling.edit", "Manage confidential counselling cases"], ["users.edit", "Manage users"], ["settings.edit", "Manage settings"], ["ai.access", "Access NEXUS AI"], ["audit.view", "View audit logs"],
+  ["timetable.view", "View timetable"], ["timetable.edit", "Edit timetable"], ["allocations.view", "View teacher allocations"], ["allocations.create", "Create allocations"], ["allocations.edit", "Edit allocations"], ["allocations.deactivate", "Deactivate allocations"], ["allocations.replace", "Replace teachers"], ["allocations.bulk", "Bulk allocation"], ["health.view", "View health records"], ["health.create", "Record health events"], ["health.edit", "Edit health records"], ["boarding.view", "View boarding records"], ["boarding.create", "Create boarding units and profiles"], ["boarding.edit", "Manage boarding allocations"], ["communication.edit", "Manage communication"], ["alumni.edit", "Manage alumni"], ["archives.view", "View academic archives and alumni"], ["archives.edit", "Process learner exits"], ["counselling.submit", "Submit counselling referrals"], ["counselling.view", "View confidential counselling cases"], ["counselling.edit", "Manage confidential counselling cases"], ["users.edit", "Manage users"], ["settings.edit", "Manage settings"], ["ai.access", "Access NEXUS AI"], ["audit.view", "View audit logs"],
 ] as const;
 
 export async function effectivePermissions(userId: number, role: string) {
@@ -176,7 +178,7 @@ export async function getDashboardSnapshot(userId?: number, accountRole?: string
 
 export type LearnerStatus = "active" | "inactive";
 export type PeopleStaffStatus = "active" | "inactive";
-export type PeopleStaffRole = "super_admin" | "admin" | "teacher" | "class_teacher" | "senior_teacher" | "deputy_head" | "head_teacher" | "finance" | "storekeeper" | "other";
+export type PeopleStaffRole = "super_admin" | "admin" | "teacher" | "class_teacher" | "senior_teacher" | "deputy_head" | "head_teacher" | "exam_council" | "nurse" | "boarding_master" | "finance" | "storekeeper" | "other";
 export function peoplePageWindow(page = 0, pageSize = 50) {
   const safePage = Math.max(0, Math.floor(page));
   const safePageSize = Math.min(100, Math.max(10, Math.floor(pageSize)));
@@ -1510,7 +1512,7 @@ export async function previewPeopleImport(input: { kind: PeopleImportKind; rows:
     } else {
       const displayName = importTextValue(row, "staffName", "displayName", "name", "teacherName");
       const role = (importTextValue(row, "role", "systemRole", "designationRole") || "teacher") as PeopleStaffRole;
-      const allowedRoles: PeopleStaffRole[] = ["admin", "class_teacher", "teacher", "finance"];
+      const allowedRoles: PeopleStaffRole[] = ["admin", "class_teacher", "teacher", "finance", "nurse", "boarding_master"];
       if (!displayName) errors.push({ row: rowNumber, message: "Staff name is required." });
       if (!allowedRoles.includes(role)) errors.push({ row: rowNumber, message: `Unknown staff role: ${role}.` });
       const rawStatus = importTextValue(row, "status", "state").toLowerCase();
@@ -1605,7 +1607,7 @@ export async function undoLastPeopleImport(userId: number) {
   return { ok: true, kind: batch.kind, rows: batch.rows };
 }
 
-export type StaffRole = "admin" | "teacher" | "class_teacher" | "finance";
+export type StaffRole = "admin" | "teacher" | "class_teacher" | "finance" | "nurse" | "boarding_master";
 
 export async function updateStaffRole(input: { staffProfileId: number; role: StaffRole }, userId: number) {
   const db = await requireDb();

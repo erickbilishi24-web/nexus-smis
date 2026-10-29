@@ -142,6 +142,45 @@ export const boardingAllocations = mysqlTable("boarding_allocations", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+export const boardingAttendance = mysqlTable("boarding_attendance", {
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId").notNull(),
+  learnerId: int("learnerId").notNull(),
+  attendanceDate: date("attendanceDate").notNull(),
+  status: mysqlEnum("status", ["present", "absent", "late", "excused"]).notNull(),
+  notes: varchar("notes", { length: 500 }),
+  recordedByUserId: int("recordedByUserId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => ({ boardingAttendanceUnique: uniqueIndex("boarding_attendance_unique").on(table.schoolId, table.learnerId, table.attendanceDate) }));
+
+export const boardingMeals = mysqlTable("boarding_meals", {
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId").notNull(),
+  learnerId: int("learnerId").notNull(),
+  mealDate: date("mealDate").notNull(),
+  mealType: mysqlEnum("mealType", ["breakfast", "lunch", "dinner", "snack"]).notNull(),
+  status: mysqlEnum("status", ["served", "skipped", "excused"]).notNull(),
+  notes: varchar("notes", { length: 500 }),
+  recordedByUserId: int("recordedByUserId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => ({ boardingMealUnique: uniqueIndex("boarding_meal_unique").on(table.schoolId, table.learnerId, table.mealDate, table.mealType) }));
+
+export const boardingCheckouts = mysqlTable("boarding_checkouts", {
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId").notNull(),
+  learnerId: int("learnerId").notNull(),
+  checkoutAt: timestamp("checkoutAt").notNull(),
+  expectedReturnAt: timestamp("expectedReturnAt"),
+  actualReturnAt: timestamp("actualReturnAt"),
+  destination: varchar("destination", { length: 255 }),
+  reason: varchar("reason", { length: 500 }).notNull(),
+  status: mysqlEnum("status", ["checked_out", "returned", "cancelled"]).notNull().default("checked_out"),
+  authorizedByUserId: int("authorizedByUserId").notNull(),
+  returnedByUserId: int("returnedByUserId"),
+  notes: varchar("notes", { length: 500 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
 export const staffProfiles = mysqlTable("staff_profiles", {
   id: int("id").autoincrement().primaryKey(),
   schoolId: int("schoolId"),
@@ -154,7 +193,7 @@ export const staffProfiles = mysqlTable("staff_profiles", {
   designation: varchar("designation", { length: 120 }),
   email: varchar("email", { length: 320 }),
   phone: varchar("phone", { length: 40 }),
-  role: mysqlEnum("role", ["super_admin", "admin", "teacher", "class_teacher", "exam_council", "senior_teacher", "deputy_head", "head_teacher", "finance", "storekeeper", "other"]).notNull().default("other"),
+  role: mysqlEnum("role", ["super_admin", "admin", "teacher", "class_teacher", "exam_council", "nurse", "boarding_master", "senior_teacher", "deputy_head", "head_teacher", "finance", "storekeeper", "other"]).notNull().default("other"),
   status: mysqlEnum("status", ["active", "disabled"]).notNull().default("active"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, table => ({ staffSchoolNameIdx: index("staff_school_name_idx").on(table.schoolId, table.displayName) }));

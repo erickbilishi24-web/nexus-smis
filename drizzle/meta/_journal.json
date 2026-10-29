@@ -309,6 +309,13 @@
       "when": 1793255215241,
       "tag": "0043_fair_gwen_stacy",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "5",
+      "when": 1793255792015,
+      "tag": "0044_chief_snowbird",
+      "breakpoints": true
     }
   ]
 }

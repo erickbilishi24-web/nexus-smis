@@ -347,7 +347,8 @@ export default function Home() {
     if (item.label === "Curriculum Setup") return effectivePermissions.data?.includes("*") || effectivePermissions.data?.includes("settings.edit") || false;
     if (item.label === "Messages") return effectivePermissions.data?.includes("*") || effectivePermissions.data?.includes("communication.edit") || false;
     if (item.label === "Library") return effectivePermissions.data?.includes("*") || effectivePermissions.data?.includes("library.view") || false;
-    if (item.label === "Health & Medical" || item.label === "Boarding Management") return user?.role === "admin" || effectivePermissions.data?.includes("*") || false;
+    if (item.label === "Health & Medical") return hasPermission("health.view");
+    if (item.label === "Boarding Management") return hasPermission("boarding.view");
     if (item.label === "Theme Customization") return canManageAdministration;
     if (item.label === "Timetable Generator" || item.label === "Teacher Allocations") return isMasterAdmin;
     if (item.label === "Feedback") return isMasterAdmin;

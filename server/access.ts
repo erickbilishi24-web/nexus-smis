@@ -7,7 +7,7 @@ export const MODULES = [
   ["dashboard", "Dashboard"], ["learners", "Learners"], ["attendance", "Attendance"], ["assessments", "Assessments"],
   ["marklists", "Marklists"], ["report_cards", "Report Cards"], ["finance", "Finance & Resources"], ["store", "Store"],
   ["timetable", "Timetable"], ["allocations", "Teacher Allocations"], ["administration", "Administration"],
-  ["communication", "Communications"], ["alumni", "Alumni"], ["archives", "Academic Archives & Alumni"], ["counselling", "Guidance & Counselling"], ["library", "Library"], ["ai", "NEXUS AI"], ["reports", "Reports"], ["settings", "Settings"],
+  ["communication", "Communications"], ["alumni", "Alumni"], ["archives", "Academic Archives & Alumni"], ["counselling", "Guidance & Counselling"], ["library", "Library"], ["health", "Health & Medical"], ["boarding", "Boarding Management"], ["ai", "NEXUS AI"], ["reports", "Reports"], ["settings", "Settings"],
 ] as const;
 export const ACTIONS = ["view", "create", "edit", "delete", "approve", "export"] as const;
 export const MANAGE_PERMISSIONS = "administration.manage_permissions";
@@ -15,11 +15,11 @@ export const MATRIX_KEYS: string[] = [...MODULES.flatMap(([module]) => ACTIONS.m
 
 export const ROLE_LABELS: Record<string, string> = {
   super_admin: "Super Administrator", admin: "Administrator", head_teacher: "Head of Department", deputy_head: "Deputy",
-  teacher: "Teacher", senior_teacher: "Senior Teacher", class_teacher: "Class Teacher", exam_council: "Exam Council", finance: "Accounts Officer", storekeeper: "Support Staff", other: "Support Staff",
+  teacher: "Teacher", senior_teacher: "Senior Teacher", class_teacher: "Class Teacher", exam_council: "Exam Council", nurse: "Nurse", boarding_master: "Boarding Master", finance: "Accounts Officer", storekeeper: "Support Staff", other: "Support Staff",
 };
 /** Roles offered when creating or changing a user (stored in staff_profiles.role). */
-export const ASSIGNABLE_ROLES = ["super_admin", "admin", "teacher", "senior_teacher", "class_teacher", "deputy_head", "head_teacher", "exam_council", "finance", "other"] as const;
-export type StaffRole = "super_admin" | "admin" | "teacher" | "class_teacher" | "exam_council" | "senior_teacher" | "deputy_head" | "head_teacher" | "finance" | "storekeeper" | "other";
+export const ASSIGNABLE_ROLES = ["super_admin", "admin", "teacher", "senior_teacher", "class_teacher", "deputy_head", "head_teacher", "exam_council", "nurse", "boarding_master", "finance", "other"] as const;
+export type StaffRole = "super_admin" | "admin" | "teacher" | "class_teacher" | "exam_council" | "nurse" | "boarding_master" | "senior_teacher" | "deputy_head" | "head_teacher" | "finance" | "storekeeper" | "other";
 
 /** Collapses legacy staff roles to the permission role that carries their defaults. */
 export function permissionRole(role: string) {
