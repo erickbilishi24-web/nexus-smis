@@ -9,6 +9,7 @@ import { AdminError, AUDIT_MODULES, adminCatalog, adminOverview, changeAdminAssi
 import { correctLockedAssessmentMark, ensureAssessment, getAssessmentEntries, getAssessmentReportCard, getClassMarklist, listAssessmentScopes, listReportLearners, saveAssessmentMarks, setAssessmentFinalState, submitAssessment } from "./assessment";
 import { adminResetIamPassword, changeIamPassword, loginWithIam, logoutIam, requestIamPasswordReset, resetIamPassword, safeAuthProfile } from "./iam";
 import { listFeedback, submitFeedback } from "./feedback";
+import { createLeaveOutPass, listLeaveOutPasses, transitionLeaveOutPass } from "./leaveout";
 import { createCommentBankEntry, listCommentBankAdmin, listReportComments, updateCommentBankEntry } from "./commentBank";
 import { clockIn, getClockingSetup, saveSchoolLocation } from "./clocking";
 import { listMessageGrades, listMessageRecipients, listNexusMessages, previewMessageRecipients, queueNexusMessage } from "./messages";
@@ -246,6 +247,9 @@ export const appRouter = router({
       catalog: permissionProcedure("assessments.view").query(() => listAcademicCatalog()),
       guardians: permissionProcedure("learners.view").input(z.object({ search: z.string().optional() }).optional()).query(({ input }) => listGuardians(input?.search)),
       addGuardian: permissionProcedure("learners.add").input(z.object({ fullName: z.string().min(1).max(160), phone: z.string().max(40).nullable().optional(), email: z.string().email().nullable().optional(), communicationPreference: z.enum(["sms", "email", "phone"]), learnerId: z.number().int().positive().optional(), relationship: z.string().max(80).optional() })).mutation(({ input, ctx }) => saveGuardian(input, currentUserId(ctx.user))),
+      leaveOutPasses: permissionProcedure("learners.view").input(z.object({ status: z.enum(["draft", "pending_approval", "approved", "rejected", "departed", "returned", "cancelled", "expired"]).optional() }).optional()).query(({ input, ctx }) => listLeaveOutPasses(currentUserId(ctx.user), input?.status)),
+      createLeaveOutPass: permissionProcedure("learners.edit").input(z.object({ learnerId: z.number().int().positive(), reason: z.string().trim().min(3).max(500), intendedDepartureAt: z.string().datetime(), expectedReturnAt: z.string().datetime().nullable().optional(), destination: z.string().max(255).nullable().optional(), collectorName: z.string().max(160).nullable().optional(), collectorRelationship: z.string().max(80).nullable().optional(), collectorVerification: z.string().max(120).nullable().optional(), guardianVerified: z.boolean().default(false), remarks: z.string().max(2000).nullable().optional() })).mutation(({ input, ctx }) => createLeaveOutPass(input, currentUserId(ctx.user))),
+      transitionLeaveOutPass: permissionProcedure("learners.edit").input(z.object({ passId: z.number().int().positive(), action: z.enum(["approve", "reject", "cancel", "depart", "return"]), remarks: z.string().max(2000).nullable().optional() })).mutation(({ input, ctx }) => transitionLeaveOutPass(input, currentUserId(ctx.user))),
     }),
     archives: router({
       list: permissionProcedure("archives.view").input(z.object({ search: z.string().max(160).optional(), year: z.number().int().optional(), status: z.string().max(30).optional() }).optional()).query(({ input }) => listArchiveLearners(input ?? {})),

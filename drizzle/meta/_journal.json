@@ -295,6 +295,13 @@
       "when": 1793076935851,
       "tag": "0041_redundant_sister_grimm",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "5",
+      "when": 1793254578816,
+      "tag": "0042_typical_blackheart",
+      "breakpoints": true
     }
   ]
 }

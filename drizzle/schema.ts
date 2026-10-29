@@ -125,6 +125,32 @@ export const learners = mysqlTable("learners", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, table => ({ learnerSchoolNameIdx: index("learner_school_name_idx").on(table.schoolId, table.fullName) }));
 
+export const learnerLeaveOutPasses = mysqlTable("learner_leave_out_passes", {
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId").notNull(),
+  learnerId: int("learnerId").notNull(),
+  passNumber: varchar("passNumber", { length: 50 }).notNull(),
+  reason: varchar("reason", { length: 500 }).notNull(),
+  intendedDepartureAt: timestamp("intendedDepartureAt").notNull(),
+  expectedReturnAt: timestamp("expectedReturnAt"),
+  destination: varchar("destination", { length: 255 }),
+  collectorName: varchar("collectorName", { length: 160 }),
+  collectorRelationship: varchar("collectorRelationship", { length: 80 }),
+  collectorVerification: varchar("collectorVerification", { length: 120 }),
+  guardianVerified: int("guardianVerified").notNull().default(0),
+  status: mysqlEnum("status", ["draft", "pending_approval", "approved", "rejected", "departed", "returned", "cancelled", "expired"]).notNull().default("pending_approval"),
+  initiatedByUserId: int("initiatedByUserId").notNull(),
+  approvedByUserId: int("approvedByUserId"),
+  approvedAt: timestamp("approvedAt"),
+  departedAt: timestamp("departedAt"),
+  departedByUserId: int("departedByUserId"),
+  returnedAt: timestamp("returnedAt"),
+  returnedByUserId: int("returnedByUserId"),
+  remarks: text("remarks"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => ({ leaveOutSchoolPassUnique: uniqueIndex("leave_out_school_pass_school_number_unique").on(table.schoolId, table.passNumber) }));
+
 export const guardians = mysqlTable("guardians", {
   id: int("id").autoincrement().primaryKey(),
   schoolId: int("schoolId"),
