@@ -20,6 +20,23 @@ const applyRuntimeTheme = (theme: Pick<ThemePreset, "primary" | "accent" | "surf
   document.documentElement.style.setProperty("--nexus-accent", theme.accent);
   document.documentElement.style.setProperty("--nexus-surface", theme.surface);
   const dark = theme.mode === "dark" || (theme.mode === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  document.documentElement.style.setProperty("--background", theme.surface);
+  document.documentElement.style.setProperty("--foreground", dark ? "#f8fafc" : "#19342e");
+  document.documentElement.style.setProperty("--card", dark ? "#132235" : "#fffefa");
+  document.documentElement.style.setProperty("--card-foreground", dark ? "#f8fafc" : "#19342e");
+  document.documentElement.style.setProperty("--popover", dark ? "#132235" : "#fffefa");
+  document.documentElement.style.setProperty("--popover-foreground", dark ? "#f8fafc" : "#19342e");
+  document.documentElement.style.setProperty("--primary", theme.primary);
+  document.documentElement.style.setProperty("--primary-foreground", "#fffdf7");
+  document.documentElement.style.setProperty("--secondary", dark ? "#183c52" : "#e7eee7");
+  document.documentElement.style.setProperty("--secondary-foreground", dark ? "#dcecf0" : theme.primary);
+  document.documentElement.style.setProperty("--muted", dark ? "#182b40" : "#efede5");
+  document.documentElement.style.setProperty("--muted-foreground", dark ? "#b8c8d3" : "#67726c");
+  document.documentElement.style.setProperty("--accent", dark ? "#183c52" : `color-mix(in srgb, ${theme.accent} 15%, white)`);
+  document.documentElement.style.setProperty("--accent-foreground", dark ? "#a8e4dc" : theme.primary);
+  document.documentElement.style.setProperty("--border", dark ? "#294056" : `color-mix(in srgb, ${theme.primary} 20%, #dedbd1)`);
+  document.documentElement.style.setProperty("--input", dark ? "#294056" : `color-mix(in srgb, ${theme.primary} 20%, #dedbd1)`);
+  document.documentElement.style.setProperty("--ring", theme.primary);
   document.documentElement.classList.toggle("dark", dark);
 };
 
