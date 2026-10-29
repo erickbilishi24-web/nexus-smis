@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { AlertTriangle, BusFront, CalendarDays, CircleDollarSign, ClipboardCheck, LoaderCircle, Route as RouteIcon, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import { WorkspaceBreadcrumbs } from "@/components/WorkspaceBreadcrumbs";
 
 const control = "w-full rounded-lg border border-[#d7ddd5] bg-white px-3 py-2 text-sm text-[#20392f] outline-none transition focus:border-[#557667] focus:ring-2 focus:ring-[#dce8df]";
 const button = "inline-flex items-center justify-center rounded-lg bg-[#193d32] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#285647] disabled:cursor-not-allowed disabled:opacity-50";
@@ -54,6 +55,7 @@ export function TransportWorkspace({ canManage, canEdit, canFinance }: Props) {
   const selectedLearner = options.data?.learners.find(row => row.id === Number(allocation.learnerId));
   const loading = query.isLoading;
   const busy = [enabled, saveVehicle, setVehicleStatus, saveRoute, assignLearner, allocationStatus, bill, payment, saveAttendance, recordTrip, recordCost, recordIncident, resolveIncident].some(mutation => mutation.isPending);
+  const sectionLabel = section === "fleet" ? "Fleet & routes" : section === "learners" ? "Learners & charges" : "Attendance & operations";
 
   if (loading) return <div className="soft-card flex items-center gap-3 rounded-xl p-6 text-sm text-[#53675d]"><LoaderCircle className="animate-spin" size={18}/>Loading the protected transport register…</div>;
   if (query.error || !data) return <div role="alert" className="soft-card rounded-xl border border-[#e8bcb6] p-5 text-sm text-[#843b35]">Transport is unavailable to this account or the database cannot be reached. Ask an administrator for Transport access.</div>;
@@ -61,7 +63,7 @@ export function TransportWorkspace({ canManage, canEdit, canFinance }: Props) {
   const field = (label: string, child: React.ReactNode) => <label className="grid gap-1.5 text-xs font-semibold text-[#5e7065]"><span>{label}</span>{child}</label>;
   const panel = (title: string, description: string, content: React.ReactNode, icon?: React.ReactNode) => <section className="soft-card rounded-xl border border-[#d8ded7] bg-white p-5"><div className="mb-4 flex items-start gap-3">{icon && <span className="rounded-lg bg-[#edf3ed] p-2 text-[#2b5747]">{icon}</span>}<div><h2 className="font-semibold text-[#193d32]">{title}</h2><p className="mt-1 text-xs text-[#6e7c72]">{description}</p></div></div>{content}</section>;
 
-  return <div className="space-y-5">
+  return <div className="space-y-5"><WorkspaceBreadcrumbs items={[{ label: "Finance & Resources" }, { label: "Transport & Fleet" }, { label: sectionLabel }]} />
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
       {[["Active vehicles", data.metrics.activeVehicles], ["Learners on routes", data.metrics.activeLearners], ["Unpaid transport", cash(data.metrics.transportArrears)], ["Open charges", data.metrics.openCharges], ["Recent vehicle costs", cash(data.metrics.recentVehicleCosts)], ["Alerts / incidents", `${data.metrics.reminders} / ${data.metrics.openIncidents}`]].map(([label, value]) => <div key={String(label)} className="rounded-xl border border-[#dce2da] bg-white p-4"><p className="text-xs text-[#728076]">{label}</p><p className="mt-1 font-editorial text-xl text-[#193d32]">{value}</p></div>)}
     </div>

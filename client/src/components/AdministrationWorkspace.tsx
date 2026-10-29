@@ -2,6 +2,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { ClipboardCopy, History, KeyRound, Lock, LockOpen, MoreHorizontal, Pencil, Plus, Search, ShieldCheck, ShieldOff, UserCheck, UserCog, UserPlus, Users, Trash2, Eye, School } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { WorkspaceBreadcrumbs } from "@/components/WorkspaceBreadcrumbs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -254,6 +255,7 @@ export function AdministrationWorkspace() {
   const authMe = trpc.auth.me.useQuery();
   const perms = trpc.smis.users.effectivePermissions.useQuery(); const catalogQ = trpc.smis.administration.catalog.useQuery();
   const [tab, setTab] = useState<"users" | "matrix" | "classes" | "comments" | "schools" | "audit" | "deletions">("users");
+  const tabLabel = ({ users: "Users & Credentials", matrix: "Permission Matrix", classes: "Classes & Streams", comments: "Report Comments", schools: "School Registry", audit: "Audit Trail", deletions: "Account Deletions" } as const)[tab];
   const [f, setF] = useState({ search: "", role: "", status: "" });
   const list = trpc.smis.administration.list.useQuery({ search: f.search || undefined, role: f.role || undefined, status: (f.status || undefined) as any });
   const overview = trpc.smis.administration.overview.useQuery();
@@ -278,7 +280,7 @@ export function AdministrationWorkspace() {
 
   if (forbidden) return <div className="page-enter soft-card rounded-[1.1rem] p-10 text-center"><ShieldOff className="mx-auto text-[#a3382c]" size={30} /><h1 className="mt-4 font-editorial text-2xl text-[#28483f]">You do not have access to Administration</h1><p className="mx-auto mt-2 max-w-md text-sm text-[#718077]">Your role does not include user and credential management. Contact a Super Administrator if you believe this is a mistake.</p></div>;
 
-  return <div className="page-enter space-y-6">
+  return <div className="page-enter space-y-6"><WorkspaceBreadcrumbs items={[{ label: "Administration" }, { label: tabLabel }]} />
     <section className="relative overflow-hidden rounded-[1.2rem] bg-[#1c5547] px-5 py-7 text-[#fffefa] sm:px-8">
       <div className="flex flex-wrap items-end justify-between gap-5"><div className="max-w-2xl"><p className="eyebrow !text-[#e7bd6d]">Access control</p><h1 className="mt-2 font-editorial text-[2.1rem] leading-[1.05]">Administration</h1><p className="mt-3 text-sm leading-6 text-[#d2e2d9]">Manage staff accounts, roles, permissions and class or subject scope. Every sensitive action is written to the audit trail.</p></div>
         {has("administration.create") && <button className="action-button bg-[#fffefa] text-[#1d6a57] shadow-none" onClick={() => setDialog({ mode: "create" })}><UserPlus size={15} />Create user</button>}</div>
