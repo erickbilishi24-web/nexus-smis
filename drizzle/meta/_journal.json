@@ -302,6 +302,13 @@
       "when": 1793254578816,
       "tag": "0042_typical_blackheart",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "5",
+      "when": 1793255215241,
+      "tag": "0043_fair_gwen_stacy",
+      "breakpoints": true
     }
   ]
 }

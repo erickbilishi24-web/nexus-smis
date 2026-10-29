@@ -9,6 +9,7 @@ import { AdminError, AUDIT_MODULES, adminCatalog, adminOverview, changeAdminAssi
 import { correctLockedAssessmentMark, ensureAssessment, getAssessmentEntries, getAssessmentReportCard, getClassMarklist, listAssessmentScopes, listReportLearners, saveAssessmentMarks, setAssessmentFinalState, submitAssessment } from "./assessment";
 import { adminResetIamPassword, changeIamPassword, loginWithIam, logoutIam, requestIamPasswordReset, resetIamPassword, safeAuthProfile } from "./iam";
 import { listFeedback, submitFeedback } from "./feedback";
+import { allocateBoardingBed, createBoardingUnit, listBoardingRecords, listHealthRecords, recordHealthEvent, saveBoardingProfile, saveHealthProfile } from "./healthBoarding";
 import { createLeaveOutPass, listLeaveOutPasses, transitionLeaveOutPass } from "./leaveout";
 import { createCommentBankEntry, listCommentBankAdmin, listReportComments, updateCommentBankEntry } from "./commentBank";
 import { clockIn, getClockingSetup, saveSchoolLocation } from "./clocking";
@@ -317,6 +318,17 @@ export const appRouter = router({
       return: permissionProcedure("library.edit").input(z.object({ loanId: z.number().int().positive() })).mutation(({ input, ctx }) => returnLibraryBook(input.loanId, ctx.user.id)),
       renew: permissionProcedure("library.edit").input(z.object({ loanId: z.number().int().positive() })).mutation(({ input, ctx }) => renewLibraryLoan(input.loanId, ctx.user.id)),
     }),
+    healthRecords: router({
+      list: adminProcedure.query(({ ctx }) => listHealthRecords(ctx.user.id)),
+      saveProfile: adminProcedure.input(z.object({ learnerId: z.number().int().positive(), allergies: z.string().max(2000).nullable().optional(), conditions: z.string().max(2000).nullable().optional(), bloodGroup: z.string().max(12).nullable().optional(), emergencyContactName: z.string().max(160).nullable().optional(), emergencyContactPhone: z.string().max(40).nullable().optional(), providerNotes: z.string().max(2000).nullable().optional() })).mutation(({ input, ctx }) => saveHealthProfile(input, ctx.user.id)),
+      recordEvent: adminProcedure.input(z.object({ learnerId: z.number().int().positive(), eventType: z.enum(["illness", "injury", "first_aid", "clinic_visit", "referral", "follow_up"]), eventDate: z.string().date(), notes: z.string().min(1).max(4000), medication: z.string().max(255).nullable().optional(), referredTo: z.string().max(255).nullable().optional() })).mutation(({ input, ctx }) => recordHealthEvent(input, ctx.user.id)),
+    }),
+    boarding: router({
+      list: adminProcedure.query(({ ctx }) => listBoardingRecords(ctx.user.id)),
+      saveProfile: adminProcedure.input(z.object({ learnerId: z.number().int().positive(), residentialStatus: z.enum(["day_scholar", "full_time_boarder", "weekly_boarder", "scheduled_boarder"]), dietaryRequirements: z.string().max(1000).nullable().optional(), activeFrom: z.string().date() })).mutation(({ input, ctx }) => saveBoardingProfile(input, ctx.user.id)),
+      createUnit: adminProcedure.input(z.object({ name: z.string().min(1).max(120), room: z.string().max(80).nullable().optional(), capacity: z.number().int().min(1).max(500) })).mutation(({ input, ctx }) => createBoardingUnit(input, ctx.user.id)),
+      allocateBed: adminProcedure.input(z.object({ learnerId: z.number().int().positive(), unitId: z.number().int().positive(), allocatedFrom: z.string().date() })).mutation(({ input, ctx }) => allocateBoardingBed(input, ctx.user.id)),
+    }),
     store: router({
       overview: permissionProcedure("store.view").query(() => getStoreOverview()),
       recordMovement: permissionProcedure("store.edit").input(z.object({ itemId: z.number().int().positive(), movementType: z.enum(["received", "issued", "adjustment"]), quantity: z.number().positive(), reference: z.string().max(120).nullable().optional() })).mutation(({ input, ctx }) => recordStoreMovement(input, currentUserId(ctx.user))),
@@ -424,7 +436,7 @@ export const appRouter = router({
       canManageSchoolLevels: protectedProcedure.query(({ ctx }) => canManageSchoolLevels(currentUserId(ctx.user))),
       saveCurriculum: permissionProcedure("settings.edit").input(z.object({ selections: z.array(z.object({ level: z.string().max(40), grade: z.string().max(40), pathway: z.string().max(100).nullable().optional(), area: z.string().max(160), offered: z.boolean() })) })).mutation(({ input, ctx }) => saveCurriculumSelections(input, currentUserId(ctx.user))),
       saveSchoolLevels: schoolLevelProcedure.input(z.object({ levels: z.array(z.enum(["ECDE", "Lower Primary", "Upper Primary", "Junior School", "Senior School"])) })).mutation(({ input, ctx }) => saveEnabledSchoolLevels(input.levels, currentUserId(ctx.user))),
-      update: adminProcedure.input(z.object({ schoolName: z.string().min(1).max(200), motto: z.string().max(255).nullable().optional(), currentTerm: z.string().min(1).max(40), academicYear: z.number().int().min(2000).max(2100), includeFeesOnReportCard: z.boolean(), showPercentagesOnReportCard: z.boolean().optional(), subjectShortNames: z.record(z.string().trim().min(1).max(30), z.string().trim().max(24)).optional() })).mutation(({ input, ctx }) => saveSettings(input, currentUserId(ctx.user))),
+      update: adminProcedure.input(z.object({ schoolName: z.string().min(1).max(200), motto: z.string().max(255).nullable().optional(), currentTerm: z.string().min(1).max(40), academicYear: z.number().int().min(2000).max(2100), includeFeesOnReportCard: z.boolean(), showPercentagesOnReportCard: z.boolean().optional(), subjectShortNames: z.record(z.string().trim().min(1).max(30), z.string().trim().max(24)).optional(), themePrimaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(), themeAccentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(), themeSurfaceColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(), themeMode: z.enum(["light", "dark", "system"]).optional() })).mutation(({ input, ctx }) => saveSettings(input, currentUserId(ctx.user))),
     }),
     academic: router({
       structure: adminProcedure.query(() => listAcademicStructure()),

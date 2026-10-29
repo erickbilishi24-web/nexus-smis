@@ -75,6 +75,71 @@ export const schoolSettings = mysqlTable("school_settings", {
   geofenceRadiusMeters: int("geofenceRadiusMeters").notNull().default(150),
   enabledSchoolLevels: varchar("enabledSchoolLevels", { length: 255 }).notNull().default("ECDE,Lower Primary,Upper Primary,Junior School,Senior School"),
   subjectShortNames: text("subjectShortNames"),
+  themePrimaryColor: varchar("themePrimaryColor", { length: 9 }).notNull().default("#1d6a57"),
+  themeAccentColor: varchar("themeAccentColor", { length: 9 }).notNull().default("#d99b3d"),
+  themeSurfaceColor: varchar("themeSurfaceColor", { length: 9 }).notNull().default("#f7f4ed"),
+  themeMode: mysqlEnum("themeMode", ["light", "dark", "system"]).notNull().default("light"),
+});
+
+export const healthProfiles = mysqlTable("health_profiles", {
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId").notNull(),
+  learnerId: int("learnerId").notNull(),
+  allergies: text("allergies"),
+  conditions: text("conditions"),
+  bloodGroup: varchar("bloodGroup", { length: 12 }),
+  emergencyContactName: varchar("emergencyContactName", { length: 160 }),
+  emergencyContactPhone: varchar("emergencyContactPhone", { length: 40 }),
+  providerNotes: text("providerNotes"),
+  updatedByUserId: int("updatedByUserId").notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => ({ healthProfileLearnerUnique: uniqueIndex("health_profile_learner_unique").on(table.schoolId, table.learnerId) }));
+
+export const healthEvents = mysqlTable("health_events", {
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId").notNull(),
+  learnerId: int("learnerId").notNull(),
+  eventType: mysqlEnum("eventType", ["illness", "injury", "first_aid", "clinic_visit", "referral", "follow_up"]).notNull(),
+  eventDate: date("eventDate").notNull(),
+  notes: text("notes").notNull(),
+  medication: varchar("medication", { length: 255 }),
+  referredTo: varchar("referredTo", { length: 255 }),
+  recordedByUserId: int("recordedByUserId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const boardingUnits = mysqlTable("boarding_units", {
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId").notNull(),
+  name: varchar("name", { length: 120 }).notNull(),
+  room: varchar("room", { length: 80 }),
+  capacity: int("capacity").notNull().default(1),
+  status: mysqlEnum("status", ["active", "inactive"]).notNull().default("active"),
+  createdByUserId: int("createdByUserId").notNull(),
+}, table => ({ boardingUnitNameUnique: uniqueIndex("boarding_unit_name_unique").on(table.schoolId, table.name) }));
+
+export const boardingProfiles = mysqlTable("boarding_profiles", {
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId").notNull(),
+  learnerId: int("learnerId").notNull(),
+  residentialStatus: mysqlEnum("residentialStatus", ["day_scholar", "full_time_boarder", "weekly_boarder", "scheduled_boarder"]).notNull().default("day_scholar"),
+  dietaryRequirements: text("dietaryRequirements"),
+  activeFrom: date("activeFrom").notNull(),
+  activeTo: date("activeTo"),
+  updatedByUserId: int("updatedByUserId").notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => ({ boardingProfileLearnerUnique: uniqueIndex("boarding_profile_learner_unique").on(table.schoolId, table.learnerId) }));
+
+export const boardingAllocations = mysqlTable("boarding_allocations", {
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId").notNull(),
+  learnerId: int("learnerId").notNull(),
+  unitId: int("unitId").notNull(),
+  allocatedFrom: date("allocatedFrom").notNull(),
+  allocatedTo: date("allocatedTo"),
+  status: mysqlEnum("status", ["active", "ended"]).notNull().default("active"),
+  allocatedByUserId: int("allocatedByUserId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
 export const staffProfiles = mysqlTable("staff_profiles", {

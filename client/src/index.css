@@ -450,3 +450,10 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgb(29 106 87 / 2
     min-height: 22px !important;
   }
 }
+
+/* Tenant theme customisation hooks. Existing utility classes remain the default; these hooks provide a safe visual layer for school-selected colours. */
+:root { --nexus-primary: #1d6a57; --nexus-accent: #d99b3d; --nexus-surface: #f7f4ed; }
+body { background-color: var(--nexus-surface); }
+.action-button { box-shadow: 0 8px 20px color-mix(in srgb, var(--nexus-primary) 18%, transparent); }
+.nav-item.active { background: color-mix(in srgb, var(--nexus-primary) 82%, white); }
+.eyebrow .tab-dot { background: var(--nexus-accent); }
