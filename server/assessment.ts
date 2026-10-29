@@ -410,12 +410,14 @@ export async function getClassMarklist(input: { academicYear: number; term: stri
 
 export async function getAssessmentReportCard(input: { learnerId: number; academicYear: number; term: string; assessmentType: AssessmentType }, userId: number) {
   const db = await requireDb();
+  const schoolId = await actorSchoolId(userId);
   const learnerRow = (await db.select({ learner: learners, grade: grades }).from(learners)
-    .leftJoin(grades, eq(grades.id, learners.gradeId)).where(eq(learners.id, input.learnerId)).limit(1))[0];
+    .leftJoin(grades, eq(grades.id, learners.gradeId)).where(and(eq(learners.id, input.learnerId), eq(learners.schoolId, schoolId))).limit(1))[0];
   if (!learnerRow) throw new Error("LEARNER_NOT_FOUND");
   const access = await actorAccess(userId);
   const canViewWholeClass = access.isAdmin || learnerRow.grade?.classTeacherUserId === userId;
   const allocationFilters = [
+    eq(teacherAllocations.schoolId, schoolId),
     eq(teacherAllocations.gradeId, learnerRow.learner.gradeId),
     eq(teacherAllocations.academicYear, input.academicYear),
     eq(teacherAllocations.term, input.term),
@@ -429,13 +431,15 @@ export async function getAssessmentReportCard(input: { learnerId: number; academ
     ? await db.select({ subject: subjects }).from(subjects).orderBy(subjects.name)
     : [];
   const periodAssessments = await db.select().from(assessments).where(and(
+    eq(assessments.schoolId, schoolId),
     eq(assessments.gradeId, learnerRow.learner.gradeId),
     eq(assessments.academicYear, input.academicYear),
     eq(assessments.term, input.term),
     eq(assessments.assessmentType, input.assessmentType),
   ));
-  const publishedAssessments = periodAssessments.filter(row => row.status === "approved" || row.status === "locked");
-  const ids = publishedAssessments.map(row => row.id);
+  // Teacher-saved marks must flow to the marklist and report card immediately.
+  // Approval/lock controls publication status; they must not hide already-entered marks.
+  const ids = periodAssessments.map(row => row.id);
   const saved = ids.length
     ? await db.select().from(marks).where(and(eq(marks.learnerId, input.learnerId), inArray(marks.assessmentId, ids)))
     : [];
@@ -445,7 +449,7 @@ export async function getAssessmentReportCard(input: { learnerId: number; academ
   const reportSubjects = scopedSubjects.filter(row => savedBySubject.has(row.subject.id));
   const allocationBySubject = new Map(allocations.map(row => [row.subject.id, row]));
   const marksheet = Array.from(new Map(reportSubjects.map(row => [row.subject.id, row])).values()).map(row => {
-    const assessment = publishedAssessments.find(item => item.subjectId === row.subject.id);
+    const assessment = periodAssessments.find(item => item.subjectId === row.subject.id);
     const mark = savedBySubject.get(row.subject.id);
     const assignment = allocationBySubject.get(row.subject.id);
     return {
