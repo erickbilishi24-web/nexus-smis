@@ -12,7 +12,7 @@ import { listFeedback, submitFeedback } from "./feedback";
 import { allocateBoardingBed, checkoutBoarder, createBoardingUnit, listBoardingRecords, listHealthRecords, recordBoardingAttendance, recordBoardingMeal, recordHealthEvent, returnBoarder, saveBoardingProfile, saveHealthProfile } from "./healthBoarding";
 import { createLeaveOutPass, listLeaveOutPasses, transitionLeaveOutPass } from "./leaveout";
 import { createCommentBankEntry, listCommentBankAdmin, listReportComments, updateCommentBankEntry } from "./commentBank";
-import { clockIn, getClockingSetup, saveSchoolLocation } from "./clocking";
+import { clockIn, clockOut, getClockingSetup, listTeacherAttendance, saveSchoolLocation } from "./clocking";
 import { listMessageGrades, listMessageRecipients, listNexusMessages, previewMessageRecipients, queueNexusMessage } from "./messages";
 import { getCurriculumSetup, saveCurriculumSelections, saveEnabledSchoolLevels } from "./curriculum";
 import { listNexusAiTransactions } from "./ai-payments";
@@ -274,6 +274,8 @@ export const appRouter = router({
     clocking: router({
       status: protectedProcedure.query(({ ctx }) => getClockingSetup(ctx.user.id)),
       clockIn: permissionProcedure("dashboard.view").input(z.object({ latitude: z.number().min(-90).max(90), longitude: z.number().min(-180).max(180) })).mutation(({ input, ctx }) => clockIn(input, ctx.user.id)),
+      clockOut: permissionProcedure("dashboard.view").mutation(({ ctx }) => clockOut(ctx.user.id)),
+      teacherAttendance: permissionProcedure("administration.view").input(z.object({ period: z.enum(["daily", "weekly", "monthly", "yearly"]), anchorDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) })).query(({ input, ctx }) => listTeacherAttendance(input, ctx.user.id)),
       saveLocation: permissionProcedure("settings.edit").input(z.object({ latitude: z.number().min(-90).max(90), longitude: z.number().min(-180).max(180), radiusMeters: z.number().int().min(25).max(1000) })).mutation(({ input, ctx }) => saveSchoolLocation(input, ctx.user.id, ctx.user.role)),
     }),
     payroll: router({

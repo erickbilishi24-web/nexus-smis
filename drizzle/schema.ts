@@ -708,6 +708,7 @@ export const staffClockings = mysqlTable("staff_clockings", {
   userId: int("userId").notNull(),
   clockDate: date("clockDate").notNull(),
   clockedAt: timestamp("clockedAt").defaultNow().notNull(),
+  clockedOutAt: timestamp("clockedOutAt"),
   latitude: decimal("latitude", { precision: 10, scale: 7 }).notNull(),
   longitude: decimal("longitude", { precision: 10, scale: 7 }).notNull(),
   distanceMeters: decimal("distanceMeters", { precision: 10, scale: 2 }).notNull(),

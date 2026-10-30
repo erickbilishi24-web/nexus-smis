@@ -1,0 +1,1 @@
+ALTER TABLE `staff_clockings` ADD `clockedOutAt` timestamp;
