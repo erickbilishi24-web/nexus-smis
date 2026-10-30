@@ -632,6 +632,19 @@ export const nexusAiTransactions = mysqlTable("nexus_ai_transactions", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   paidAt: timestamp("paidAt"),
 });
+export const nexusAiDocuments = mysqlTable("nexus_ai_documents", {
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId").notNull(),
+  userId: int("userId").notNull(),
+  documentType: varchar("documentType", { length: 80 }).notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  grade: varchar("grade", { length: 80 }).notNull(),
+  subject: varchar("subject", { length: 120 }).notNull(),
+  term: varchar("term", { length: 40 }).notNull(),
+  topic: varchar("topic", { length: 255 }).notNull(),
+  body: text("body").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
 export const reportCards = mysqlTable("report_cards", {
   id: int("id").autoincrement().primaryKey(),
   schoolId: int("schoolId"),

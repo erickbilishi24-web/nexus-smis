@@ -16,6 +16,7 @@ import { clockIn, getClockingSetup, saveSchoolLocation } from "./clocking";
 import { listMessageGrades, listMessageRecipients, listNexusMessages, previewMessageRecipients, queueNexusMessage } from "./messages";
 import { getCurriculumSetup, saveCurriculumSelections, saveEnabledSchoolLevels } from "./curriculum";
 import { listNexusAiTransactions } from "./ai-payments";
+import { createNexusAiDocument, listNexusAiDocuments } from "./ai-documents";
 import { getPayrollWorkspace, getMyPayrollSlips, savePayrollRules, savePayrollCompensation, createPayrollAdjustment, reviewPayrollAdjustment, createPayrollLoan, reviewPayrollLoan, recordPayrollExport, createPayrollDraft, transitionPayrollRun } from "./payroll";
 import { getTransportWorkspace, getTransportLearnerOptions, setTransportEnabled, saveTransportVehicle, setTransportVehicleStatus, saveTransportRoute, assignLearnerTransport, setLearnerTransportStatus, billTransportPeriod, recordTransportPayment, saveTransportAttendance, recordTransportTrip, recordTransportCost, recordTransportIncident, resolveTransportIncident } from "./transport";
 import { addCounsellingNote, completeLearner, createBehaviourRecord, createCounsellingCase, createFollowUp, getArchiveFinance, listAlumniRecords, listArchiveLearners, listCounsellingCases, listApprovedBehaviour } from "./archives";
@@ -468,6 +469,8 @@ export const appRouter = router({
     ai: router({
       ask: permissionProcedure("ai.access").input(z.object({ question: z.string().min(1).max(500) })).query(({ input, ctx }) => aiFacts(input.question, ctx.user.id, ctx.user.role)),
       transactions: permissionProcedure("ai.access").query(({ ctx }) => listNexusAiTransactions(ctx.user.id)),
+      documents: permissionProcedure("ai.access").query(({ ctx }) => listNexusAiDocuments(ctx.user.id)),
+      saveDocument: permissionProcedure("ai.access").input(z.object({ documentType: z.string().trim().min(1).max(80), title: z.string().trim().min(1).max(255), grade: z.string().trim().min(1).max(80), subject: z.string().trim().min(1).max(120), term: z.string().trim().min(1).max(40), topic: z.string().trim().min(1).max(255), body: z.string().min(1).max(50000) })).mutation(({ input, ctx }) => createNexusAiDocument(input, ctx.user.id)),
     }),
   }),
 });
