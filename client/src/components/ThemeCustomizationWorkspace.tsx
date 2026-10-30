@@ -15,7 +15,11 @@ const presets: ThemePreset[] = [
   { id: "navy-berry", name: "Navy & Berry", description: "Professional navy surfaces with accessible berry accents.", primary: "#1e3a8a", accent: "#be185d", surface: "#f8fafc", mode: "light", sampleText: "#172554" },
 ];
 
-const applyRuntimeTheme = (theme: Pick<ThemePreset, "primary" | "accent" | "surface" | "mode">) => {
+const applyRuntimeTheme = (theme: Pick<ThemePreset, "primary" | "accent" | "surface" | "mode">, animate = true) => {
+  if (animate) {
+    document.documentElement.classList.add("theme-transitioning");
+    window.setTimeout(() => document.documentElement.classList.remove("theme-transitioning"), 260);
+  }
   document.documentElement.style.setProperty("--nexus-primary", theme.primary);
   document.documentElement.style.setProperty("--nexus-accent", theme.accent);
   document.documentElement.style.setProperty("--nexus-surface", theme.surface);

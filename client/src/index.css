@@ -70,6 +70,12 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgb(29 106 87 / 2
 
 .font-editorial { font-family: "Newsreader", Georgia, serif; }
 .shell { min-height: 100svh; background: var(--background); }
+.theme-transitioning,
+.theme-transitioning body,
+.theme-transitioning .shell,
+.theme-transitioning .shell * {
+  transition: background-color 240ms cubic-bezier(.23,1,.32,1), color 240ms cubic-bezier(.23,1,.32,1), border-color 240ms cubic-bezier(.23,1,.32,1), box-shadow 240ms cubic-bezier(.23,1,.32,1), fill 240ms cubic-bezier(.23,1,.32,1), stroke 240ms cubic-bezier(.23,1,.32,1) !important;
+}
 .ledger-rule { border-top: 1px solid #dfdcd2; }
 .eyebrow { color: var(--nexus-primary); font-size: .68rem; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
 .soft-card { position: relative; overflow: hidden; background: repeating-linear-gradient(to bottom, color-mix(in srgb, var(--card) 96%, transparent) 0, color-mix(in srgb, var(--card) 96%, transparent) 35px, color-mix(in srgb, var(--nexus-primary) 4%, transparent) 36px), var(--card); border: 1px solid var(--border); border-top: 4px solid var(--nexus-primary); border-radius: .42rem .95rem .52rem .72rem; box-shadow: 5px 5px 0 color-mix(in srgb, var(--nexus-primary) 14%, var(--background)), 10px 11px 0 color-mix(in srgb, var(--nexus-primary) 7%, var(--background)), 0 16px 34px rgb(38 63 49 / 5%); }
