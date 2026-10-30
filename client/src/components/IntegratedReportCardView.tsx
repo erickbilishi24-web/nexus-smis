@@ -3,6 +3,7 @@ import { Printer } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 
+import { toUserError } from "@/lib/errorText";
 type AssessmentType = "mid_term" | "end_term";
 type GradeOption = { id: number; name: string; stream?: string | null };
 const MAGENTA = "#d000b9";
@@ -56,7 +57,7 @@ export function IntegratedReportCardView({ canReview = false }: { canReview?: bo
   const commentBank = trpc.smis.reports.commentBank.useQuery({ category: (report.data?.overall ?? "ME") as "BE" | "AE" | "ME" | "EE" }, { enabled: mayComment && Boolean(report.data?.overall) });
   const saveComments = trpc.smis.reports.saveReportCardComments.useMutation({
     onSuccess: async () => { toast.success("Report-card comments saved"); await utils.smis.reports.reportCard.invalidate(); },
-    onError: error => toast.error(error.message.replaceAll("_", " ")),
+    onError: error => toast.error(toUserError(error)),
   });
   const result = report.data;
   const status = result?.assessmentStatus ?? "draft";

@@ -3,6 +3,7 @@ import { Check, Eye, Palette, Save, X } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 
+import { toUserError } from "@/lib/errorText";
 type ThemeMode = "light" | "dark" | "system";
 type ThemePreset = { id: string; name: string; description: string; primary: string; accent: string; surface: string; mode: ThemeMode; sampleText: string };
 
@@ -77,7 +78,7 @@ export function ThemeCustomizationWorkspace() {
       toast.success(`${selected.name} theme applied to this school`);
       void utils.smis.settings.get.invalidate();
     },
-    onError: error => toast.error(error.message.replaceAll("_", " ")),
+    onError: error => toast.error(toUserError(error)),
   });
 
   if (!settings.data) return null;

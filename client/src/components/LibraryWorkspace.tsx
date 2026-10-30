@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { WorkspaceBreadcrumbs } from "@/components/WorkspaceBreadcrumbs";
 
+import { toUserError } from "@/lib/errorText";
 const panel = "soft-card rounded-[1.1rem] p-4 sm:p-5";
 const field = "mt-1 w-full rounded-lg border border-[#d8ddd4] bg-[#fffefa] px-3 py-2.5 text-sm text-[#28483f] outline-none focus:border-[#1d6a57]";
 const money = (value: number) => `KES ${Number(value || 0).toLocaleString("en-KE", { minimumFractionDigits: 2 })}`;
@@ -23,9 +24,9 @@ export function LibraryWorkspace() {
   const overview = trpc.smis.library.overview.useQuery(); const booksPage = trpc.smis.library.booksPage.useQuery({ search: search || undefined, page, pageSize: 50 }); const loansPage = trpc.smis.library.loansPage.useQuery({ overdueOnly: tab === "overdue", page, pageSize: 50 }); const lookups = trpc.smis.library.lookups.useQuery(); const utils = trpc.useUtils();
   const [form, setForm] = useState({ title: "", author: "", isbn: "", subject: "", copies: "1", location: "Main Library" }); const [selectedLearners, setSelectedLearners] = useState<number[]>([]); const [selectedGrade, setSelectedGrade] = useState(""); const [batchCopies, setBatchCopies] = useState("");
   const [loan, setLoan] = useState({ copyId: "", learnerId: "", staffUserId: "", dueDays: "14" });
-  const addBook = trpc.smis.library.addBook.useMutation({ onSuccess: r => { toast.success(`Book added with ${r.copies} copies`); setBookForm(false); setForm({ title: "", author: "", isbn: "", subject: "", copies: "1", location: "Main Library" }); void utils.smis.library.invalidate(); }, onError: e => toast.error(e.message.replaceAll("_", " ")) });
-  const checkout = trpc.smis.library.checkout.useMutation({ onSuccess: () => { toast.success("Book issued"); setLoan({ copyId: "", learnerId: "", staffUserId: "", dueDays: "14" }); void utils.smis.library.invalidate(); }, onError: e => toast.error(e.message.replaceAll("_", " ")) });
-  const batchCheckout = trpc.smis.library.batchCheckout.useMutation({ onSuccess: r => { toast.success(`${r.count} books issued`); setSelectedLearners([]); setBatchCopies(""); void utils.smis.library.invalidate(); }, onError: e => toast.error(e.message.replaceAll("_", " ")) });
+  const addBook = trpc.smis.library.addBook.useMutation({ onSuccess: r => { toast.success(`Book added with ${r.copies} copies`); setBookForm(false); setForm({ title: "", author: "", isbn: "", subject: "", copies: "1", location: "Main Library" }); void utils.smis.library.invalidate(); }, onError: e => toast.error(toUserError(e)) });
+  const checkout = trpc.smis.library.checkout.useMutation({ onSuccess: () => { toast.success("Book issued"); setLoan({ copyId: "", learnerId: "", staffUserId: "", dueDays: "14" }); void utils.smis.library.invalidate(); }, onError: e => toast.error(toUserError(e)) });
+  const batchCheckout = trpc.smis.library.batchCheckout.useMutation({ onSuccess: r => { toast.success(`${r.count} books issued`); setSelectedLearners([]); setBatchCopies(""); void utils.smis.library.invalidate(); }, onError: e => toast.error(toUserError(e)) });
   const returnBook = trpc.smis.library.return.useMutation({ onSuccess: () => { toast.success("Book returned"); void utils.smis.library.invalidate(); } });
   const renew = trpc.smis.library.renew.useMutation({ onSuccess: () => { toast.success("Loan renewed"); void utils.smis.library.invalidate(); } });
   const tabs: [Tab, string, typeof BookOpen][] = [["dashboard", "Dashboard", LibraryBig], ["catalogue", "Catalogue", BookOpen], ["circulation", "Circulation", RefreshCw], ["members", "Members", Users], ["overdue", "Overdue", AlertTriangle]];

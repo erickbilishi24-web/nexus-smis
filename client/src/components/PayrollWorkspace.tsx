@@ -1,3 +1,4 @@
+import { toUserError } from "@/lib/errorText";
 // @ts-nocheck
 import { useMemo, useState } from "react";
 import { Banknote, Download, FileCheck2, LoaderCircle, ShieldCheck, Users } from "lucide-react";
@@ -12,7 +13,7 @@ const currentMonth = () => new Date().toISOString().slice(0, 7);
 const today = () => new Date().toISOString().slice(0, 10);
 const cash = (value: unknown) => `KSh ${Number(value ?? 0).toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const dateText = (value: unknown) => value instanceof Date ? value.toISOString().slice(0, 10) : String(value ?? "").slice(0, 10);
-const fail = (error: unknown) => toast.error((error instanceof Error ? error.message : "Request failed").replaceAll("_", " "));
+const fail = (error: unknown) => toast.error(toUserError(error));
 
 type Props = { canView: boolean; canEdit: boolean; canApprove: boolean; canEditRules: boolean; canFinance: boolean };
 

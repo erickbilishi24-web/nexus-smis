@@ -5,6 +5,7 @@ import { trpc } from "@/lib/trpc";
 import { Checkbox } from "@/components/ui/checkbox";
 import { attendanceGradeLevel, attendanceGradeLevels, type AttendanceGradeLevel, type AttendanceStatus } from "../../../shared/attendance";
 
+import { toUserError } from "@/lib/errorText";
 const statusLabel: Record<AttendanceStatus, string> = { present: "Present", absent: "Absent", late: "Late", excused: "Excused" };
 const statusStyle: Record<AttendanceStatus, string> = {
   present: "bg-[#e5f1e8] text-[#1d6a57] border-[#bed9c4]",
@@ -39,11 +40,11 @@ export function AttendanceWorkspace() {
       setDraft(current => { const next = { ...current }; visibleRows.forEach(row => { delete next[row.id]; }); return next; });
       toast.success(`Saved ${session} attendance for ${result.savedCount} learners`);
     },
-    onError: error => toast.error(error.message.replaceAll("_", " ")),
+    onError: error => toast.error(toUserError(error)),
   });
   const setApproval = trpc.smis.attendance.setApproval.useMutation({
     onSuccess: async result => { await approval.refetch(); toast.success(`Register ${result.status}`); },
-    onError: error => toast.error(error.message.replaceAll("_", " ")),
+    onError: error => toast.error(toUserError(error)),
   });
   const getStatus = (row: (typeof rows)[number]): AttendanceStatus | "" => draft[row.id] ?? (row.attendanceStatus as AttendanceStatus | null) ?? "";
   const counts = visibleRows.reduce((acc, row) => { const status = getStatus(row); if (status) acc[status] += 1; return acc; }, { present: 0, absent: 0, late: 0, excused: 0 });

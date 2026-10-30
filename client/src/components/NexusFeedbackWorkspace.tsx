@@ -3,11 +3,12 @@ import { MessageSquareText, Star } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 
+import { toUserError } from "@/lib/errorText";
 export function NexusFeedbackWorkspace({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) {
   const [rating, setRating] = useState(5);
   const [message, setMessage] = useState("");
   const utils = trpc.useUtils();
-  const submit = trpc.feedback.submit.useMutation({ onSuccess: () => { setMessage(""); toast.success("Feedback sent to the Super Admin"); void utils.feedback.list.invalidate(); }, onError: e => toast.error(e.message.replaceAll("_", " ")) });
+  const submit = trpc.feedback.submit.useMutation({ onSuccess: () => { setMessage(""); toast.success("Feedback sent to the Super Admin"); void utils.feedback.list.invalidate(); }, onError: e => toast.error(toUserError(e)) });
   const reviews = trpc.feedback.list.useQuery(undefined, { enabled: isSuperAdmin });
   return <div className="page-enter space-y-6">
     <header className="border-b border-[#dfdbd1] pb-5"><p className="eyebrow">Nexus-smis · product feedback</p><h1 className="mt-1 font-editorial text-3xl text-[#193d32]">Feedback</h1><p className="mt-2 text-sm text-[#69796f]">Share your experience so the Super Admin can improve Nexus-smis.</p></header>

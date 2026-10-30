@@ -4,6 +4,7 @@ import { trpc } from "@/lib/trpc";
 import { rankMarklistRows } from "@shared/marklist";
 import { toast } from "sonner";
 
+import { toUserError } from "@/lib/errorText";
 type AssessmentType = "mid_term" | "end_term";
 type MarklistType = AssessmentType | "average";
 type ViewMode = "entry" | "marklist";
@@ -58,47 +59,47 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
       await utils.smis.assessments.entries.invalidate();
       toast.success("Assessment roster loaded", { description: `${assessmentLabel(assessmentType)} · ${scope?.term} ${scope?.academicYear}` });
     },
-    onError: error => toast.error(error.message.replaceAll("_", " ")),
+    onError: error => toast.error(toUserError(error)),
   });
   const saveRows = trpc.smis.assessments.saveRows.useMutation({
     onSuccess: async result => {
       toast.success(`${result.rowsUpdated} learner rows saved`);
       await Promise.all([utils.smis.assessments.entries.invalidate(), utils.smis.assessments.classMarklist.invalidate()]);
     },
-    onError: error => toast.error(error.message.replaceAll("_", " ")),
+    onError: error => toast.error(toUserError(error)),
   });
   const submit = trpc.smis.assessments.submit.useMutation({
     onSuccess: async () => {
       toast.success("Marks submitted for verification");
       await Promise.all([utils.smis.assessments.entries.invalidate(), utils.smis.assessments.classMarklist.invalidate()]);
     },
-    onError: error => toast.error(error.message.replaceAll("_", " ")),
+    onError: error => toast.error(toUserError(error)),
   });
   const finalize = trpc.smis.assessments.setFinalState.useMutation({
     onSuccess: async result => {
       toast.success(`Assessment ${result.status}`);
       await Promise.all([utils.smis.assessments.entries.invalidate(), utils.smis.assessments.classMarklist.invalidate()]);
     },
-    onError: error => toast.error(error.message.replaceAll("_", " ")),
+    onError: error => toast.error(toUserError(error)),
   });
   const correct = trpc.smis.assessments.correctLockedMark.useMutation({
     onSuccess: async () => {
       toast.success("Locked mark corrected and audit recorded");
       await Promise.all([utils.smis.assessments.entries.invalidate(), utils.smis.assessments.classMarklist.invalidate()]);
     },
-    onError: error => toast.error(error.message.replaceAll("_", " ")),
+    onError: error => toast.error(toUserError(error)),
   });
   const createGrade = trpc.smis.settings.createGrade.useMutation({
     onSuccess: async () => {
       toast.success("Class saved"); setNewGrade(""); setNewStream("");
       await Promise.all([utils.smis.people.catalog.invalidate(), utils.smis.assessments.scopes.invalidate()]);
-    }, onError: error => toast.error(error.message.replaceAll("_", " ")),
+    }, onError: error => toast.error(toUserError(error)),
   });
   const createSubject = trpc.smis.settings.createSubject.useMutation({
     onSuccess: async () => {
       toast.success("Learning area saved"); setNewSubject(""); setNewSubjectCode("");
       await Promise.all([utils.smis.people.catalog.invalidate(), utils.smis.assessments.scopes.invalidate()]);
-    }, onError: error => toast.error(error.message.replaceAll("_", " ")),
+    }, onError: error => toast.error(toUserError(error)),
   });
 
   useEffect(() => {
@@ -240,7 +241,7 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
         <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#cfe0d3] bg-[#e7f0e7] p-4 text-sm text-[#315c4c]">
           <div><b>{entry.data.assessment.title}</b><span className="ml-2 rounded-full bg-white/75 px-2 py-1 text-xs font-bold capitalize">{entry.data.assessment.status}</span><p className="mt-1 text-xs">{assessmentLabel(assessmentType)} · {entry.data.assessment.term} {entry.data.assessment.academicYear} · {entry.data.learners.length - missing}/{entry.data.learners.length} marks entered · {missing} missing</p></div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" disabled={!isEditable || saveRows.isPending} onClick={() => { try { persistRows(); } catch (error) { toast.error(error instanceof Error ? error.message : "Check the marks"); } }} className="action-button"><Save size={15} />Save marks</button>
+            <button type="button" disabled={!isEditable || saveRows.isPending} onClick={() => { try { persistRows(); } catch (error) { toast.error(toUserError(error)); } }} className="action-button"><Save size={15} />Save marks</button>
             {entry.data.assessment.status === "draft" && <button type="button" disabled={missing > 0 || submit.isPending} onClick={() => submit.mutate({ assessmentId: entry.data!.assessment.id })} className="action-button disabled:opacity-50"><Send size={15} />Submit for verification</button>}
             {mayReview && entry.data.assessment.status === "submitted" && <button type="button" onClick={() => finalize.mutate({ assessmentId: entry.data!.assessment.id, status: "approved" })} className="action-button"><ShieldCheck size={15} />Approve</button>}
             {mayReview && entry.data.assessment.status === "approved" && <button type="button" onClick={() => finalize.mutate({ assessmentId: entry.data!.assessment.id, status: "locked" })} className="action-button">Lock assessment</button>}

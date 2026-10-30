@@ -2,6 +2,7 @@ import { useState } from "react";
 import { BedDouble, ClipboardCheck, Utensils, LogOut, Plus, Save, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import { toUserError } from "@/lib/errorText";
 const field = "mt-1 w-full rounded-lg border border-[#d8ded7] bg-[#fffefa] px-3 py-2 text-sm";
 const today = new Date().toISOString().slice(0, 10);
 export function BoardingWorkspace() {
@@ -11,13 +12,13 @@ export function BoardingWorkspace() {
   const [mealType, setMealType] = useState<"breakfast"|"lunch"|"dinner"|"snack">("breakfast"); const [mealStatus, setMealStatus] = useState<"served"|"skipped"|"excused">("served"); const [mealDate, setMealDate] = useState(today);
   const [destination, setDestination] = useState(""); const [reason, setReason] = useState(""); const [expectedReturnAt, setExpectedReturnAt] = useState("");
   const refresh = () => void utils.smis.boarding.invalidate();
-  const saveProfile = trpc.smis.boarding.saveProfile.useMutation({ onSuccess: () => { toast.success("Residential status saved"); refresh(); }, onError: e => toast.error(e.message.replaceAll("_", " ")) });
-  const createUnit = trpc.smis.boarding.createUnit.useMutation({ onSuccess: () => { toast.success("Dormitory or room created"); setUnitName(""); refresh(); }, onError: e => toast.error(e.message.replaceAll("_", " ")) });
-  const allocate = trpc.smis.boarding.allocateBed.useMutation({ onSuccess: () => { toast.success("Bed allocated"); refresh(); }, onError: e => toast.error(e.message.replaceAll("_", " ")) });
-  const attendance = trpc.smis.boarding.attendance.useMutation({ onSuccess: () => { toast.success("Boarding attendance saved"); refresh(); }, onError: e => toast.error(e.message.replaceAll("_", " ")) });
-  const meal = trpc.smis.boarding.meal.useMutation({ onSuccess: () => { toast.success("Meal register saved"); refresh(); }, onError: e => toast.error(e.message.replaceAll("_", " ")) });
-  const checkout = trpc.smis.boarding.checkout.useMutation({ onSuccess: () => { toast.success("Checkout recorded"); setReason(""); refresh(); }, onError: e => toast.error(e.message.replaceAll("_", " ")) });
-  const returnMutation = trpc.smis.boarding.return.useMutation({ onSuccess: () => { toast.success("Learner marked returned"); refresh(); }, onError: e => toast.error(e.message.replaceAll("_", " ")) });
+  const saveProfile = trpc.smis.boarding.saveProfile.useMutation({ onSuccess: () => { toast.success("Residential status saved"); refresh(); }, onError: e => toast.error(toUserError(e)) });
+  const createUnit = trpc.smis.boarding.createUnit.useMutation({ onSuccess: () => { toast.success("Dormitory or room created"); setUnitName(""); refresh(); }, onError: e => toast.error(toUserError(e)) });
+  const allocate = trpc.smis.boarding.allocateBed.useMutation({ onSuccess: () => { toast.success("Bed allocated"); refresh(); }, onError: e => toast.error(toUserError(e)) });
+  const attendance = trpc.smis.boarding.attendance.useMutation({ onSuccess: () => { toast.success("Boarding attendance saved"); refresh(); }, onError: e => toast.error(toUserError(e)) });
+  const meal = trpc.smis.boarding.meal.useMutation({ onSuccess: () => { toast.success("Meal register saved"); refresh(); }, onError: e => toast.error(toUserError(e)) });
+  const checkout = trpc.smis.boarding.checkout.useMutation({ onSuccess: () => { toast.success("Checkout recorded"); setReason(""); refresh(); }, onError: e => toast.error(toUserError(e)) });
+  const returnMutation = trpc.smis.boarding.return.useMutation({ onSuccess: () => { toast.success("Learner marked returned"); refresh(); }, onError: e => toast.error(toUserError(e)) });
   const learnerOptions = learners.data ?? [];
   return <div className="page-enter space-y-5">
     <section className="soft-card rounded-[1.1rem] p-5"><div className="flex items-start gap-3"><span className="rounded-xl bg-[#eeeaf7] p-3 text-[#69548f]"><BedDouble size={20}/></span><div><p className="eyebrow">Residential operations</p><h1 className="mt-1 font-editorial text-2xl text-[#193d32]">Boarding Management</h1><p className="mt-2 text-sm text-[#718077]">Manage residential status, beds, daily boarding attendance, meals, and authorized checkout and return registers.</p></div></div><div className="mt-5 grid gap-3 md:grid-cols-3"><label className="text-xs font-bold text-[#53675d]">Learner<select className={field} value={learnerId} onChange={e => setLearnerId(e.target.value)}><option value="">Select learner</option>{learnerOptions.map(l => <option key={l.id} value={l.id}>{l.fullName} · {l.admissionNumber}</option>)}</select></label><label className="text-xs font-bold text-[#53675d]">Residential status<select className={field} value={status} onChange={e => setStatus(e.target.value as typeof status)}><option value="day_scholar">Day Scholar</option><option value="full_time_boarder">Full-Time Boarder</option><option value="weekly_boarder">Weekly / Scheduled Boarder</option><option value="scheduled_boarder">Other Scheduled Boarder</option></select></label><button className="action-button self-end" disabled={!learnerId || saveProfile.isPending} onClick={() => saveProfile.mutate({ learnerId: Number(learnerId), residentialStatus: status, activeFrom: today })}><Save size={15}/>Save residential status</button></div></section>

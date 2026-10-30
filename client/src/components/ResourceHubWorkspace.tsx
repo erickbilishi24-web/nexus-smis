@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 
+import { toUserError } from "@/lib/errorText";
 const icons: Record<string, typeof Globe2> = { "clipboard-check": ClipboardCheck, "globe-2": Globe2, "play-square": PlayCircle, "flask-conical": FlaskConical, landmark: Landmark, award: Award };
 const roles = ["user", "teacher", "learner", "parent", "admin"];
 type FormState = { resourceId?: number; categoryId: number; title: string; url: string; description: string; icon: string; grade: string; subject: string; learningArea: string; mediaType: string; allowHttp: boolean; isActive: boolean; displayOrder: number; visibilityRoles: string[] };
@@ -22,10 +23,10 @@ export function ResourceHubWorkspace() {
   const types = useMemo(() => Array.from(new Set(resources.map(r => r.mediaType).filter((v): v is string => Boolean(v)))).sort(), [resources]);
   const filtered = useMemo(() => resources.filter(r => { const text = [r.title, r.description, r.subject, r.grade, r.learningArea, r.mediaType, r.category?.name].filter(Boolean).join(" ").toLowerCase(); return (category === "all" || r.category?.slug === category) && (type === "all" || r.mediaType === type) && (!query.trim() || text.includes(query.trim().toLowerCase())); }), [resources, category, type, query]);
   const invalidate = () => { void utils.resourceHub.list.invalidate(); void utils.resourceHub.adminDashboard.invalidate(); void utils.resourceHub.categories.invalidate(); };
-  const create = trpc.resourceHub.create.useMutation({ onSuccess: () => { toast.success("Resource saved"); setForm(null); invalidate(); }, onError: e => toast.error(e.message) });
-  const update = trpc.resourceHub.update.useMutation({ onSuccess: () => { toast.success("Resource updated"); setForm(null); invalidate(); }, onError: e => toast.error(e.message) });
-  const toggle = trpc.resourceHub.setActive.useMutation({ onSuccess: invalidate, onError: e => toast.error(e.message) });
-  const remove = trpc.resourceHub.delete.useMutation({ onSuccess: () => { toast.success("Resource deleted"); invalidate(); }, onError: e => toast.error(e.message) });
+  const create = trpc.resourceHub.create.useMutation({ onSuccess: () => { toast.success("Resource saved"); setForm(null); invalidate(); }, onError: e => toast.error(toUserError(e)) });
+  const update = trpc.resourceHub.update.useMutation({ onSuccess: () => { toast.success("Resource updated"); setForm(null); invalidate(); }, onError: e => toast.error(toUserError(e)) });
+  const toggle = trpc.resourceHub.setActive.useMutation({ onSuccess: invalidate, onError: e => toast.error(toUserError(e)) });
+  const remove = trpc.resourceHub.delete.useMutation({ onSuccess: () => { toast.success("Resource deleted"); invalidate(); }, onError: e => toast.error(toUserError(e)) });
   const submit = () => { if (!form) return; if (form.resourceId) update.mutate(form as FormState & { resourceId: number }); else create.mutate(form); };
   const edit = (r: (typeof resources)[number]) => setForm({ resourceId: r.id, categoryId: r.categoryId, title: r.title, url: r.url, description: r.description, icon: r.icon, grade: r.grade ?? "", subject: r.subject ?? "", learningArea: r.learningArea ?? "", mediaType: r.mediaType ?? "", allowHttp: r.allowHttp, isActive: r.isActive, displayOrder: r.displayOrder, visibilityRoles: r.visibilityRoles });
   if (!auth.user) return <section className="rounded-2xl border border-[#d9e8e5] bg-white p-8 text-center"><ShieldCheck className="mx-auto mb-3 text-[#119b8d]" /><h2 className="text-xl font-bold text-[#263b4c]">Sign in to access Resource Hub</h2><p className="mt-2 text-sm text-[#82909b]">Your authorised teaching, learning and government resources will appear here.</p></section>;

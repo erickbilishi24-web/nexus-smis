@@ -2,6 +2,7 @@ import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
+import { toUserError } from "@/lib/errorText";
 const field = "mt-1 w-full rounded-lg border border-[#d8ddd4] bg-[#fffefa] px-3 py-2 text-sm text-[#28483f] outline-none focus:border-[#1d6a57]";
 const categories = [["BE", "B.E — Below Expectation"], ["AE", "A.E — Approaching Expectation"], ["ME", "M.E — Meeting Expectation"], ["EE", "E.E — Exceeding Expectation"]] as const;
 
@@ -14,8 +15,8 @@ export function CommentBankAdminPanel() {
   const [editing, setEditing] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
   const refresh = () => void utils.smis.reports.commentBankAdmin.invalidate();
-  const create = trpc.smis.reports.createCommentBankEntry.useMutation({ onSuccess: () => { toast.success("Comment added"); setText(""); refresh(); }, onError: e => toast.error(e.message.replaceAll("_", " ")) });
-  const update = trpc.smis.reports.updateCommentBankEntry.useMutation({ onSuccess: () => { toast.success("Comment updated"); setEditing(null); refresh(); }, onError: e => toast.error(e.message.replaceAll("_", " ")) });
+  const create = trpc.smis.reports.createCommentBankEntry.useMutation({ onSuccess: () => { toast.success("Comment added"); setText(""); refresh(); }, onError: e => toast.error(toUserError(e)) });
+  const update = trpc.smis.reports.updateCommentBankEntry.useMutation({ onSuccess: () => { toast.success("Comment updated"); setEditing(null); refresh(); }, onError: e => toast.error(toUserError(e)) });
   const rows = bank.data ?? [];
   return <div className="space-y-5 p-5">
     <div><p className="eyebrow">Report-card configuration</p><h2 className="mt-1 text-lg font-bold text-[#28483f]">Standardised Comment Bank</h2><p className="mt-1 max-w-3xl text-xs leading-5 text-[#718077]">The seeded bank contains 80 comments: 10 for each ability category and role. Class Teachers see academic comments; authorised administrators and principals see the separate conduct and development bank. Historical report cards keep their saved text.</p></div>
