@@ -1,0 +1,19 @@
+{
+  "name": "Nexus-smis",
+  "short_name": "Nexus-smis",
+  "description": "Nexus-smis — a daily operating desk for Kenyan schools.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#071b3d",
+  "theme_color": "#071b3d",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/manus-storage/f0841aacbbaf6da82d9919919646228c057bbd98d5309e6bb3ae1e4bcabc168b_bdd5e898.png",
+      "sizes": "1254x1254",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -18,21 +18,22 @@ function printConfidentialHealthReport(row: HealthProfileRow) {
 }
 
 export function HealthRecordsWorkspace() {
+  const [learnerId, setLearnerId] = useState("");
   const learners = trpc.smis.learners.list.useQuery({});
   const records = trpc.smis.healthRecords.list.useQuery();
+  const selectedRecord = trpc.smis.healthRecords.profile.useQuery({ learnerId: Number(learnerId) }, { enabled: Boolean(learnerId) });
   const utils = trpc.useUtils();
-  const [learnerId, setLearnerId] = useState("");
   const [notes, setNotes] = useState("");
   const [eventType, setEventType] = useState<"illness" | "injury" | "first_aid" | "clinic_visit" | "referral" | "follow_up">("first_aid");
   const [profile, setProfile] = useState<ProfileState>(emptyProfile);
 
-  const selectedProfile = records.data?.profiles.find(row => row.profile.learnerId === Number(learnerId));
+  const selectedProfile = selectedRecord.data?.profile ?? records.data?.profiles.find(row => row.profile.learnerId === Number(learnerId))?.profile;
   useEffect(() => {
     if (!learnerId) {
       setProfile(emptyProfile);
       return;
     }
-    const saved = records.data?.profiles.find(row => row.profile.learnerId === Number(learnerId))?.profile;
+    const saved = selectedRecord.data?.profile ?? records.data?.profiles.find(row => row.profile.learnerId === Number(learnerId))?.profile;
     setProfile(saved ? {
       allergies: saved.allergies ?? "",
       conditions: saved.conditions ?? "",
@@ -41,7 +42,7 @@ export function HealthRecordsWorkspace() {
       emergencyContactPhone: saved.emergencyContactPhone ?? "",
       providerNotes: saved.providerNotes ?? "",
     } : emptyProfile);
-  }, [learnerId, records.data?.profiles]);
+  }, [learnerId, selectedRecord.data?.profile, records.data?.profiles]);
 
   const saveProfile = trpc.smis.healthRecords.saveProfile.useMutation({
     onSuccess: () => { toast.success("Health profile saved"); void utils.smis.healthRecords.invalidate(); },
@@ -58,6 +59,7 @@ export function HealthRecordsWorkspace() {
       <div className="mt-5 grid gap-3 md:grid-cols-2">
         <label className="text-xs font-bold text-[#53675d] md:col-span-2">Learner<select className={field} value={learnerId} onChange={e => setLearnerId(e.target.value)}><option value="">Select learner</option>{learners.data?.map(l => <option key={l.id} value={l.id}>{l.fullName} · {l.admissionNumber}</option>)}</select></label>
         {Object.entries(profile).map(([key, value]) => <label key={key} className="text-xs font-bold capitalize text-[#53675d]">{key.replace(/([A-Z])/g, " $1")}<input className={field} value={value} onChange={e => setProfile({ ...profile, [key]: e.target.value })} /></label>)}
+        {learnerId && !selectedRecord.isLoading && !selectedProfile && <p className="rounded-lg bg-[#fff7e5] px-3 py-2 text-xs text-[#765b25] md:col-span-2">No saved health profile was found for this learner yet. Enter the details and select Save health profile.</p>}
         <button className="action-button" disabled={!learnerId || saveProfile.isPending} onClick={() => saveProfile.mutate({ learnerId: Number(learnerId), ...profile })}><Save size={15} />{selectedProfile ? "Update health profile" : "Save health profile"}</button>
       </div>
     </section>

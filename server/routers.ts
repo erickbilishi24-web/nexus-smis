@@ -9,7 +9,7 @@ import { AdminError, AUDIT_MODULES, adminCatalog, adminOverview, changeAdminAssi
 import { correctLockedAssessmentMark, ensureAssessment, getAssessmentEntries, getAssessmentReportCard, getClassMarklist, listAssessmentScopes, listReportLearners, saveAssessmentMarks, setAssessmentFinalState, submitAssessment } from "./assessment";
 import { adminResetIamPassword, changeIamPassword, loginWithIam, logoutIam, requestIamPasswordReset, resetIamPassword, safeAuthProfile } from "./iam";
 import { listFeedback, submitFeedback } from "./feedback";
-import { allocateBoardingBed, checkoutBoarder, createBoardingUnit, listBoardingRecords, listHealthRecords, recordBoardingAttendance, recordBoardingMeal, recordHealthEvent, returnBoarder, saveBoardingProfile, saveHealthProfile } from "./healthBoarding";
+import { allocateBoardingBed, checkoutBoarder, createBoardingUnit, getHealthProfile, listBoardingRecords, listHealthRecords, recordBoardingAttendance, recordBoardingMeal, recordHealthEvent, returnBoarder, saveBoardingProfile, saveHealthProfile } from "./healthBoarding";
 import { createLeaveOutPass, listLeaveOutPasses, transitionLeaveOutPass } from "./leaveout";
 import { createCommentBankEntry, listCommentBankAdmin, listReportComments, updateCommentBankEntry } from "./commentBank";
 import { clockIn, clockOut, getClockingSetup, listTeacherAttendance, saveSchoolLocation } from "./clocking";
@@ -323,6 +323,7 @@ export const appRouter = router({
     }),
     healthRecords: router({
       list: permissionProcedure("health.view").query(({ ctx }) => listHealthRecords(ctx.user.id)),
+      profile: permissionProcedure("health.view").input(z.object({ learnerId: z.number().int().positive() })).query(({ input, ctx }) => getHealthProfile(input.learnerId, ctx.user.id)),
       saveProfile: permissionProcedure("health.edit").input(z.object({ learnerId: z.number().int().positive(), allergies: z.string().max(2000).nullable().optional(), conditions: z.string().max(2000).nullable().optional(), bloodGroup: z.string().max(12).nullable().optional(), emergencyContactName: z.string().max(160).nullable().optional(), emergencyContactPhone: z.string().max(40).nullable().optional(), providerNotes: z.string().max(2000).nullable().optional() })).mutation(({ input, ctx }) => saveHealthProfile(input, ctx.user.id)),
       recordEvent: permissionProcedure("health.create").input(z.object({ learnerId: z.number().int().positive(), eventType: z.enum(["illness", "injury", "first_aid", "clinic_visit", "referral", "follow_up"]), eventDate: z.string().date(), notes: z.string().min(1).max(4000), medication: z.string().max(255).nullable().optional(), referredTo: z.string().max(255).nullable().optional() })).mutation(({ input, ctx }) => recordHealthEvent(input, ctx.user.id)),
     }),

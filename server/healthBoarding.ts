@@ -10,6 +10,14 @@ export async function listHealthRecords(userId: number) {
   return { profiles, events };
 }
 
+export async function getHealthProfile(learnerId: number, userId: number) {
+  const db = await requireDb(); const tenant = await getTenantContext(userId);
+  const learner = (await db.select().from(learners).where(and(eq(learners.id, learnerId), eq(learners.schoolId, tenant.schoolId))).limit(1))[0];
+  if (!learner) throw new Error("LEARNER_NOT_FOUND");
+  const profile = (await db.select().from(healthProfiles).where(and(eq(healthProfiles.learnerId, learnerId), eq(healthProfiles.schoolId, tenant.schoolId))).limit(1))[0] ?? null;
+  return profile ? { profile, learner } : null;
+}
+
 export async function saveHealthProfile(input: { learnerId: number; allergies?: string | null; conditions?: string | null; bloodGroup?: string | null; emergencyContactName?: string | null; emergencyContactPhone?: string | null; providerNotes?: string | null }, userId: number) {
   const db = await requireDb(); const tenant = await getTenantContext(userId);
   const learner = (await db.select({ id: learners.id }).from(learners).where(and(eq(learners.id, input.learnerId), eq(learners.schoolId, tenant.schoolId))).limit(1))[0]; if (!learner) throw new Error("LEARNER_NOT_FOUND");
