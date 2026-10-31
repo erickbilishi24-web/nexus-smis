@@ -85,15 +85,17 @@ async function assertAssessmentAccess(assessment: AssessmentScope, userId: numbe
   if (!allocation) throw new Error("ASSESSMENT_SCOPE_FORBIDDEN");
 }
 
-async function assessmentForScope(scope: AssessmentScope) {
+async function assessmentForScope(scope: AssessmentScope, schoolId?: number) {
   const db = await requireDb();
-  return (await db.select().from(assessments).where(and(
+  const filters = [
     eq(assessments.academicYear, scope.academicYear),
     eq(assessments.term, scope.term),
     eq(assessments.assessmentType, scope.assessmentType),
     eq(assessments.gradeId, scope.gradeId),
     eq(assessments.subjectId, scope.subjectId),
-  )).limit(1))[0] ?? null;
+  ];
+  if (schoolId !== undefined) filters.push(eq(assessments.schoolId, schoolId));
+  return (await db.select().from(assessments).where(and(...filters)).limit(1))[0] ?? null;
 }
 
 export async function listAssessmentScopes(userId: number) {
@@ -146,7 +148,8 @@ export async function listReportLearners(userId: number) {
 export async function ensureAssessment(scope: AssessmentScope, userId: number) {
   const db = await requireDb();
   const access = await actorAccess(userId);
-  const existing = await assessmentForScope(scope);
+  const schoolId = await actorSchoolId(userId);
+  const existing = await assessmentForScope(scope, schoolId);
   if (existing) {
     await assertAssessmentAccess(existing, userId, access.isAdmin);
     return existing;
@@ -159,6 +162,7 @@ export async function ensureAssessment(scope: AssessmentScope, userId: number) {
   const title = scope.customTitle?.trim() || `${grade.name}${grade.stream ? ` ${grade.stream}` : ""} · ${subject.name} · ${scope.assessmentType.replace("_", " ")}`;
   try {
     const inserted = (await db.insert(assessments).values({
+      schoolId,
       title,
       term: scope.term,
       academicYear: scope.academicYear,
@@ -171,23 +175,24 @@ export async function ensureAssessment(scope: AssessmentScope, userId: number) {
     await writeAudit(userId, "assessment.create", "assessment", inserted.id, { academicYear: scope.academicYear, term: scope.term, assessmentType: scope.assessmentType, gradeId: scope.gradeId, subjectId: scope.subjectId });
   } catch (error) {
     // Another user may have created the unique period/class/subject concurrently.
-    const raced = await assessmentForScope(scope);
+    const raced = await assessmentForScope(scope, schoolId);
     if (raced) return raced;
     throw error;
   }
-  const created = await assessmentForScope(scope);
+  const created = await assessmentForScope(scope, schoolId);
   if (!created) throw new Error("ASSESSMENT_CREATE_FAILED");
   return created;
 }
 
 export async function getAssessmentEntries(assessmentId: number, userId: number) {
   const db = await requireDb();
-  const assessment = (await db.select().from(assessments).where(eq(assessments.id, assessmentId)).limit(1))[0];
+  const schoolId = await actorSchoolId(userId);
+  const assessment = (await db.select().from(assessments).where(and(eq(assessments.id, assessmentId), eq(assessments.schoolId, schoolId))).limit(1))[0];
   if (!assessment) throw new Error("ASSESSMENT_NOT_FOUND");
   const access = await actorAccess(userId);
   await assertAssessmentAccess(assessment, userId, access.isAdmin);
-  const roster = await db.select().from(learners).where(and(eq(learners.gradeId, assessment.gradeId), eq(learners.status, "active"))).orderBy(learners.fullName);
-  const saved = await db.select().from(marks).where(eq(marks.assessmentId, assessmentId));
+  const roster = await db.select().from(learners).where(and(eq(learners.schoolId, schoolId), eq(learners.gradeId, assessment.gradeId), eq(learners.status, "active"))).orderBy(learners.fullName);
+  const saved = await db.select().from(marks).where(and(eq(marks.schoolId, schoolId), eq(marks.assessmentId, assessmentId)));
   const byLearner = new Map(saved.map(mark => [mark.learnerId, mark]));
   return {
     assessment,
@@ -208,8 +213,9 @@ export async function getAssessmentEntries(assessmentId: number, userId: number)
 
 export async function saveAssessmentMarks(input: { assessmentId: number; rows: Array<{ learnerId: number; score: number | null; teacherRemark?: string | null }> }, userId: number) {
   const db = await requireDb();
+  const schoolId = await actorSchoolId(userId);
   if (new Set(input.rows.map(row => row.learnerId)).size !== input.rows.length) throw new Error("DUPLICATE_LEARNER_MARK");
-  const assessment = (await db.select().from(assessments).where(eq(assessments.id, input.assessmentId)).limit(1))[0];
+  const assessment = (await db.select().from(assessments).where(and(eq(assessments.id, input.assessmentId), eq(assessments.schoolId, schoolId))).limit(1))[0];
   if (!assessment) throw new Error("ASSESSMENT_NOT_FOUND");
   const access = await actorAccess(userId);
   await assertAssessmentAccess(assessment, userId, access.isAdmin);
@@ -217,13 +223,14 @@ export async function saveAssessmentMarks(input: { assessmentId: number; rows: A
   if (assessment.status === "approved") throw new Error("ASSESSMENT_APPROVED_USE_CORRECTION");
   if (assessment.status === "submitted" && !access.isAdmin) throw new Error("ASSESSMENT_SUBMITTED");
 
-  const roster = await db.select({ id: learners.id }).from(learners).where(and(eq(learners.gradeId, assessment.gradeId), eq(learners.status, "active")));
+  const roster = await db.select({ id: learners.id }).from(learners).where(and(eq(learners.schoolId, schoolId), eq(learners.gradeId, assessment.gradeId), eq(learners.status, "active")));
   const allowedLearners = new Set(roster.map(row => row.id));
   for (const row of input.rows) {
     if (!allowedLearners.has(row.learnerId)) throw new Error("LEARNER_OUTSIDE_ASSESSMENT_CLASS");
     if (row.score !== null) assertScore(row.score);
     const score = row.score === null ? null : String(row.score);
     const values = {
+      schoolId,
       assessmentId: assessment.id,
       learnerId: row.learnerId,
       subjectId: assessment.subjectId,
@@ -441,7 +448,7 @@ export async function getAssessmentReportCard(input: { learnerId: number; academ
   // Approval/lock controls publication status; they must not hide already-entered marks.
   const ids = periodAssessments.map(row => row.id);
   const saved = ids.length
-    ? await db.select().from(marks).where(and(eq(marks.learnerId, input.learnerId), inArray(marks.assessmentId, ids)))
+    ? await db.select().from(marks).where(and(eq(marks.schoolId, schoolId), eq(marks.learnerId, input.learnerId), inArray(marks.assessmentId, ids)))
     : [];
   const savedBySubject = new Map(saved.map(row => [row.subjectId, row]));
   const scopedSubjects = classSubjects.length ? classSubjects : allocations;
@@ -477,7 +484,7 @@ export async function getAssessmentReportCard(input: { learnerId: number; academ
     eq(reportCards.assessmentType, input.assessmentType),
   )).limit(1))[0];
   if (!existing) {
-    await db.insert(reportCards).values({ ...input, status: "draft", generatedByUserId: userId });
+    await db.insert(reportCards).values({ ...input, schoolId, status: "draft", generatedByUserId: userId });
   }
   const report = existing ?? (await db.select().from(reportCards).where(and(
     eq(reportCards.learnerId, input.learnerId),
