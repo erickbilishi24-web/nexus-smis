@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { HeartPulse, Save, Plus, Printer } from "lucide-react";
+import { HeartPulse, Save, Plus, Printer, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { toUserError } from "@/lib/errorText";
@@ -29,11 +29,11 @@ export function HealthRecordsWorkspace() {
 
   const selectedProfile = selectedRecord.data?.profile ?? records.data?.profiles.find(row => row.profile.learnerId === Number(learnerId))?.profile;
   useEffect(() => {
-    if (!learnerId) {
+    if (!learnerId || selectedRecord.isFetching) {
       setProfile(emptyProfile);
       return;
     }
-    const saved = selectedRecord.data?.profile ?? records.data?.profiles.find(row => row.profile.learnerId === Number(learnerId))?.profile;
+    const saved = selectedRecord.data?.profile;
     setProfile(saved ? {
       allergies: saved.allergies ?? "",
       conditions: saved.conditions ?? "",
@@ -42,7 +42,7 @@ export function HealthRecordsWorkspace() {
       emergencyContactPhone: saved.emergencyContactPhone ?? "",
       providerNotes: saved.providerNotes ?? "",
     } : emptyProfile);
-  }, [learnerId, selectedRecord.data?.profile, records.data?.profiles]);
+  }, [learnerId, selectedRecord.isFetching, selectedRecord.data?.profile]);
 
   const saveProfile = trpc.smis.healthRecords.saveProfile.useMutation({
     onSuccess: () => { toast.success("Health profile saved"); void utils.smis.healthRecords.invalidate(); },
@@ -55,7 +55,7 @@ export function HealthRecordsWorkspace() {
 
   return <div className="page-enter space-y-5">
     <section className="soft-card rounded-[1.1rem] p-5">
-      <div className="flex items-start gap-3"><span className="rounded-xl bg-[#e5f1e8] p-3 text-[#1d6a57]"><HeartPulse size={20} /></span><div><p className="eyebrow">Restricted welfare records</p><h1 className="mt-1 font-editorial text-2xl text-[#193d32]">Health and Medical Records</h1><p className="mt-2 text-sm text-[#718077]">Profiles, first aid, clinic visits, referrals and follow-ups. Clinical access is restricted to authorised administrators.</p></div></div>
+      <div className="flex flex-wrap items-start justify-between gap-3"><div className="flex items-start gap-3"><span className="rounded-xl bg-[#e5f1e8] p-3 text-[#1d6a57]"><HeartPulse size={20} /></span><div><p className="eyebrow">Restricted welfare records</p><h1 className="mt-1 font-editorial text-2xl text-[#193d32]">Health and Medical Records</h1><p className="mt-2 text-sm text-[#718077]">Profiles, first aid, clinic visits, referrals and follow-ups. Clinical access is restricted to authorised administrators.</p></div></div><button type="button" className="inline-flex items-center gap-1.5 rounded-lg border border-[#cfe0d3] bg-[#fffefa] px-3 py-2 text-xs font-bold text-[#1d6a57] shadow-sm transition hover:bg-[#eaf4ed] disabled:opacity-60" disabled={records.isFetching || learners.isFetching || selectedRecord.isFetching} onClick={() => { void Promise.all([records.refetch(), learners.refetch(), learnerId ? selectedRecord.refetch() : Promise.resolve()]); }}><RefreshCw size={14} className={records.isFetching || learners.isFetching || selectedRecord.isFetching ? "animate-spin" : ""} />Refresh data</button></div>
       <div className="mt-5 grid gap-3 md:grid-cols-2">
         <label className="text-xs font-bold text-[#53675d] md:col-span-2">Learner<select className={field} value={learnerId} onChange={e => setLearnerId(e.target.value)}><option value="">Select learner</option>{learners.data?.map(l => <option key={l.id} value={l.id}>{l.fullName} · {l.admissionNumber}</option>)}</select></label>
         {Object.entries(profile).map(([key, value]) => <label key={key} className="text-xs font-bold capitalize text-[#53675d]">{key.replace(/([A-Z])/g, " $1")}<input className={field} value={value} onChange={e => setProfile({ ...profile, [key]: e.target.value })} /></label>)}
