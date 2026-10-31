@@ -115,10 +115,10 @@ function WorkspaceRefreshButton() {
   const [refreshing, setRefreshing] = useState(false);
   const refresh = async () => {
     setRefreshing(true);
-    try { await utils.invalidate(); toast.success("Latest saved information loaded"); }
+    try { await Promise.all([utils.invalidate(), new Promise(resolve => setTimeout(resolve, 350))]); toast.success("Latest saved information loaded"); }
     finally { setRefreshing(false); }
   };
-  return <button type="button" onClick={() => void refresh()} disabled={refreshing} className="inline-flex items-center gap-1.5 rounded-lg border border-[#cfe0d3] bg-[#fffefa] px-2.5 py-2 text-[.7rem] font-bold text-[#1d6a57] shadow-sm transition hover:bg-[#eaf4ed] disabled:opacity-60" aria-label="Refresh current workspace data" title="Refresh latest saved information"><RefreshCw size={16} className={refreshing ? "animate-spin" : ""} /><span>Refresh</span></button>;
+  return <button type="button" onClick={() => void refresh()} disabled={refreshing} className="inline-flex items-center gap-1.5 rounded-lg border border-[#cfe0d3] bg-[#fffefa] px-2.5 py-2 text-[.7rem] font-bold text-[#1d6a57] shadow-sm transition hover:bg-[#eaf4ed] disabled:opacity-60" aria-label="Refresh current workspace data" aria-busy={refreshing} title={refreshing ? "Refreshing latest saved information" : "Refresh latest saved information"}><RefreshCw size={16} className={refreshing ? "animate-spin motion-reduce:animate-none" : ""} /><span>Refresh</span></button>;
 }
 
 function Dashboard({ onSwitch, isMasterAdmin, canViewPersonal, canViewMaster, canViewFinance, canAddLearner, displayName, roleKey }: { onSwitch: (view: View) => void; isMasterAdmin: boolean; canViewPersonal: boolean; canViewMaster: boolean; canViewFinance: boolean; canAddLearner: boolean; displayName: string; roleKey: string }) {
