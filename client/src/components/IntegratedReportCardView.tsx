@@ -32,6 +32,10 @@ export function IntegratedReportCardView({ canReview = false }: { canReview?: bo
   const [assessmentType, setAssessmentType] = useState<AssessmentType>("mid_term");
   const [classTeacherComment, setClassTeacherComment] = useState("");
   const [headTeacherComment, setHeadTeacherComment] = useState("");
+  const [selectedLearnerIds, setSelectedLearnerIds] = useState<number[]>([]);
+  const [generatedReports, setGeneratedReports] = useState<any[]>([]);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generationError, setGenerationError] = useState<string | null>(null);
   const utils = trpc.useUtils();
 
   useEffect(() => {
@@ -45,8 +49,10 @@ export function IntegratedReportCardView({ canReview = false }: { canReview?: bo
   }, [catalog.data?.grades, gradeId]);
   const gradeLearners = useMemo(() => (learners.data ?? []).filter(row => !gradeId || row.gradeId === gradeId), [learners.data, gradeId]);
   useEffect(() => {
-    if (!gradeLearners.length) { setLearnerId(null); return; }
+    if (!gradeLearners.length) { setLearnerId(null); setSelectedLearnerIds([]); setGeneratedReports([]); return; }
     if (!learnerId || !gradeLearners.some(row => row.id === learnerId)) setLearnerId(gradeLearners[0].id);
+    setSelectedLearnerIds(current => current.filter(id => gradeLearners.some(row => row.id === id)));
+    setGeneratedReports([]);
   }, [gradeLearners, learnerId]);
   const report = trpc.smis.reports.reportCard.useQuery({ learnerId: learnerId ?? 0, academicYear, term, assessmentType }, { enabled: learnerId !== null });
   useEffect(() => {
@@ -62,20 +68,42 @@ export function IntegratedReportCardView({ canReview = false }: { canReview?: bo
   const result = report.data;
   const status = result?.assessmentStatus ?? "draft";
   const selectedGrade = catalog.data?.grades.find((row: GradeOption) => row.id === gradeId);
+  const allLearnersSelected = gradeLearners.length > 0 && gradeLearners.every(row => selectedLearnerIds.includes(row.id));
+  const toggleLearner = (id: number) => setSelectedLearnerIds(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id]);
+  const generateSelectedReports = async () => {
+    if (!selectedLearnerIds.length) { setGenerationError("Select at least one learner before generating report cards."); return; }
+    setIsGenerating(true); setGenerationError(null); setGeneratedReports([]);
+    try {
+      const reports = await Promise.all(selectedLearnerIds.map(id => utils.smis.reports.reportCard.fetch({ learnerId: id, academicYear, term, assessmentType })));
+      setGeneratedReports(reports);
+      toast.success(`${reports.length} report card${reports.length === 1 ? "" : "s"} generated from saved teacher marks`);
+    } catch (error) { setGenerationError(toUserError(error)); }
+    finally { setIsGenerating(false); }
+  };
 
   return <div className="page-enter space-y-5">
     <header className="flex flex-col gap-4 border-b border-[#dfdbd1] pb-5"><div><p className="eyebrow">Reports · learner assessment output</p><h1 className="mt-1 font-editorial text-3xl text-[#193d32]">Learner assessment report card</h1><p className="mt-2 text-sm text-[#69796f]">Select a Grade and learner to view the print-ready report-card template.</p></div></header>
     <section className="grid gap-3 rounded-xl border border-[#e7e2d7] bg-[#fffefa] p-4 sm:grid-cols-2 lg:grid-cols-5">
       <label className="text-xs font-bold text-[#53675d]">Grade<select value={gradeId ?? ""} onChange={event => setGradeId(Number(event.target.value))} className="mt-2 w-full rounded-lg border border-[#d8ded7] bg-white px-3 py-2.5 text-sm"><option value="" disabled>Select Grade</option>{gradeLabels.map((label, index) => { const grade = catalog.data?.grades.find((row: GradeOption) => row.name.replace(/\s+/g, " ").trim() === label); return <option key={label} value={grade?.id ?? `grade-${index + 7}`} disabled={!grade}>{label}{grade?.stream ? ` ${grade.stream}` : ""}</option>; })}</select></label>
-      <label className="text-xs font-bold text-[#53675d]">Learner<select value={learnerId ?? ""} onChange={event => setLearnerId(Number(event.target.value))} className="mt-2 w-full rounded-lg border border-[#d8ded7] bg-white px-3 py-2.5 text-sm"><option value="" disabled>Select learner</option>{gradeLearners.map(row => <option key={row.id} value={row.id}>{row.admissionNumber} · {row.fullName}</option>)}</select></label>
+      <label className="text-xs font-bold text-[#53675d]">Learner<select value={learnerId ?? ""} onChange={event => { const id = Number(event.target.value); setLearnerId(id); setSelectedLearnerIds([id]); setGeneratedReports([]); }} className="mt-2 w-full rounded-lg border border-[#d8ded7] bg-white px-3 py-2.5 text-sm"><option value="" disabled>Select learner</option>{gradeLearners.map(row => <option key={row.id} value={row.id}>{row.admissionNumber} · {row.fullName}</option>)}</select></label>
       <label className="text-xs font-bold text-[#53675d]">Academic year<input type="number" min="2000" max="2100" value={academicYear} onChange={event => setAcademicYear(Number(event.target.value))} className="mt-2 w-full rounded-lg border border-[#d8ded7] bg-white px-3 py-2.5 text-sm" /></label>
       <label className="text-xs font-bold text-[#53675d]">Term<input value={term} onChange={event => setTerm(event.target.value)} className="mt-2 w-full rounded-lg border border-[#d8ded7] bg-white px-3 py-2.5 text-sm" /></label>
       <label className="text-xs font-bold text-[#53675d]">Assessment type<select value={assessmentType} onChange={event => setAssessmentType(event.target.value as AssessmentType)} className="mt-2 w-full rounded-lg border border-[#d8ded7] bg-white px-3 py-2.5 text-sm"><option value="mid_term">Mid-Term</option><option value="end_term">End-Term</option></select></label>
     </section>
-    {report.isLoading && <p className="text-sm text-[#718077]">Loading the report from current assessment records…</p>}
+    <section className="rounded-xl border border-[#d8ded7] bg-[#fffefa] p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div><h2 className="font-bold text-[#28483f]">Learners to process</h2><p className="mt-1 text-xs text-[#718077]">Select one learner, several learners, or the whole class. Generated cards use marks saved by each subject teacher.</p></div>
+        <button type="button" onClick={() => setSelectedLearnerIds(allLearnersSelected ? [] : gradeLearners.map(row => row.id))} className="quiet-button">{allLearnersSelected ? "Clear all" : "Select whole class"}</button>
+      </div>
+      <div className="mt-3 grid max-h-56 gap-2 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3">{gradeLearners.map(row => <label key={row.id} className="flex items-center gap-2 rounded-lg border border-[#e1e6df] bg-white px-3 py-2 text-sm text-[#39554a] hover:border-[#9fc5ad]"><input type="checkbox" checked={selectedLearnerIds.includes(row.id)} onChange={() => toggleLearner(row.id)} className="h-4 w-4 accent-[#1d6a57]" /><span className="min-w-0 truncate">{row.admissionNumber} · {row.fullName}</span></label>)}</div>
+      <div className="mt-4 flex flex-wrap items-center gap-3"><button type="button" onClick={() => void generateSelectedReports()} disabled={isGenerating || selectedLearnerIds.length === 0} className="action-button disabled:opacity-60">{isGenerating ? "Generating report cards…" : `Generate report card${selectedLearnerIds.length === 1 ? "" : "s"}`} </button><span className="text-xs font-semibold text-[#718077]">{selectedLearnerIds.length} selected</span></div>
+      {generationError && <p className="mt-3 rounded-lg bg-[#fff1ee] p-3 text-sm text-[#a54032]">{generationError}</p>}
+    </section>
+    {generatedReports.length > 0 && <section className="space-y-5">{generatedReports.map((item, index) => <VisionReportCard key={item.learner.id ?? index} result={item} assessmentType={assessmentType} term={term} academicYear={academicYear} status={item.assessmentStatus ?? "draft"} mayComment={false} commentBank={undefined} classTeacherComment={item.report?.classTeacherComment ?? ""} headTeacherComment={item.report?.headTeacherComment ?? ""} setClassTeacherComment={() => undefined} setHeadTeacherComment={() => undefined} saveComments={{ mutate: () => undefined }} />)}</section>}
+    {generatedReports.length === 0 && report.isLoading && <p className="text-sm text-[#718077]">Loading the report from current assessment records…</p>}
     {!result && !report.isLoading && <VisionSampleCard schoolName={settings.data?.schoolName ?? "VISION PRIMARY AND JUNIOR SCHOOLS"} gradeName={selectedGrade?.name ?? "Grade 7"} />}
-    {result && <VisionReportCard result={result} assessmentType={assessmentType} term={term} academicYear={academicYear} status={status} mayComment={mayComment} commentBank={commentBank.data} classTeacherComment={classTeacherComment} headTeacherComment={headTeacherComment} setClassTeacherComment={setClassTeacherComment} setHeadTeacherComment={setHeadTeacherComment} saveComments={saveComments} />}
-    {report.error && <p className="rounded-lg bg-[#fbf5e5] p-3 text-sm text-[#76591d]">{report.error.message.replaceAll("_", " ")}</p>}
+    {generatedReports.length === 0 && result && <VisionReportCard result={result} assessmentType={assessmentType} term={term} academicYear={academicYear} status={status} mayComment={mayComment} commentBank={commentBank.data} classTeacherComment={classTeacherComment} headTeacherComment={headTeacherComment} setClassTeacherComment={setClassTeacherComment} setHeadTeacherComment={setHeadTeacherComment} saveComments={saveComments} />}
+    {generatedReports.length === 0 && report.error && <p className="rounded-lg bg-[#fbf5e5] p-3 text-sm text-[#76591d]">{toUserError(report.error)}</p>}
   </div>;
 }
 
