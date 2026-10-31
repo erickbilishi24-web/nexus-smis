@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Printer } from "lucide-react";
+import { Download, Printer } from "lucide-react";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 
@@ -36,6 +37,8 @@ export function IntegratedReportCardView({ canReview = false }: { canReview?: bo
   const [generatedReports, setGeneratedReports] = useState<any[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
+  const [generationProgress, setGenerationProgress] = useState({ completed: 0, total: 0 });
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const utils = trpc.useUtils();
 
   useEffect(() => {
@@ -72,13 +75,55 @@ export function IntegratedReportCardView({ canReview = false }: { canReview?: bo
   const toggleLearner = (id: number) => setSelectedLearnerIds(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id]);
   const generateSelectedReports = async () => {
     if (!selectedLearnerIds.length) { setGenerationError("Select at least one learner before generating report cards."); return; }
-    setIsGenerating(true); setGenerationError(null); setGeneratedReports([]);
+    setIsGenerating(true); setGenerationError(null); setGeneratedReports([]); setGenerationProgress({ completed: 0, total: selectedLearnerIds.length });
     try {
-      const reports = await Promise.all(selectedLearnerIds.map(id => utils.smis.reports.reportCard.fetch({ learnerId: id, academicYear, term, assessmentType })));
-      setGeneratedReports(reports);
+      const reports: any[] = [];
+      for (const id of selectedLearnerIds) {
+        const next = await utils.smis.reports.reportCard.fetch({ learnerId: id, academicYear, term, assessmentType });
+        reports.push(next);
+        setGeneratedReports([...reports]);
+        setGenerationProgress({ completed: reports.length, total: selectedLearnerIds.length });
+      }
       toast.success(`${reports.length} report card${reports.length === 1 ? "" : "s"} generated from saved teacher marks`);
     } catch (error) { setGenerationError(toUserError(error)); }
     finally { setIsGenerating(false); }
+  };
+  const downloadReportsPdf = async () => {
+    if (!generatedReports.length) return;
+    setIsDownloadingPdf(true);
+    try {
+      const pdf = await PDFDocument.create();
+      const regular = await pdf.embedFont(StandardFonts.Helvetica);
+      const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+      for (const report of generatedReports) {
+        const page = pdf.addPage([595.28, 841.89]);
+        const { height } = page.getSize();
+        let y = height - 42;
+        const line = (text: string, size = 10, font = regular, color = rgb(0.08, 0.18, 0.15)) => { page.drawText(text.slice(0, 105), { x: 36, y, size, font, color }); y -= size + 7; };
+        page.drawRectangle({ x: 28, y: 28, width: 539, height: height - 56, borderColor: rgb(0.82, 0.05, 0.72), borderWidth: 3 });
+        line(report.settings?.schoolName || "NEXUS-SMIS", 18, bold, rgb(0.82, 0.05, 0.72));
+        line("LEARNER ASSESSMENT REPORT CARD", 13, bold, rgb(0.08, 0.08, 0.35));
+        line(`Learner: ${report.learner.fullName} · ${report.learner.admissionNumber}`, 11, bold);
+        line(`Grade: ${report.grade?.name ?? "-"}${report.grade?.stream ? ` · ${report.grade.stream}` : ""}`);
+        line(`Term: ${term} · ${academicYear} · ${assessmentType === "mid_term" ? "Mid-Term" : "End-Term"}`);
+        y -= 6;
+        page.drawLine({ start: { x: 36, y }, end: { x: 559, y }, thickness: 1, color: rgb(0.14, 0.14, 0.48) }); y -= 18;
+        line("Learning Area                                      Mark     Level     Facilitator", 9, bold);
+        for (const row of report.marksheet ?? []) {
+          const selectedMark = assessmentType === "mid_term" ? (row.midTerm ?? row.score) : (row.endTerm ?? row.score);
+          const mark = selectedMark == null ? "-" : String(Math.round(selectedMark));
+          line(`${String(row.subject?.name ?? "-").slice(0, 38).padEnd(40)} ${mark.padStart(5)}     ${String(row.cbcLevel ?? "-").padEnd(7)} ${String(row.teacherName ?? "-").slice(0, 28)}`, 9);
+          if (y < 80) { line("Additional subjects continue on the next page.", 9, bold); break; }
+        }
+        y -= 5; line(`Report status: ${report.assessmentStatus ?? "draft"}`, 9, bold); line(`School motto: ${report.settings?.motto ?? "Better Schools · Brighter Futures"}`, 9);
+      }
+      const bytes = await pdf.save();
+      const url = URL.createObjectURL(new Blob([bytes.buffer as ArrayBuffer], { type: "application/pdf" }));
+      const anchor = document.createElement("a"); anchor.href = url; anchor.download = `nexus-report-cards-${academicYear}-${term.replace(/\s+/g, "-").toLowerCase()}.pdf`; anchor.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast.success(`${generatedReports.length} report cards downloaded as PDF`);
+    } catch (error) { toast.error(toUserError(error)); }
+    finally { setIsDownloadingPdf(false); }
   };
 
   return <div className="page-enter space-y-5">
@@ -96,10 +141,11 @@ export function IntegratedReportCardView({ canReview = false }: { canReview?: bo
         <button type="button" onClick={() => setSelectedLearnerIds(allLearnersSelected ? [] : gradeLearners.map(row => row.id))} className="quiet-button">{allLearnersSelected ? "Clear all" : "Select whole class"}</button>
       </div>
       <div className="mt-3 grid max-h-56 gap-2 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3">{gradeLearners.map(row => <label key={row.id} className="flex items-center gap-2 rounded-lg border border-[#e1e6df] bg-white px-3 py-2 text-sm text-[#39554a] hover:border-[#9fc5ad]"><input type="checkbox" checked={selectedLearnerIds.includes(row.id)} onChange={() => toggleLearner(row.id)} className="h-4 w-4 accent-[#1d6a57]" /><span className="min-w-0 truncate">{row.admissionNumber} · {row.fullName}</span></label>)}</div>
-      <div className="mt-4 flex flex-wrap items-center gap-3"><button type="button" onClick={() => void generateSelectedReports()} disabled={isGenerating || selectedLearnerIds.length === 0} className="action-button disabled:opacity-60">{isGenerating ? "Generating report cards…" : `Generate report card${selectedLearnerIds.length === 1 ? "" : "s"}`} </button><span className="text-xs font-semibold text-[#718077]">{selectedLearnerIds.length} selected</span></div>
+      <div className="mt-4 flex flex-wrap items-center gap-3"><button type="button" onClick={() => void generateSelectedReports()} disabled={isGenerating || selectedLearnerIds.length === 0} className="action-button disabled:opacity-60">{isGenerating ? `Generating ${generationProgress.completed}/${generationProgress.total}…` : `Generate report card${selectedLearnerIds.length === 1 ? "" : "s"}`} </button><span className="text-xs font-semibold text-[#718077]">{selectedLearnerIds.length} selected</span></div>
+      {isGenerating && <div className="mt-3" aria-live="polite"><div className="mb-1 flex justify-between text-xs font-semibold text-[#53675d]"><span>Preparing report cards from saved teacher marks</span><span>{generationProgress.total ? Math.round((generationProgress.completed / generationProgress.total) * 100) : 0}%</span></div><div className="h-2 overflow-hidden rounded-full bg-[#e4ece5]"><div className="h-full rounded-full bg-[#1d6a57] transition-[width] duration-300" style={{ width: `${generationProgress.total ? (generationProgress.completed / generationProgress.total) * 100 : 0}%` }} /></div></div>}
       {generationError && <p className="mt-3 rounded-lg bg-[#fff1ee] p-3 text-sm text-[#a54032]">{generationError}</p>}
     </section>
-    {generatedReports.length > 0 && <section className="space-y-5">{generatedReports.map((item, index) => <VisionReportCard key={item.learner.id ?? index} result={item} assessmentType={assessmentType} term={term} academicYear={academicYear} status={item.assessmentStatus ?? "draft"} mayComment={false} commentBank={undefined} classTeacherComment={item.report?.classTeacherComment ?? ""} headTeacherComment={item.report?.headTeacherComment ?? ""} setClassTeacherComment={() => undefined} setHeadTeacherComment={() => undefined} saveComments={{ mutate: () => undefined }} />)}</section>}
+    {generatedReports.length > 0 && <section className="space-y-4"><div className="print:hidden flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#d8ded7] bg-[#fffefa] p-3"><p className="text-sm font-bold text-[#28483f]">{generatedReports.length} generated report card{generatedReports.length === 1 ? "" : "s"}</p><div className="flex flex-wrap gap-2"><button type="button" onClick={() => window.print()} className="action-button"><Printer size={15} />Print all</button><button type="button" onClick={() => void downloadReportsPdf()} disabled={isDownloadingPdf} className="quiet-button disabled:opacity-60"><Download size={15} />{isDownloadingPdf ? "Preparing PDF…" : "Download PDF"}</button></div></div><div className="space-y-5">{generatedReports.map((item, index) => <VisionReportCard key={item.learner.id ?? index} result={item} assessmentType={assessmentType} term={term} academicYear={academicYear} status={item.assessmentStatus ?? "draft"} mayComment={false} commentBank={undefined} classTeacherComment={item.report?.classTeacherComment ?? ""} headTeacherComment={item.report?.headTeacherComment ?? ""} setClassTeacherComment={() => undefined} setHeadTeacherComment={() => undefined} saveComments={{ mutate: () => undefined }} />)}</div></section>}
     {generatedReports.length === 0 && report.isLoading && <p className="text-sm text-[#718077]">Loading the report from current assessment records…</p>}
     {!result && !report.isLoading && <VisionSampleCard schoolName={settings.data?.schoolName ?? "VISION PRIMARY AND JUNIOR SCHOOLS"} gradeName={selectedGrade?.name ?? "Grade 7"} />}
     {generatedReports.length === 0 && result && <VisionReportCard result={result} assessmentType={assessmentType} term={term} academicYear={academicYear} status={status} mayComment={mayComment} commentBank={commentBank.data} classTeacherComment={classTeacherComment} headTeacherComment={headTeacherComment} setClassTeacherComment={setClassTeacherComment} setHeadTeacherComment={setHeadTeacherComment} saveComments={saveComments} />}
