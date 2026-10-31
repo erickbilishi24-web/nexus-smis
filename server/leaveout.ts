@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray, isNull, ne } from "drizzle-orm";
 import { getDb } from "./db";
 import { actorSchoolId, writeAudit } from "./smis";
-import { grades, learnerLeaveOutPasses, learners, schools, users } from "../drizzle/schema";
+import { grades, learnerLeaveOutPasses, learners, schools, schoolSettings, users } from "../drizzle/schema";
 
 type LeaveOutStatus = "draft" | "pending_approval" | "approved" | "rejected" | "departed" | "returned" | "cancelled" | "expired";
 
@@ -69,23 +69,27 @@ export async function verifyLeaveOutPass(passNumber: string) {
     admissionNumber: learners.admissionNumber,
     schoolName: schools.schoolName,
     schoolCode: schools.schoolCode,
+    logoPath: schoolSettings.logoPath,
   })
     .from(learnerLeaveOutPasses)
     .innerJoin(learners, eq(learners.id, learnerLeaveOutPasses.learnerId))
     .innerJoin(schools, eq(schools.id, learnerLeaveOutPasses.schoolId))
+    .leftJoin(schoolSettings, eq(schoolSettings.schoolId, learnerLeaveOutPasses.schoolId))
     .where(and(
       eq(learnerLeaveOutPasses.passNumber, normalized),
       eq(learnerLeaveOutPasses.schoolId, schools.id),
     ))
     .limit(1))[0];
-  if (!row || ["rejected", "cancelled", "expired"].includes(row.pass.status)) return null;
+  if (!row || ["rejected", "cancelled"].includes(row.pass.status)) return null;
+  const isOverdue = Boolean(row.pass.expectedReturnAt && new Date(row.pass.expectedReturnAt).getTime() < Date.now() && ["approved", "departed"].includes(row.pass.status));
   return {
     passNumber: row.pass.passNumber,
     schoolName: row.schoolName,
     schoolCode: row.schoolCode,
+    logoPath: row.logoPath,
     learnerName: row.learnerName,
     admissionNumber: row.admissionNumber,
-    status: row.pass.status,
+    status: isOverdue ? "expired" : row.pass.status,
     reason: row.pass.reason,
     destination: row.pass.destination,
     intendedDepartureAt: row.pass.intendedDepartureAt,
