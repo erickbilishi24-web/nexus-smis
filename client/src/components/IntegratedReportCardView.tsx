@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Download, Printer } from "lucide-react";
+import { Download, Printer, RefreshCw } from "lucide-react";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
@@ -39,6 +39,7 @@ export function IntegratedReportCardView({ canReview = false }: { canReview?: bo
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [generationProgress, setGenerationProgress] = useState({ completed: 0, total: 0 });
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const utils = trpc.useUtils();
 
   useEffect(() => {
@@ -87,6 +88,18 @@ export function IntegratedReportCardView({ canReview = false }: { canReview?: bo
       toast.success(`${reports.length} report card${reports.length === 1 ? "" : "s"} generated from saved teacher marks`);
     } catch (error) { setGenerationError(toUserError(error)); }
     finally { setIsGenerating(false); }
+  };
+  const refreshReportCards = async () => {
+    setIsRefreshing(true);
+    try {
+      await report.refetch();
+      if (generatedReports.length) {
+        const refreshed = await Promise.all(selectedLearnerIds.map(id => utils.smis.reports.reportCard.fetch({ learnerId: id, academicYear, term, assessmentType })));
+        setGeneratedReports(refreshed);
+      }
+      toast.success("Report cards refreshed with the latest saved marks");
+    } catch (error) { toast.error(toUserError(error)); }
+    finally { setIsRefreshing(false); }
   };
   const downloadReportsPdf = async () => {
     if (!generatedReports.length) return;
@@ -145,10 +158,10 @@ export function IntegratedReportCardView({ canReview = false }: { canReview?: bo
       {isGenerating && <div className="mt-3" aria-live="polite"><div className="mb-1 flex justify-between text-xs font-semibold text-[#53675d]"><span>Preparing report cards from saved teacher marks</span><span>{generationProgress.total ? Math.round((generationProgress.completed / generationProgress.total) * 100) : 0}%</span></div><div className="h-2 overflow-hidden rounded-full bg-[#e4ece5]"><div className="h-full rounded-full bg-[#1d6a57] transition-[width] duration-300" style={{ width: `${generationProgress.total ? (generationProgress.completed / generationProgress.total) * 100 : 0}%` }} /></div></div>}
       {generationError && <p className="mt-3 rounded-lg bg-[#fff1ee] p-3 text-sm text-[#a54032]">{generationError}</p>}
     </section>
-    {generatedReports.length > 0 && <section className="space-y-4"><div className="print:hidden flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#d8ded7] bg-[#fffefa] p-3"><p className="text-sm font-bold text-[#28483f]">{generatedReports.length} generated report card{generatedReports.length === 1 ? "" : "s"}</p><div className="flex flex-wrap gap-2"><button type="button" onClick={() => window.print()} className="action-button"><Printer size={15} />Print all</button><button type="button" onClick={() => void downloadReportsPdf()} disabled={isDownloadingPdf} className="quiet-button disabled:opacity-60"><Download size={15} />{isDownloadingPdf ? "Preparing PDF…" : "Download PDF"}</button></div></div><div className="space-y-5">{generatedReports.map((item, index) => <VisionReportCard key={item.learner.id ?? index} result={item} assessmentType={assessmentType} term={term} academicYear={academicYear} status={item.assessmentStatus ?? "draft"} mayComment={false} commentBank={undefined} classTeacherComment={item.report?.classTeacherComment ?? ""} headTeacherComment={item.report?.headTeacherComment ?? ""} setClassTeacherComment={() => undefined} setHeadTeacherComment={() => undefined} saveComments={{ mutate: () => undefined }} />)}</div></section>}
+    {generatedReports.length > 0 && <section className="space-y-4"><div className="print:hidden flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#d8ded7] bg-[#fffefa] p-3"><p className="text-sm font-bold text-[#28483f]">{generatedReports.length} generated report card{generatedReports.length === 1 ? "" : "s"}</p><div className="flex flex-wrap gap-2"><button type="button" onClick={() => void refreshReportCards()} disabled={isRefreshing} className="quiet-button disabled:opacity-60"><RefreshCw size={15} className={isRefreshing ? "animate-spin" : ""} />{isRefreshing ? "Refreshing…" : "Refresh"}</button><button type="button" onClick={() => window.print()} className="action-button"><Printer size={15} />Print all</button><button type="button" onClick={() => void downloadReportsPdf()} disabled={isDownloadingPdf} className="quiet-button disabled:opacity-60"><Download size={15} />{isDownloadingPdf ? "Preparing PDF…" : "Download PDF"}</button></div></div><div className="space-y-5">{generatedReports.map((item, index) => <VisionReportCard key={item.learner.id ?? index} result={item} assessmentType={assessmentType} term={term} academicYear={academicYear} status={item.assessmentStatus ?? "draft"} mayComment={false} commentBank={undefined} classTeacherComment={item.report?.classTeacherComment ?? ""} headTeacherComment={item.report?.headTeacherComment ?? ""} setClassTeacherComment={() => undefined} setHeadTeacherComment={() => undefined} saveComments={{ mutate: () => undefined }} />)}</div></section>}
     {generatedReports.length === 0 && report.isLoading && <p className="text-sm text-[#718077]">Loading the report from current assessment records…</p>}
     {!result && !report.isLoading && <VisionSampleCard schoolName={settings.data?.schoolName ?? "VISION PRIMARY AND JUNIOR SCHOOLS"} gradeName={selectedGrade?.name ?? "Grade 7"} />}
-    {generatedReports.length === 0 && result && <VisionReportCard result={result} assessmentType={assessmentType} term={term} academicYear={academicYear} status={status} mayComment={mayComment} commentBank={commentBank.data} classTeacherComment={classTeacherComment} headTeacherComment={headTeacherComment} setClassTeacherComment={setClassTeacherComment} setHeadTeacherComment={setHeadTeacherComment} saveComments={saveComments} />}
+    {generatedReports.length === 0 && result && <><div className="mb-3 flex justify-end print:hidden"><button type="button" onClick={() => void refreshReportCards()} disabled={isRefreshing} className="quiet-button disabled:opacity-60"><RefreshCw size={15} className={isRefreshing ? "animate-spin" : ""} />{isRefreshing ? "Refreshing…" : "Refresh"}</button></div><VisionReportCard result={result} assessmentType={assessmentType} term={term} academicYear={academicYear} status={status} mayComment={mayComment} commentBank={commentBank.data} classTeacherComment={classTeacherComment} headTeacherComment={headTeacherComment} setClassTeacherComment={setClassTeacherComment} setHeadTeacherComment={setHeadTeacherComment} saveComments={saveComments} /></>}
     {generatedReports.length === 0 && report.error && <p className="rounded-lg bg-[#fbf5e5] p-3 text-sm text-[#76591d]">{toUserError(report.error)}</p>}
   </div>;
 }

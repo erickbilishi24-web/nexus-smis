@@ -63,7 +63,7 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
   });
   const saveRows = trpc.smis.assessments.saveRows.useMutation({
     onSuccess: async result => {
-      toast.success(`${result.rowsUpdated} learner rows saved`);
+      toast.success("Marks synchronized successfully", { description: `${result.rowsUpdated} learner rows saved and available to marklists and report cards.` });
       await Promise.all([utils.smis.assessments.entries.invalidate(), utils.smis.assessments.classMarklist.invalidate()]);
     },
     onError: error => toast.error(toUserError(error)),
