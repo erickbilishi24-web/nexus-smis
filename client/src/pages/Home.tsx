@@ -118,7 +118,7 @@ function WorkspaceRefreshButton() {
     try { await utils.invalidate(); toast.success("Latest saved information loaded"); }
     finally { setRefreshing(false); }
   };
-  return <button type="button" onClick={() => void refresh()} disabled={refreshing} className="icon-button" aria-label="Refresh current workspace data" title="Refresh latest saved information"><RefreshCw size={17} className={refreshing ? "animate-spin" : ""} /></button>;
+  return <button type="button" onClick={() => void refresh()} disabled={refreshing} className="inline-flex items-center gap-1.5 rounded-lg border border-[#cfe0d3] bg-[#fffefa] px-2.5 py-2 text-[.7rem] font-bold text-[#1d6a57] shadow-sm transition hover:bg-[#eaf4ed] disabled:opacity-60" aria-label="Refresh current workspace data" title="Refresh latest saved information"><RefreshCw size={16} className={refreshing ? "animate-spin" : ""} /><span>Refresh data</span></button>;
 }
 
 function Dashboard({ onSwitch, isMasterAdmin, canViewPersonal, canViewMaster, canViewFinance, canAddLearner, displayName, roleKey }: { onSwitch: (view: View) => void; isMasterAdmin: boolean; canViewPersonal: boolean; canViewMaster: boolean; canViewFinance: boolean; canAddLearner: boolean; displayName: string; roleKey: string }) {
