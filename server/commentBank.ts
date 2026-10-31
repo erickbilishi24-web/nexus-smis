@@ -2,6 +2,8 @@ import { and, asc, eq } from "drizzle-orm";
 import { commentBank, staffProfiles, users } from "../drizzle/schema";
 import { getDb } from "./db";
 import { can } from "./access";
+import { getAssessmentReportCard } from "./assessment";
+import { invokeLLM } from "./_core/llm";
 
 export type CommentRole = "class_teacher" | "principal";
 export type CommentCategory = "BE" | "AE" | "ME" | "EE";
@@ -78,4 +80,31 @@ export async function updateCommentBankEntry(input: { id: number; text?: string;
   await assertManager(input.userId);
   await db.update(commentBank).set({ ...(input.text === undefined ? {} : { text: input.text.trim() }), ...(input.active === undefined ? {} : { active: input.active ? 1 : 0 }) }).where(eq(commentBank.id, input.id));
   return { ok: true };
+}
+
+export async function deleteCommentBankEntry(input: { id: number; userId: number }) {
+  const db = await getDb(); if (!db) throw new Error("DATABASE_UNAVAILABLE");
+  await assertManager(input.userId);
+  await db.delete(commentBank).where(eq(commentBank.id, input.id));
+  return { ok: true };
+}
+
+export async function generateAcademicRemark(input: { learnerId: number; academicYear: number; term: string; assessmentType: "mid_term" | "end_term"; userId: number }) {
+  const allowed = await can(input.userId, "user", "assessments.edit");
+  if (!allowed) throw new Error("REPORT_COMMENT_FORBIDDEN");
+  const report = await getAssessmentReportCard(input, input.userId);
+  const performance = report.marksheet.map(row => ({ subject: row.subject.name, mark: row.score, level: row.cbcLevel, teacherRemark: row.teacherRemark })).filter(row => row.mark !== null || row.teacherRemark);
+  const response = await invokeLLM({
+    model: "gpt-5-mini",
+    messages: [
+      { role: "system", content: "Write one warm, professional Kenyan CBC report-card remark for a learner. Use only the supplied performance data. Do not mention AI, invent facts, diagnose the learner, or use a grade/mark not supplied. Keep it between 25 and 45 words and suitable for a Class Teacher. Output only the remark." },
+      { role: "user", content: JSON.stringify({ learner: report.learner.fullName, grade: report.grade?.name ?? null, term: report.term, assessmentType: report.assessmentType, overall: report.overall, attendance: report.attendance, performance }) },
+    ],
+    reasoning: { effort: "minimal" },
+    maxTokens: 120,
+  });
+  const content = response.choices?.[0]?.message?.content;
+  const remark = typeof content === "string" ? content.trim().replace(/^['"]|['"]$/g, "") : "";
+  if (!remark) throw new Error("AI_REMARK_EMPTY");
+  return { remark };
 }
