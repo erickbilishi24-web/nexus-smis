@@ -15,8 +15,12 @@ function passQrCodeUrl(passNumber: string) {
 function html(value: unknown) { return String(value ?? "").replace(/[&<>'"]/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[character] as string)); }
 function printPass(pass: any, learner: any) {
   const qr = passQrCodeUrl(pass.passNumber);
-  const popup = window.open("", "_blank", "noopener,noreferrer,width=720,height=820");
-  if (!popup) return toast.error("Allow pop-ups to print the leave-out pass");
+  // Open synchronously from the button click so Chrome treats this as a
+  // user-initiated print window. Avoid noopener/noreferrer in the feature
+  // string because some browsers classify that combination as a blocked popup.
+  const popup = window.open("", "_blank", "width=720,height=820");
+  if (!popup) return toast.error("The browser blocked the print window. Allow pop-ups for this NEXUS site and click Print pass again.");
+  popup.opener = null;
   popup.document.write(`<html><head><title>${html(pass.passNumber)} · NEXUS Leave-Out Pass</title><style>body{font-family:Arial,sans-serif;padding:32px;color:#19342e}h1{font-size:24px;margin-bottom:4px}.meta{border:1px solid #cddbd0;border-radius:12px;padding:18px;margin-top:20px;line-height:1.8}.qr{text-align:center;margin:20px}.qr img{width:180px;height:180px}.label{font-size:11px;text-transform:uppercase;color:#60756b;font-weight:bold}.value{font-size:15px;font-weight:600}</style></head><body><h1>NEXUS Software · Leave-Out Pass</h1><div class="value">Pass ${html(pass.passNumber)}</div><div class="meta"><div><span class="label">Learner</span><br/><span class="value">${html(learner.fullName)} · ${html(learner.admissionNumber)}</span></div><div><span class="label">Reason</span><br/><span class="value">${html(pass.reason)}</span></div><div><span class="label">Destination</span><br/><span class="value">${html(pass.destination || "Not specified")}</span></div><div><span class="label">Collector</span><br/><span class="value">${html(pass.collectorName || "Not specified")} · ${html(pass.collectorRelationship || "")}</span></div><div><span class="label">Departure</span><br/><span class="value">${html(new Date(pass.intendedDepartureAt).toLocaleString())}</span></div><div><span class="label">Expected return</span><br/><span class="value">${html(pass.expectedReturnAt ? new Date(pass.expectedReturnAt).toLocaleString() : "Not specified")}</span></div></div><div class="qr"><img src="${html(qr)}" alt="QR code for ${html(pass.passNumber)}"/><div class="label">Scan to verify pass reference</div></div><p class="label">Status: ${html(pass.status.replaceAll("_", " "))}</p><script>window.onload=()=>window.print();</script></body></html>`);
   popup.document.close();
 }
