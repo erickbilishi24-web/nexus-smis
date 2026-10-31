@@ -84,7 +84,10 @@ function PersonalSchedule({ schoolName }: { schoolName: string }) {
 }
 
 function MasterSchedule({ schoolName, onOpenMaster }: { schoolName: string; onOpenMaster: () => void }) {
-  const master = trpc.smis.timetable.masterList.useQuery();
+  // Keep the dashboard synchronized with the generator. The generator writes
+  // and invalidates timetable.list; using the same query prevents a stale
+  // master timetable from remaining in a separate masterList cache.
+  const master = trpc.smis.timetable.list.useQuery();
   const settings = trpc.smis.settings.get.useQuery();
   const shortNames = (settings.data?.subjectShortNames ?? {}) as Record<string,string>;
   const entries = useMemo(() => (master.data ?? []) as ScheduleRow[], [master.data]);
