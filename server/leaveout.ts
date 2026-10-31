@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray, isNull, ne } from "drizzle-orm";
 import { getDb } from "./db";
 import { actorSchoolId, writeAudit } from "./smis";
-import { grades, learnerLeaveOutPasses, learners, users } from "../drizzle/schema";
+import { grades, learnerLeaveOutPasses, learners, schools, users } from "../drizzle/schema";
 
 type LeaveOutStatus = "draft" | "pending_approval" | "approved" | "rejected" | "departed" | "returned" | "cancelled" | "expired";
 
@@ -52,4 +52,46 @@ export async function transitionLeaveOutPass(input: { passId: number; action: "a
   await db.update(learnerLeaveOutPasses).set(patch).where(and(eq(learnerLeaveOutPasses.id, input.passId), eq(learnerLeaveOutPasses.schoolId, schoolId)));
   await writeAudit(userId, `leave_out.${input.action}`, "learner_leave_out_pass", input.passId, { from: current.status, to: next[input.action] });
   return { ok: true, status: next[input.action] };
+}
+
+/**
+ * Public QR verification intentionally returns only operational pass details.
+ * It never exposes guardian verification references, phone numbers, provider
+ * notes, audit data, or internal user IDs.
+ */
+export async function verifyLeaveOutPass(passNumber: string) {
+  const db = await dbOrThrow();
+  const normalized = passNumber.trim().slice(0, 50);
+  if (!normalized) return null;
+  const row = (await db.select({
+    pass: learnerLeaveOutPasses,
+    learnerName: learners.fullName,
+    admissionNumber: learners.admissionNumber,
+    schoolName: schools.schoolName,
+    schoolCode: schools.schoolCode,
+  })
+    .from(learnerLeaveOutPasses)
+    .innerJoin(learners, eq(learners.id, learnerLeaveOutPasses.learnerId))
+    .innerJoin(schools, eq(schools.id, learnerLeaveOutPasses.schoolId))
+    .where(and(
+      eq(learnerLeaveOutPasses.passNumber, normalized),
+      eq(learnerLeaveOutPasses.schoolId, schools.id),
+    ))
+    .limit(1))[0];
+  if (!row || ["rejected", "cancelled", "expired"].includes(row.pass.status)) return null;
+  return {
+    passNumber: row.pass.passNumber,
+    schoolName: row.schoolName,
+    schoolCode: row.schoolCode,
+    learnerName: row.learnerName,
+    admissionNumber: row.admissionNumber,
+    status: row.pass.status,
+    reason: row.pass.reason,
+    destination: row.pass.destination,
+    intendedDepartureAt: row.pass.intendedDepartureAt,
+    expectedReturnAt: row.pass.expectedReturnAt,
+    approvedAt: row.pass.approvedAt,
+    departedAt: row.pass.departedAt,
+    returnedAt: row.pass.returnedAt,
+  };
 }

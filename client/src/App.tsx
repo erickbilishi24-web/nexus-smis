@@ -1,6 +1,7 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
+import LeaveOutVerification from "@/pages/LeaveOutVerification";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
@@ -10,6 +11,7 @@ function Router() {
   // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
+      <Route path="/leave-out/verify/:passNumber" component={LeaveOutVerification} />
       <Route path={"/"} component={Home} />
       <Route path={"/school/:schoolCode/login"} component={Home} />
       <Route path={"/404"} component={NotFound} />

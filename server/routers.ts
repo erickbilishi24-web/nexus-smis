@@ -10,7 +10,7 @@ import { correctLockedAssessmentMark, ensureAssessment, getAssessmentEntries, ge
 import { adminResetIamPassword, changeIamPassword, loginWithIam, logoutIam, requestIamPasswordReset, resetIamPassword, safeAuthProfile } from "./iam";
 import { listFeedback, submitFeedback } from "./feedback";
 import { allocateBoardingBed, checkoutBoarder, createBoardingUnit, getHealthProfile, listBoardingRecords, listHealthRecords, recordBoardingAttendance, recordBoardingMeal, recordHealthEvent, returnBoarder, saveBoardingProfile, saveHealthProfile } from "./healthBoarding";
-import { createLeaveOutPass, listLeaveOutPasses, transitionLeaveOutPass } from "./leaveout";
+import { createLeaveOutPass, listLeaveOutPasses, transitionLeaveOutPass, verifyLeaveOutPass } from "./leaveout";
 import { createCommentBankEntry, listCommentBankAdmin, listReportComments, updateCommentBankEntry } from "./commentBank";
 import { clockIn, clockOut, getClockingSetup, listTeacherAttendance, saveSchoolLocation } from "./clocking";
 import { listMessageGrades, listMessageRecipients, listNexusMessages, previewMessageRecipients, queueNexusMessage } from "./messages";
@@ -179,6 +179,9 @@ export const appRouter = router({
     resetPassword: publicProcedure.input(z.object({ token: z.string().min(20).max(200), newPassword: z.string().min(10).max(200) })).mutation(({ input, ctx }) => resetIamPassword(input.token, input.newPassword, ctx.req).then(() => ({ success: true }) as const)),
     adminResetPassword: superProcedure.input(z.object({ userId: z.number().int().positive() })).mutation(({ input, ctx }) => adminResetIamPassword(input.userId, ctx.user.id, ctx.req)),
   }),
+  leaveOutVerification: publicProcedure
+    .input(z.object({ passNumber: z.string().trim().min(5).max(50) }))
+    .query(({ input }) => verifyLeaveOutPass(input.passNumber)),
   resourceHub: router({
     categories: publicProcedure.query(() => getPublicCategorySummary()),
     list: protectedProcedure.query(({ ctx }) => getResourcesForRole(ctx.user.role, ctx.user.schoolId ?? 0)),

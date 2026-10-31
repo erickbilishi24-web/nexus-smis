@@ -9,8 +9,8 @@ const fieldClass = "mt-1 w-full rounded-lg border border-[#d8ded7] bg-[#fbfaf5] 
 const statusClass: Record<string, string> = { pending_approval: "bg-[#fff4d8] text-[#8a651e]", approved: "bg-[#e5f1e8] text-[#1d6a57]", departed: "bg-[#e4eef7] text-[#25577d]", returned: "bg-[#e5f1e8] text-[#1d6a57]", rejected: "bg-[#f8e8e5] text-[#9c4038]", cancelled: "bg-[#f1efeb] text-[#718077]" };
 function iso(value: string) { return value ? new Date(value).toISOString() : null; }
 function passQrCodeUrl(passNumber: string) {
-  const payload = `NEXUS-SMIS|LEAVE-OUT|${passNumber}`;
-  return `https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=8&data=${encodeURIComponent(payload)}`;
+  const verificationUrl = `${window.location.origin}/leave-out/verify/${encodeURIComponent(passNumber)}`;
+  return `https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=8&data=${encodeURIComponent(verificationUrl)}`;
 }
 function html(value: unknown) { return String(value ?? "").replace(/[&<>'"]/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[character] as string)); }
 function printPass(pass: any, learner: any) {
