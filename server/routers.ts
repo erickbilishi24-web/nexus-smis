@@ -462,7 +462,7 @@ export const appRouter = router({
     reports: router({
       learners: permissionProcedure("reports.view").query(({ ctx }) => listReportLearners(currentUserId(ctx.user))),
       reportCard: permissionProcedure("reports.view").input(z.object({ learnerId: z.number().int().positive(), academicYear: z.number().int().min(2000).max(2100), term: z.string().min(1).max(40), assessmentType: z.enum(["mid_term", "end_term"]) })).query(({ input, ctx }) => getAssessmentReportCard(input, currentUserId(ctx.user))),
-      commentBank: protectedProcedure.input(z.object({ category: z.enum(["BE", "AE", "ME", "EE"]) })).query(({ input, ctx }) => listReportComments({ category: input.category, userId: currentUserId(ctx.user) })),
+      commentBank: protectedProcedure.input(z.object({ category: z.enum(["BE", "AE", "ME", "EE"]), role: z.enum(["class_teacher", "principal"]).optional() })).query(({ input, ctx }) => listReportComments({ ...input, userId: currentUserId(ctx.user) })),
       commentBankAdmin: permissionProcedure("settings.edit").query(({ ctx }) => listCommentBankAdmin(currentUserId(ctx.user))),
       createCommentBankEntry: permissionProcedure("settings.edit").input(z.object({ role: z.enum(["class_teacher", "principal"]), category: z.enum(["BE", "AE", "ME", "EE"]), text: z.string().min(10).max(1000) })).mutation(({ input, ctx }) => createCommentBankEntry({ ...input, userId: currentUserId(ctx.user) })),
       updateCommentBankEntry: permissionProcedure("settings.edit").input(z.object({ id: z.number().int().positive(), text: z.string().min(10).max(1000).optional(), active: z.boolean().optional() })).mutation(({ input, ctx }) => updateCommentBankEntry({ ...input, userId: currentUserId(ctx.user) })),

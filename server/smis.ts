@@ -1,7 +1,7 @@
 import { and, count, desc, eq, gte, inArray, isNull, like, lte, ne, or, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db";
-import { computePermissions } from "./access";
+import { computePermissions, MANAGE_PERMISSIONS } from "./access";
 import { curriculumCatalogue } from "./curriculum";
 import { attendanceGradeLevel, validateAttendanceBatch, type AttendanceBatchEntry } from "../shared/attendance";
 import {
@@ -828,7 +828,9 @@ export async function canViewMasterTimetable(userId: number, userRole?: string |
 export async function canManageMasterTimetable(userId: number, userRole?: string | null) {
   const db = await requireDb();
   const profile = (await db.select({ role: staffProfiles.role }).from(staffProfiles).where(eq(staffProfiles.userId, userId)).limit(1))[0];
-  return isMasterTimetableAdmin(userRole, profile?.role);
+  if (isMasterTimetableAdmin(userRole, profile?.role)) return true;
+  const permissions = await computePermissions(userId, userRole ?? "user");
+  return permissions.includes("*") || permissions.includes(MANAGE_PERMISSIONS);
 }
 
 export async function getPersonalTimetable(userId: number) {
@@ -1646,8 +1648,9 @@ export async function listAcademicCatalog() {
 
 export async function canManageSchoolLevels(userId: number) {
   const db = await requireDb();
-  const profile = (await db.select({ role: staffProfiles.role }).from(staffProfiles).where(eq(staffProfiles.userId, userId)).limit(1))[0];
-  return profile?.role === "super_admin";
+  const account = (await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1))[0];
+  const permissions = await computePermissions(userId, account?.role ?? "user");
+  return permissions.includes("*") || permissions.includes(MANAGE_PERMISSIONS);
 }
 
 export async function createGradeClass(input: { name: string; stream?: string | null }, userId: number) {

@@ -59,6 +59,7 @@ export async function roleMatrix(role: string) {
 export async function computePermissions(userId: number, accountRole: string) {
   const db = await requireDb();
   const legacyRole = await resolveRole(userId, accountRole);
+  if (legacyRole === "super_admin" || accountRole === "super_admin") return ["*"];
   const assigned = await db.select({ role: userRoles.role }).from(userRoles).where(eq(userRoles.userId, userId));
   const roles = Array.from(new Set([legacyRole, ...assigned.map(row => row.role)]));
   const matrices = await Promise.all(roles.map(role => roleMatrix(role)));

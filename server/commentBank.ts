@@ -42,10 +42,10 @@ async function resolveRole(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, u
   return staff?.role === "class_teacher" || staff?.role === "teacher" || actor?.role === "user" ? "class_teacher" : "principal";
 }
 
-export async function listReportComments(input: { category: CommentCategory; userId: number }) {
+export async function listReportComments(input: { category: CommentCategory; userId: number; role?: CommentRole }) {
   const db = await getDb(); if (!db) throw new Error("DATABASE_UNAVAILABLE");
   await seedCommentBank(db);
-  const role = await resolveRole(db, input.userId);
+  const role = input.role ?? await resolveRole(db, input.userId);
   const allowed = role === "principal" ? await can(input.userId, "admin", "settings.edit") : await can(input.userId, "user", "assessments.edit");
   if (!allowed) throw new Error("REPORT_COMMENT_FORBIDDEN");
   const rows = await db.select().from(commentBank).where(and(eq(commentBank.role, role), eq(commentBank.category, input.category), eq(commentBank.active, 1))).orderBy(asc(commentBank.position));
