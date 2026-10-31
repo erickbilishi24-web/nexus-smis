@@ -429,14 +429,11 @@ export async function getAssessmentReportCard(input: { learnerId: number; academ
     eq(teacherAllocations.academicYear, input.academicYear),
     eq(teacherAllocations.term, input.term),
   ];
-  if (!access.isAdmin) allocationFilters.push(eq(teacherAllocations.teacherUserId, userId));
+  if (!canViewWholeClass) allocationFilters.push(eq(teacherAllocations.teacherUserId, userId));
   const allocations = await db.select({ allocation: teacherAllocations, subject: subjects, staff: staffProfiles })
     .from(teacherAllocations).innerJoin(subjects, eq(subjects.id, teacherAllocations.subjectId))
     .leftJoin(staffProfiles, eq(staffProfiles.userId, teacherAllocations.teacherUserId))
     .where(and(...allocationFilters)).orderBy(subjects.name);
-  const classSubjects = canViewWholeClass
-    ? await db.select({ subject: subjects }).from(subjects).orderBy(subjects.name)
-    : [];
   const periodAssessments = await db.select().from(assessments).where(and(
     eq(assessments.schoolId, schoolId),
     eq(assessments.gradeId, learnerRow.learner.gradeId),
@@ -451,11 +448,10 @@ export async function getAssessmentReportCard(input: { learnerId: number; academ
     ? await db.select().from(marks).where(and(eq(marks.schoolId, schoolId), eq(marks.learnerId, input.learnerId), inArray(marks.assessmentId, ids)))
     : [];
   const savedBySubject = new Map(saved.map(row => [row.subjectId, row]));
-  const scopedSubjects = classSubjects.length ? classSubjects : allocations;
-  if (!scopedSubjects.length && !canViewWholeClass) throw new Error("REPORT_SCOPE_FORBIDDEN");
-  const reportSubjects = scopedSubjects.filter(row => savedBySubject.has(row.subject.id));
+  const scopedSubjects = allocations;
+  if (!scopedSubjects.length) throw new Error(canViewWholeClass ? "REPORT_CLASS_HAS_NO_ACTIVE_ALLOCATIONS" : "REPORT_SCOPE_FORBIDDEN");
   const allocationBySubject = new Map(allocations.map(row => [row.subject.id, row]));
-  const marksheet = Array.from(new Map(reportSubjects.map(row => [row.subject.id, row])).values()).map(row => {
+  const marksheet = Array.from(new Map(scopedSubjects.map(row => [row.subject.id, row])).values()).map(row => {
     const assessment = periodAssessments.find(item => item.subjectId === row.subject.id);
     const mark = savedBySubject.get(row.subject.id);
     const assignment = allocationBySubject.get(row.subject.id);
@@ -478,6 +474,7 @@ export async function getAssessmentReportCard(input: { learnerId: number; academ
     ? (await db.select().from(staffProfiles).where(eq(staffProfiles.userId, learnerRow.grade.classTeacherUserId)).limit(1))[0]?.displayName ?? null
     : null;
   const existing = (await db.select().from(reportCards).where(and(
+    eq(reportCards.schoolId, schoolId),
     eq(reportCards.learnerId, input.learnerId),
     eq(reportCards.academicYear, input.academicYear),
     eq(reportCards.term, input.term),
@@ -487,6 +484,7 @@ export async function getAssessmentReportCard(input: { learnerId: number; academ
     await db.insert(reportCards).values({ ...input, schoolId, status: "draft", generatedByUserId: userId });
   }
   const report = existing ?? (await db.select().from(reportCards).where(and(
+    eq(reportCards.schoolId, schoolId),
     eq(reportCards.learnerId, input.learnerId),
     eq(reportCards.academicYear, input.academicYear),
     eq(reportCards.term, input.term),
