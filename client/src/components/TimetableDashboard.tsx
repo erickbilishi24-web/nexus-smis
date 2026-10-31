@@ -50,14 +50,15 @@ function ScheduleHeader({ showGrade = false }: { showGrade?: boolean }) {
 function PeriodCells({ entries, day, gradeId, multiGrade = false, firstRow = false, breakRowSpan = 5, shortNames = {} }: { entries: ScheduleRow[]; day: number; gradeId?: number; multiGrade?: boolean; firstRow?: boolean; breakRowSpan?: number; shortNames?: Record<string,string> }) {
   const cellFor = (period: number, gradeId?: number) => entries.find(row => row.entry.dayOfWeek === day && row.entry.period === period && (gradeId === undefined || row.entry.gradeId === gradeId));
   const cells: React.ReactNode[] = [];
-  for (let period = 1; period <= 9;) {
+  // The generator has eight teaching periods; period 9 must not create an extra dashboard column.
+  for (let period = 1; period <= 8;) {
     const current = cellFor(period, gradeId);
     let span = 1;
     if (current) {
-      while (period + span <= 9 && !breakAfter[period + span - 1] && sameLesson(current, cellFor(period + span, gradeId))) span += 1;
+      while (period + span <= 8 && !breakAfter[period + span - 1] && sameLesson(current, cellFor(period + span, gradeId))) span += 1;
     }
     cells.push(<td key={`p${period}`} colSpan={span} title={current?.entry.isForcePlaced ? "Force-placed lesson · review this placement" : undefined} className={`personal-time-subject-cell ${current ? "has-lesson" : "is-empty"} ${current?.entry.isForcePlaced ? "ring-2 ring-inset ring-[#b7791f] bg-[#fff1c7]" : ""}`}>
-      {current ? <><b>{subjectCode(current, shortNames)}</b>{current.entry.isForcePlaced && <small className="font-bold text-[#8a5b16]">Force-placed · review</small>}<span>{gradeLabel(current)}</span>{current.entry.room && <small>{current.entry.room}</small>}{multiGrade && current.staff?.teacherCode != null && <small className="personal-time-code">{String(current.staff.teacherCode).padStart(2, "0")}</small>}</> : <span className="personal-time-empty">—</span>}
+      {current ? <><b>{subjectCode(current, shortNames)}{multiGrade && current.staff?.teacherCode != null ? ` ${current.staff.teacherCode}` : ""}</b>{current.entry.isForcePlaced && <small className="font-bold text-[#8a5b16]">Force-placed · review</small>}{!multiGrade && <><span>{gradeLabel(current)}</span>{current.entry.room && <small>{current.entry.room}</small>}{current.staff?.teacherCode != null && <small className="personal-time-code">{String(current.staff.teacherCode)}</small>}</>}</> : <span className="personal-time-empty">{multiGrade ? "REVISION" : "—"}</span>}
     </td>);
     period += span;
     const breakInfo = breakAfter[period - 1];
