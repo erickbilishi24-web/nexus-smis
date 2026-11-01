@@ -337,6 +337,28 @@ export async function batchApproveAssessments(assessmentIds: number[], userId: n
   return { ok: true, approved: rows.length };
 }
 
+export async function batchReturnAssessments(input: { assessmentIds: number[]; reason: string }, userId: number) {
+  const db = await requireDb();
+  const access = await actorAccess(userId);
+  if (!access.isAdmin) throw new Error("ASSESSMENT_ADMIN_REQUIRED");
+  const uniqueIds = Array.from(new Set(input.assessmentIds));
+  const reason = input.reason.trim();
+  if (!uniqueIds.length) throw new Error("BATCH_APPROVAL_SELECTION_REQUIRED");
+  if (reason.length < 10) throw new Error("RETURN_REASON_REQUIRED");
+  const schoolId = await actorSchoolId(userId);
+  const rows = await db.select().from(assessments).where(and(eq(assessments.schoolId, schoolId), inArray(assessments.id, uniqueIds)));
+  if (rows.length !== uniqueIds.length) throw new Error("ASSESSMENT_NOT_FOUND");
+  if (rows.some(row => row.status !== "submitted")) throw new Error("BATCH_APPROVAL_ONLY_SUBMITTED");
+  const now = new Date();
+  await db.transaction(async tx => {
+    for (const assessment of rows) {
+      await tx.update(assessments).set({ status: "returned", returnedByUserId: userId, returnedAt: now, returnReason: reason, updatedAt: now }).where(and(eq(assessments.id, assessment.id), eq(assessments.schoolId, schoolId), eq(assessments.status, "submitted")));
+      await tx.insert(auditLogs).values({ schoolId, userId, action: "assessment.batch_return", entityType: "assessment", entityId: String(assessment.id), metadata: JSON.stringify({ from: assessment.status, to: "returned", reason, batchSize: rows.length }) });
+    }
+  });
+  return { ok: true, returned: rows.length };
+}
+
 export async function listAssessmentApprovals(userId: number) {
   const db = await requireDb();
   const schoolId = await actorSchoolId(userId);
