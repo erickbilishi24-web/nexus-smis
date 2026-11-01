@@ -614,6 +614,7 @@ export const expenditures = mysqlTable("expenditures", {
 export const notifications = mysqlTable("notifications", {
   id: int("id").autoincrement().primaryKey(),
   schoolId: int("schoolId"),
+  recipientUserId: int("recipientUserId"),
   audience: mysqlEnum("audience", ["parents", "staff", "learners", "all"]).notNull(),
   title: varchar("title", { length: 160 }).notNull(),
   body: text("body").notNull(),

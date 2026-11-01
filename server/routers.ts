@@ -6,7 +6,7 @@ import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_
 import { TRPCError } from "@trpc/server";
 import { MANAGE_PERMISSIONS, canCreateAssessments, canViewWholeClassMarklist } from "./access";
 import { AdminError, AUDIT_MODULES, adminCatalog, adminOverview, changeAdminAssignment, changeAdminRole, createAdminUser, createSchool, deleteAdminUser, getAdminUser, getPermissionMatrixView, listAdminUsers, listAuditTrail, listMySchoolMemberships, listSchools, getPublicSchoolIdentity, resetAdminPassword, setAccountState, setAdminRoles, setRolePermission, setUserPermissionOverride, switchMySchool, updateAdminUser, updateSchool, setSchoolStatus } from "./administration";
-import { batchApproveAssessments, batchReturnAssessments, correctLockedAssessmentMark, ensureAssessment, getAssessmentEntries, getAssessmentReportCard, getClassMarklist, listAssessmentApprovals, listAssessmentScopes, listReportLearners, reviewAssessment, saveAssessmentMarks, setAssessmentFinalState, submitAssessment } from "./assessment";
+import { batchApproveAssessments, batchReturnAssessments, correctLockedAssessmentMark, ensureAssessment, getAssessmentEntries, getAssessmentReportCard, getClassMarklist, listAssessmentApprovals, listAssessmentReturnHistory, listAssessmentScopes, listReportLearners, reviewAssessment, saveAssessmentMarks, setAssessmentFinalState, submitAssessment } from "./assessment";
 import { adminResetIamPassword, changeIamPassword, loginWithIam, logoutIam, requestIamPasswordReset, resetIamPassword, safeAuthProfile } from "./iam";
 import { listFeedback, submitFeedback } from "./feedback";
 import { allocateBoardingBed, checkoutBoarder, createBoardingUnit, getHealthProfile, listBoardingRecords, listHealthRecords, recordBoardingAttendance, recordBoardingMeal, recordHealthEvent, returnBoarder, saveBoardingProfile, saveHealthProfile } from "./healthBoarding";
@@ -229,6 +229,7 @@ export const appRouter = router({
       reviewAccess: protectedProcedure.query(({ ctx }) => userCan(ctx.user.id, ctx.user.role, "settings.edit")),
       batchApprovalAccess: protectedProcedure.query(({ ctx }) => userCan(ctx.user.id, ctx.user.role, "settings.edit")),
       approvalQueue: permissionProcedure("assessments.view").query(({ ctx }) => listAssessmentApprovals(currentUserId(ctx.user))),
+      returnHistory: permissionProcedure("settings.edit").query(({ ctx }) => listAssessmentReturnHistory(currentUserId(ctx.user))),
       commentAccess: protectedProcedure.query(({ ctx }) => userCan(ctx.user.id, ctx.user.role, "assessments.edit")),
       list: permissionProcedure("assessments.view").query(({ ctx }) => listAssessments(currentUserId(ctx.user))),
       marks: permissionProcedure("assessments.view").input(z.object({ assessmentId: z.number().int().positive().optional() }).optional()).query(({ input, ctx }) => listMarks(input?.assessmentId, currentUserId(ctx.user))),
@@ -276,7 +277,7 @@ export const appRouter = router({
       followUp: permissionProcedure("counselling.edit").input(z.object({ caseId: z.number().int().positive(), scheduledFor: z.string().date(), action: z.string().trim().min(3).max(255) })).mutation(({ input, ctx }) => createFollowUp(input, currentUserId(ctx.user))),
     }),
     notifications: router({
-      list: permissionProcedure("communication.edit").query(() => listNotifications()),
+      list: permissionProcedure("dashboard.view").query(({ ctx }) => listNotifications(currentUserId(ctx.user))),
       create: permissionProcedure("communication.edit").input(z.object({ audience: z.enum(["parents", "staff", "learners", "all"]), title: z.string().min(1).max(160), body: z.string().min(1), status: z.enum(["draft", "published"]) })).mutation(({ input, ctx }) => createNotification(input, currentUserId(ctx.user))),
     }),
     clocking: router({

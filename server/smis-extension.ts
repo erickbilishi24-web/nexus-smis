@@ -1,4 +1,4 @@
-import { desc, eq, like, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, like, or, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import { expenditures, guardians, learnerGuardians, notifications, permissions, userPermissions } from "../drizzle/schema";
 import { actorSchoolId, effectivePermissions, peoplePageWindow, permissionCatalog, requireDb, writeAudit } from "./smis";
@@ -50,14 +50,16 @@ export async function financialSummary(userId: number) {
   return { collected: paymentRows.reduce((s, row) => s + Number(row.amount), 0), expenditure: expenditureRows.reduce((s, row) => s + Number(row.amount), 0), balance: paymentRows.reduce((s, row) => s + Number(row.amount), 0) - expenditureRows.reduce((s, row) => s + Number(row.amount), 0) };
 }
 
-export async function listNotifications() {
+export async function listNotifications(userId: number) {
   const db = await requireDb();
-  return db.select().from(notifications).where(eq(notifications.status, "published")).orderBy(desc(notifications.createdAt)).limit(50);
+  const schoolId = await actorSchoolId(userId);
+  return db.select().from(notifications).where(and(eq(notifications.schoolId, schoolId), eq(notifications.status, "published"), or(eq(notifications.recipientUserId, userId), and(isNull(notifications.recipientUserId), or(eq(notifications.audience, "staff"), eq(notifications.audience, "all")))))).orderBy(desc(notifications.createdAt)).limit(50);
 }
 
 export async function createNotification(input: { audience: "parents" | "staff" | "learners" | "all"; title: string; body: string; status: "draft" | "published" }, userId: number) {
   const db = await requireDb();
-  const row = (await db.insert(notifications).values({ ...input, createdByUserId: userId }).$returningId())[0];
+  const schoolId = await actorSchoolId(userId);
+  const row = (await db.insert(notifications).values({ ...input, schoolId, createdByUserId: userId }).$returningId())[0];
   await writeAudit(userId, "notification.create", "notification", row.id, input);
   return { ok: true, id: row.id };
 }

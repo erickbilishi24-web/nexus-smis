@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
-import { assessments, attendances, auditLogs, grades, learners, marks, reportCards, schoolSettings, staffProfiles, subjects, teacherAllocations, users } from "../drizzle/schema";
+import { assessments, attendances, auditLogs, grades, learners, marks, notifications, reportCards, schoolSettings, staffProfiles, subjects, teacherAllocations, users } from "../drizzle/schema";
 import { getDb } from "./db";
 import { assertScore, actorSchoolId, cbcLevel, getSettings, writeAudit } from "./smis";
 import { assignedRoles } from "./access";
@@ -296,6 +296,7 @@ export async function reviewAssessment(input: { assessmentId: number; action: "a
     const reason = input.reason?.trim() ?? "";
     if (reason.length < 10) throw new Error("RETURN_REASON_REQUIRED");
     await db.update(assessments).set({ status: "returned", returnedByUserId: userId, returnedAt: now, returnReason: reason, updatedAt: now }).where(and(eq(assessments.id, assessment.id), eq(assessments.schoolId, schoolId)));
+    await db.insert(notifications).values({ schoolId, recipientUserId: assessment.teacherUserId, audience: "staff", title: "Assessment returned for correction", body: `${assessment.title} · ${assessment.term} ${assessment.academicYear} was returned for correction. Feedback: ${reason}`, status: "published", createdByUserId: userId });
     await writeAudit(userId, "assessment.return", "assessment", assessment.id, { reason, from: assessment.status, to: "returned" });
     return { ok: true, status: "returned" as const };
   }
@@ -353,6 +354,7 @@ export async function batchReturnAssessments(input: { assessmentIds: number[]; r
   await db.transaction(async tx => {
     for (const assessment of rows) {
       await tx.update(assessments).set({ status: "returned", returnedByUserId: userId, returnedAt: now, returnReason: reason, updatedAt: now }).where(and(eq(assessments.id, assessment.id), eq(assessments.schoolId, schoolId), eq(assessments.status, "submitted")));
+      await tx.insert(notifications).values({ schoolId, recipientUserId: assessment.teacherUserId, audience: "staff", title: "Assessment returned for correction", body: `${assessment.title} · ${assessment.term} ${assessment.academicYear} was returned for correction. Feedback: ${reason}`, status: "published", createdByUserId: userId });
       await tx.insert(auditLogs).values({ schoolId, userId, action: "assessment.batch_return", entityType: "assessment", entityId: String(assessment.id), metadata: JSON.stringify({ from: assessment.status, to: "returned", reason, batchSize: rows.length }) });
     }
   });
@@ -384,6 +386,47 @@ export async function listAssessmentApprovals(userId: number) {
     const entered = (marksByAssessment.get(row.assessment.id) ?? []).filter(mark => mark.score !== null).length;
     const rosterCount = rosterCounts.get(row.assessment.gradeId) ?? 0;
     return { assessment: row.assessment, grade: row.grade, subject: row.subject, teacherName: row.teacher?.displayName ?? `User ${row.assessment.teacherUserId}`, entered, missing: Math.max(0, rosterCount - entered), canReview: row.assessment.status === "submitted" };
+  });
+}
+
+export async function listAssessmentReturnHistory(userId: number) {
+  const db = await requireDb();
+  const access = await actorAccess(userId);
+  if (!access.isAdmin) throw new Error("ASSESSMENT_ADMIN_REQUIRED");
+  const schoolId = await actorSchoolId(userId);
+  const logs = await db.select({ log: auditLogs, actorName: users.name, actorUsername: users.username })
+    .from(auditLogs)
+    .leftJoin(users, eq(users.id, auditLogs.userId))
+    .where(and(eq(auditLogs.schoolId, schoolId), inArray(auditLogs.action, ["assessment.return", "assessment.batch_return"])))
+    .orderBy(desc(auditLogs.createdAt), desc(auditLogs.id));
+  const assessmentIds = Array.from(new Set(logs.map(row => Number(row.log.entityId)).filter(id => Number.isInteger(id) && id > 0)));
+  if (!assessmentIds.length) return [];
+  const assessmentsWithContext = await db.select({ assessment: assessments, grade: grades, subject: subjects, teacher: staffProfiles })
+    .from(assessments)
+    .innerJoin(grades, and(eq(grades.id, assessments.gradeId), eq(grades.schoolId, schoolId)))
+    .innerJoin(subjects, and(eq(subjects.id, assessments.subjectId), eq(subjects.schoolId, schoolId)))
+    .leftJoin(staffProfiles, and(eq(staffProfiles.userId, assessments.teacherUserId), eq(staffProfiles.schoolId, schoolId)))
+    .where(and(eq(assessments.schoolId, schoolId), inArray(assessments.id, assessmentIds)));
+  const byId = new Map(assessmentsWithContext.map(row => [row.assessment.id, row]));
+  return logs.flatMap(row => {
+    const assessmentId = Number(row.log.entityId);
+    const context = byId.get(assessmentId);
+    if (!context) return [];
+    let metadata: Record<string, unknown> = {};
+    try { metadata = JSON.parse(row.log.metadata ?? "{}"); } catch { /* retain the audit row with a safe fallback */ }
+    return [{
+      id: row.log.id,
+      returnedAt: row.log.createdAt,
+      assessmentId,
+      feedback: typeof metadata.reason === "string" ? metadata.reason : context.assessment.returnReason ?? "Feedback recorded in audit history",
+      administrator: row.actorName ?? row.actorUsername ?? `User ${row.log.userId ?? "unknown"}`,
+      grade: context.grade,
+      subject: context.subject,
+      teacherName: context.teacher?.displayName ?? `User ${context.assessment.teacherUserId}`,
+      term: context.assessment.term,
+      academicYear: context.assessment.academicYear,
+      assessmentType: context.assessment.assessmentType,
+    }];
   });
 }
 
