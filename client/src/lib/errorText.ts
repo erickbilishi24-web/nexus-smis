@@ -11,6 +11,8 @@ const DOMAIN_MESSAGES: Record<string, string> = {
   CLASS_TEACHER_APPROVAL_SCOPE_FORBIDDEN: "Only the assigned class teacher or an authorized reviewer can review this assessment.",
   CLASS_TEACHER_CANNOT_APPROVE_OWN_MARKS: "A class teacher cannot approve their own subject marks.",
   RETURN_REASON_REQUIRED: "Explain what must be corrected before returning this assessment.",
+  BATCH_APPROVAL_SELECTION_REQUIRED: "Select at least one submitted assessment.",
+  BATCH_APPROVAL_ONLY_SUBMITTED: "Batch approval only accepts assessments that are currently submitted.",
 };
 
 function messageFromValidationPayload(message: string): string | null {
@@ -36,6 +38,7 @@ export function toUserError(error: unknown): string {
   const normalized = raw.trim().replace(/^TRPCError:\s*/i, "");
   const domainKey = normalized.toUpperCase().replace(/[ -]+/g, "_");
   if (DOMAIN_MESSAGES[domainKey]) return DOMAIN_MESSAGES[domainKey];
+  if (domainKey.startsWith("BATCH_APPROVAL_INCOMPLETE")) return "One or more selected assessments have missing marks and cannot be approved yet.";
   if (/expected .*number|received\s+nan|invalid input/i.test(normalized)) {
     return "Check the information entered and try again.";
   }

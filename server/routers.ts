@@ -6,7 +6,7 @@ import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_
 import { TRPCError } from "@trpc/server";
 import { MANAGE_PERMISSIONS, canCreateAssessments, canViewWholeClassMarklist } from "./access";
 import { AdminError, AUDIT_MODULES, adminCatalog, adminOverview, changeAdminAssignment, changeAdminRole, createAdminUser, createSchool, deleteAdminUser, getAdminUser, getPermissionMatrixView, listAdminUsers, listAuditTrail, listMySchoolMemberships, listSchools, getPublicSchoolIdentity, resetAdminPassword, setAccountState, setAdminRoles, setRolePermission, setUserPermissionOverride, switchMySchool, updateAdminUser, updateSchool, setSchoolStatus } from "./administration";
-import { correctLockedAssessmentMark, ensureAssessment, getAssessmentEntries, getAssessmentReportCard, getClassMarklist, listAssessmentApprovals, listAssessmentScopes, listReportLearners, reviewAssessment, saveAssessmentMarks, setAssessmentFinalState, submitAssessment } from "./assessment";
+import { batchApproveAssessments, correctLockedAssessmentMark, ensureAssessment, getAssessmentEntries, getAssessmentReportCard, getClassMarklist, listAssessmentApprovals, listAssessmentScopes, listReportLearners, reviewAssessment, saveAssessmentMarks, setAssessmentFinalState, submitAssessment } from "./assessment";
 import { adminResetIamPassword, changeIamPassword, loginWithIam, logoutIam, requestIamPasswordReset, resetIamPassword, safeAuthProfile } from "./iam";
 import { listFeedback, submitFeedback } from "./feedback";
 import { allocateBoardingBed, checkoutBoarder, createBoardingUnit, getHealthProfile, listBoardingRecords, listHealthRecords, recordBoardingAttendance, recordBoardingMeal, recordHealthEvent, returnBoarder, saveBoardingProfile, saveHealthProfile } from "./healthBoarding";
@@ -227,6 +227,7 @@ export const appRouter = router({
       creationAccess: protectedProcedure.query(({ ctx }) => canCreateAssessments(ctx.user.id)),
       wholeClassAccess: protectedProcedure.query(({ ctx }) => canViewWholeClassMarklist(ctx.user.id, ctx.user.role)),
       reviewAccess: protectedProcedure.query(({ ctx }) => userCan(ctx.user.id, ctx.user.role, "settings.edit")),
+      batchApprovalAccess: protectedProcedure.query(({ ctx }) => userCan(ctx.user.id, ctx.user.role, "settings.edit")),
       approvalQueue: permissionProcedure("assessments.view").query(({ ctx }) => listAssessmentApprovals(currentUserId(ctx.user))),
       commentAccess: protectedProcedure.query(({ ctx }) => userCan(ctx.user.id, ctx.user.role, "assessments.edit")),
       list: permissionProcedure("assessments.view").query(({ ctx }) => listAssessments(currentUserId(ctx.user))),
@@ -238,6 +239,7 @@ export const appRouter = router({
       saveRows: permissionProcedure("assessments.edit").input(z.object({ assessmentId: z.number().int().positive(), rows: z.array(z.object({ learnerId: z.number().int().positive(), score: z.number().min(0).max(100).nullable(), teacherRemark: z.string().max(255).nullable().optional() })).max(500) })).mutation(({ input, ctx }) => saveAssessmentMarks(input, currentUserId(ctx.user))),
       submit: permissionProcedure("assessments.edit").input(z.object({ assessmentId: z.number().int().positive() })).mutation(({ input, ctx }) => submitAssessment(input.assessmentId, currentUserId(ctx.user))),
       review: permissionProcedure("assessments.view").input(z.object({ assessmentId: z.number().int().positive(), action: z.enum(["approve", "return"]), reason: z.string().max(500).nullable().optional() })).mutation(({ input, ctx }) => reviewAssessment(input, currentUserId(ctx.user))),
+      batchApprove: permissionProcedure("settings.edit").input(z.object({ assessmentIds: z.array(z.number().int().positive()).min(1).max(100).refine(ids => new Set(ids).size === ids.length, "Duplicate assessment selected") })).mutation(({ input, ctx }) => batchApproveAssessments(input.assessmentIds, currentUserId(ctx.user))),
       setFinalState: permissionProcedure("settings.edit").input(z.object({ assessmentId: z.number().int().positive(), status: z.enum(["approved", "locked"]) })).mutation(({ input, ctx }) => setAssessmentFinalState(input, currentUserId(ctx.user))),
       correctLockedMark: permissionProcedure("settings.edit").input(z.object({ assessmentId: z.number().int().positive(), learnerId: z.number().int().positive(), score: z.number().min(0).max(100), reason: z.string().min(10).max(500) })).mutation(({ input, ctx }) => correctLockedAssessmentMark(input, currentUserId(ctx.user))),
       classMarklist: wholeClassMarklistProcedure.input(z.object({ academicYear: z.number().int().min(2000).max(2100), term: z.string().min(1).max(40), assessmentType: z.enum(["mid_term", "end_term", "average"]), gradeId: z.number().int().positive() })).query(({ input, ctx }) => getClassMarklist(input, currentUserId(ctx.user))),

@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
-import { assessments, attendances, grades, learners, marks, reportCards, schoolSettings, staffProfiles, subjects, teacherAllocations, users } from "../drizzle/schema";
+import { assessments, attendances, auditLogs, grades, learners, marks, reportCards, schoolSettings, staffProfiles, subjects, teacherAllocations, users } from "../drizzle/schema";
 import { getDb } from "./db";
 import { assertScore, actorSchoolId, cbcLevel, getSettings, writeAudit } from "./smis";
 import { assignedRoles } from "./access";
@@ -305,6 +305,36 @@ export async function reviewAssessment(input: { assessmentId: number; action: "a
   await db.update(assessments).set({ status: "approved", verifiedByUserId: userId, verifiedAt: now, updatedAt: now }).where(and(eq(assessments.id, assessment.id), eq(assessments.schoolId, schoolId)));
   await writeAudit(userId, "assessment.class_teacher_approve", "assessment", assessment.id, { from: assessment.status, to: "approved" });
   return { ok: true, status: "approved" as const };
+}
+
+export async function batchApproveAssessments(assessmentIds: number[], userId: number) {
+  const db = await requireDb();
+  const access = await actorAccess(userId);
+  if (!access.isAdmin) throw new Error("ASSESSMENT_ADMIN_REQUIRED");
+  const uniqueIds = Array.from(new Set(assessmentIds));
+  if (!uniqueIds.length) throw new Error("BATCH_APPROVAL_SELECTION_REQUIRED");
+  const schoolId = await actorSchoolId(userId);
+  const rows = await db.select().from(assessments).where(and(eq(assessments.schoolId, schoolId), inArray(assessments.id, uniqueIds)));
+  if (rows.length !== uniqueIds.length) throw new Error("ASSESSMENT_NOT_FOUND");
+  if (rows.some(row => row.status !== "submitted")) throw new Error("BATCH_APPROVAL_ONLY_SUBMITTED");
+  const gradeIds = Array.from(new Set(rows.map(row => row.gradeId)));
+  const rosters = await db.select({ id: learners.id, gradeId: learners.gradeId }).from(learners).where(and(eq(learners.schoolId, schoolId), inArray(learners.gradeId, gradeIds), eq(learners.status, "active")));
+  const rosterByGrade = new Map<number, number[]>();
+  for (const learner of rosters) rosterByGrade.set(learner.gradeId, [...(rosterByGrade.get(learner.gradeId) ?? []), learner.id]);
+  const saved = await db.select({ assessmentId: marks.assessmentId, learnerId: marks.learnerId, score: marks.score }).from(marks).where(and(eq(marks.schoolId, schoolId), inArray(marks.assessmentId, uniqueIds)));
+  for (const assessment of rows) {
+    const rosterIds = rosterByGrade.get(assessment.gradeId) ?? [];
+    const assessmentMarks = saved.filter(mark => mark.assessmentId === assessment.id);
+    if (!rosterIds.length || missingAssessmentLearners(rosterIds, assessmentMarks).length) throw new Error(`BATCH_APPROVAL_INCOMPLETE:${assessment.id}`);
+  }
+  const now = new Date();
+  await db.transaction(async tx => {
+    for (const assessment of rows) {
+      await tx.update(assessments).set({ status: "approved", verifiedByUserId: userId, verifiedAt: now, updatedAt: now }).where(and(eq(assessments.id, assessment.id), eq(assessments.schoolId, schoolId), eq(assessments.status, "submitted")));
+      await tx.insert(auditLogs).values({ schoolId, userId, action: "assessment.batch_approve", entityType: "assessment", entityId: String(assessment.id), metadata: JSON.stringify({ from: assessment.status, to: "approved", batchSize: rows.length }) });
+    }
+  });
+  return { ok: true, approved: rows.length };
 }
 
 export async function listAssessmentApprovals(userId: number) {
