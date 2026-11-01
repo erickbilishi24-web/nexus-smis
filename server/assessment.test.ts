@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assessmentScopeKey, averageAssessmentScores, canTransitionAssessment, missingAssessmentLearners } from "./assessment";
+import { assessmentScopeKey, averageAssessmentScores, canClassTeacherReviewAssessment, canTransitionAssessment, missingAssessmentLearners } from "./assessment";
 import { assertScore } from "./smis";
 import { rankMarklistRows } from "../shared/marklist";
 
@@ -43,6 +43,13 @@ describe("central assessment workflow", () => {
     expect(canTransitionAssessment("submitted", "approved")).toBe(true);
     expect(canTransitionAssessment("approved", "locked")).toBe(true);
     expect(canTransitionAssessment("submitted", "locked")).toBe(false);
+  });
+
+  it("allows class-teacher review only after submission", () => {
+    expect(canClassTeacherReviewAssessment("draft")).toBe(false);
+    expect(canClassTeacherReviewAssessment("submitted")).toBe(true);
+    expect(canClassTeacherReviewAssessment("returned")).toBe(false);
+    expect(canTransitionAssessment("returned", "approved")).toBe(false);
   });
 
   it("validates score boundaries without treating missing as zero", () => {

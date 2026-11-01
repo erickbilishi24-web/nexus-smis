@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, Download, Printer, Save, Send, ShieldCheck } from "lucide-react";
+import { Activity, CheckCircle2, Download, Printer, RotateCcw, Save, Send, ShieldCheck } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { rankMarklistRows } from "@shared/marklist";
 import { toast } from "sonner";
@@ -28,6 +28,7 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
   const [mode, setMode] = useState<ViewMode>("entry");
   const reviewAccess = trpc.smis.assessments.reviewAccess.useQuery();
   const mayReview = canReview || reviewAccess.data === true;
+  const approvalQueue = trpc.smis.assessments.approvalQueue.useQuery();
   const creationAccess = trpc.smis.assessments.creationAccess.useQuery();
   const wholeClassAccess = trpc.smis.assessments.wholeClassAccess.useQuery();
   const catalog = trpc.smis.people.catalog.useQuery(undefined, { enabled: mayReview });
@@ -75,6 +76,13 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
     },
     onError: error => toast.error(toUserError(error)),
   });
+  const review = trpc.smis.assessments.review.useMutation({
+    onSuccess: async result => {
+      toast.success(result.status === "approved" ? "Assessment approved" : "Assessment returned to the teacher", { description: result.status === "approved" ? "The class-teacher review is complete." : "The teacher can correct the marks and resubmit." });
+      await Promise.all([approvalQueue.refetch(), utils.smis.assessments.entries.invalidate(), utils.smis.assessments.classMarklist.invalidate(), utils.smis.assessments.scopes.invalidate()]);
+    },
+    onError: error => toast.error(toUserError(error)),
+  });
   const finalize = trpc.smis.assessments.setFinalState.useMutation({
     onSuccess: async result => {
       toast.success(`Assessment ${result.status}`);
@@ -119,7 +127,7 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
 
   const markRows = entry.data?.learners ?? [];
   const missing = markRows.filter(row => (draftScores[row.learnerId] ?? (row.score == null ? "" : String(row.score))).trim() === "").length;
-  const isEditable = entry.data?.assessment.status === "draft" || entry.data?.assessment.status === "submitted" && canReview;
+  const isEditable = entry.data?.assessment.status === "draft" || entry.data?.assessment.status === "returned" || entry.data?.assessment.status === "submitted" && canReview;
 
   const selectScope = (value: string) => { setSelectedScopeKey(value); setAssessmentId(null); setDraftScores({}); };
   const openSelected = () => {
@@ -213,6 +221,10 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
       <div><p className="eyebrow">Assessments · single source of truth</p><h1 className="mt-1 font-editorial text-3xl text-[#193d32]">Mark entry & class marklist</h1><p className="mt-2 max-w-3xl text-sm leading-6 text-[#69796f]">Marks are linked to year, term, assessment type, class, subject and allocated teacher. Report cards read directly from these records.</p></div>
       <div className="flex flex-wrap gap-2"><button type="button" className={`quiet-button ${mode === "entry" ? "bg-[#e7f0e7] text-[#1d6a57]" : ""}`} onClick={() => setMode("entry")}>Teacher entry</button>{wholeClassAccess.data === true && <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[#d8ded7] bg-[#fffefa] px-3 py-2 text-xs font-bold text-[#28483f]"><input type="checkbox" checked={mode === "marklist"} onChange={event => setMode(event.target.checked ? "marklist" : "entry")} />Whole Class Marklist (All Subjects)</label>}</div>
     </header>
+    {(approvalQueue.data?.length ?? 0) > 0 && <section className="soft-card overflow-hidden rounded-xl border border-[#d8ded7] bg-[#fffefa]">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#e7e2d7] bg-[#edf2ed] p-4"><div><p className="eyebrow"><CheckCircle2 size={13} /> Approval workflow</p><h2 className="mt-1 text-lg font-bold text-[#28483f]">Submitted assessments</h2><p className="mt-1 text-xs text-[#718077]">Class teachers review submitted subject marks before they are used as approved results.</p></div><span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-[#1d6a57]">{approvalQueue.data?.filter(row => row.assessment.status === "submitted").length ?? 0} awaiting review</span></div>
+      <div className="divide-y divide-[#eee9df]">{approvalQueue.data?.map(row => <div key={row.assessment.id} className="flex flex-col gap-3 p-4 lg:flex-row lg:items-center lg:justify-between"><div><p className="text-sm font-bold text-[#28483f]">{row.grade.name}{row.grade.stream ? ` ${row.grade.stream}` : ""} · {row.subject.name}</p><p className="mt-1 text-xs text-[#718077]">{row.assessment.term} {row.assessment.academicYear} · {row.assessment.assessmentType === "mid_term" ? "Mid-Term" : "End-Term"} · Teacher: {row.teacherName}</p><p className="mt-1 text-xs font-semibold text-[#53675d]">{row.entered} entered · {row.missing} missing · <span className="capitalize">{row.assessment.status}</span>{row.assessment.status === "returned" && row.assessment.returnReason ? ` · ${row.assessment.returnReason}` : ""}</p></div>{row.assessment.status === "submitted" && <div className="flex flex-wrap gap-2"><button type="button" className="action-button" disabled={review.isPending || row.missing > 0} onClick={() => review.mutate({ assessmentId: row.assessment.id, action: "approve" })}><CheckCircle2 size={14} />Approve</button><button type="button" className="quiet-button" disabled={review.isPending} onClick={() => { const reason = window.prompt("Explain what the teacher must correct (at least 10 characters):"); if (reason !== null) review.mutate({ assessmentId: row.assessment.id, action: "return", reason }); }}><RotateCcw size={14} />Return for correction</button></div>}</div>)}</div>
+    </section>}
     <section className="soft-card grid gap-3 rounded-xl p-4 sm:grid-cols-[1fr_10rem_1.2fr_auto] sm:items-end">
       <label className="text-xs font-bold text-[#53675d]">Allocated class & subject<select value={selectedScopeKey} onChange={event => selectScope(event.target.value)} className="mt-2 w-full rounded-lg border border-[#d8ded7] bg-[#fffefa] px-3 py-2.5 text-sm">
         {!scopes.data?.length && <option value="">No active teacher allocations</option>}
@@ -242,7 +254,7 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
           <div><b>{entry.data.assessment.title}</b><span className="ml-2 rounded-full bg-white/75 px-2 py-1 text-xs font-bold capitalize">{entry.data.assessment.status}</span><p className="mt-1 text-xs">{assessmentLabel(assessmentType)} · {entry.data.assessment.term} {entry.data.assessment.academicYear} · {entry.data.learners.length - missing}/{entry.data.learners.length} marks entered · {missing} missing</p></div>
           <div className="flex flex-wrap gap-2">
             <button type="button" disabled={!isEditable || saveRows.isPending} onClick={() => { try { persistRows(); } catch (error) { toast.error(toUserError(error)); } }} className="action-button"><Save size={15} />Save marks</button>
-            {entry.data.assessment.status === "draft" && <button type="button" disabled={missing > 0 || submit.isPending} onClick={() => submit.mutate({ assessmentId: entry.data!.assessment.id })} className="action-button disabled:opacity-50"><Send size={15} />Submit for verification</button>}
+            {(entry.data.assessment.status === "draft" || entry.data.assessment.status === "returned") && <button type="button" disabled={missing > 0 || submit.isPending} onClick={() => submit.mutate({ assessmentId: entry.data!.assessment.id })} className="action-button disabled:opacity-50"><Send size={15} />{entry.data.assessment.status === "returned" ? "Resubmit for verification" : "Submit for verification"}</button>}
             {mayReview && entry.data.assessment.status === "submitted" && <button type="button" onClick={() => finalize.mutate({ assessmentId: entry.data!.assessment.id, status: "approved" })} className="action-button"><ShieldCheck size={15} />Approve</button>}
             {mayReview && entry.data.assessment.status === "approved" && <button type="button" onClick={() => finalize.mutate({ assessmentId: entry.data!.assessment.id, status: "locked" })} className="action-button">Lock assessment</button>}
           </div>

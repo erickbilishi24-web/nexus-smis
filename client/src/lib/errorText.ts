@@ -6,6 +6,11 @@ const DOMAIN_MESSAGES: Record<string, string> = {
   FORBIDDEN: "You do not have permission to perform this action.",
   UNAUTHORIZED: "Your session has expired. Please sign in again.",
   VALIDATION_ERROR: "Check the highlighted information and try again.",
+  ASSESSMENT_MUST_BE_SUBMITTED: "Submit the complete marks first, then request review.",
+  ASSESSMENT_INCOMPLETE_CANNOT_APPROVE: "This assessment still has missing marks and cannot be approved.",
+  CLASS_TEACHER_APPROVAL_SCOPE_FORBIDDEN: "Only the assigned class teacher or an authorized reviewer can review this assessment.",
+  CLASS_TEACHER_CANNOT_APPROVE_OWN_MARKS: "A class teacher cannot approve their own subject marks.",
+  RETURN_REASON_REQUIRED: "Explain what must be corrected before returning this assessment.",
 };
 
 function messageFromValidationPayload(message: string): string | null {

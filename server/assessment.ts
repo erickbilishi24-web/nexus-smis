@@ -29,6 +29,10 @@ export function canTransitionAssessment(from: string, to: "approved" | "locked")
   return to === "approved" ? from === "submitted" : from === "approved";
 }
 
+export function canClassTeacherReviewAssessment(status: string) {
+  return status === "submitted";
+}
+
 export function averageAssessmentScores(midTerm: number | null, endTerm: number | null) {
   return midTerm === null || endTerm === null ? null : Math.round(((midTerm + endTerm) / 2) * 100) / 100;
 }
@@ -252,39 +256,104 @@ export async function saveAssessmentMarks(input: { assessmentId: number; rows: A
 
 export async function submitAssessment(assessmentId: number, userId: number) {
   const db = await requireDb();
-  const assessment = (await db.select().from(assessments).where(eq(assessments.id, assessmentId)).limit(1))[0];
+  const schoolId = await actorSchoolId(userId);
+  const assessment = (await db.select().from(assessments).where(and(eq(assessments.id, assessmentId), eq(assessments.schoolId, schoolId))).limit(1))[0];
   if (!assessment) throw new Error("ASSESSMENT_NOT_FOUND");
   const access = await actorAccess(userId);
   await assertAssessmentAccess(assessment, userId, access.isAdmin);
   if (assessment.status === "locked" || assessment.status === "approved") throw new Error("ASSESSMENT_STATUS_FINAL");
-  const roster = await db.select({ id: learners.id }).from(learners).where(and(eq(learners.gradeId, assessment.gradeId), eq(learners.status, "active")));
-  const saved = await db.select({ learnerId: marks.learnerId, score: marks.score }).from(marks).where(eq(marks.assessmentId, assessment.id));
+  const roster = await db.select({ id: learners.id }).from(learners).where(and(eq(learners.schoolId, schoolId), eq(learners.gradeId, assessment.gradeId), eq(learners.status, "active")));
+  const saved = await db.select({ learnerId: marks.learnerId, score: marks.score }).from(marks).where(and(eq(marks.schoolId, schoolId), eq(marks.assessmentId, assessment.id)));
   const missingCount = missingAssessmentLearners(roster.map(row => row.id), saved).length;
   if (!roster.length) throw new Error("ASSESSMENT_CLASS_HAS_NO_ACTIVE_LEARNERS");
   if (missingCount) throw new Error(`ASSESSMENT_HAS_MISSING_MARKS:${missingCount}`);
-  await db.update(assessments).set({ status: "submitted", submittedAt: new Date(), updatedAt: new Date() }).where(eq(assessments.id, assessment.id));
+  await db.update(assessments).set({ status: "submitted", submittedAt: new Date(), returnedByUserId: null, returnedAt: null, returnReason: null, updatedAt: new Date() }).where(and(eq(assessments.id, assessment.id), eq(assessments.schoolId, schoolId)));
   await writeAudit(userId, "assessment.submit", "assessment", assessment.id, { academicYear: assessment.academicYear, term: assessment.term, assessmentType: assessment.assessmentType, gradeId: assessment.gradeId, subjectId: assessment.subjectId });
   return { ok: true, status: "submitted" as const, learnerCount: roster.length };
+}
+
+async function assertAssessmentReviewer(assessment: typeof assessments.$inferSelect, userId: number) {
+  const db = await requireDb();
+  const access = await actorAccess(userId);
+  const schoolId = await actorSchoolId(userId);
+  if (assessment.schoolId !== schoolId) throw new Error("ASSESSMENT_NOT_FOUND");
+  const grade = (await db.select({ classTeacherUserId: grades.classTeacherUserId }).from(grades).where(and(eq(grades.id, assessment.gradeId), eq(grades.schoolId, schoolId))).limit(1))[0];
+  if (grade?.classTeacherUserId === userId && assessment.teacherUserId === userId) throw new Error("CLASS_TEACHER_CANNOT_APPROVE_OWN_MARKS");
+  if (access.isMarklistReviewer) return { schoolId, isClassTeacher: false };
+  if (grade?.classTeacherUserId !== userId) throw new Error("CLASS_TEACHER_APPROVAL_SCOPE_FORBIDDEN");
+  return { schoolId, isClassTeacher: true };
+}
+
+export async function reviewAssessment(input: { assessmentId: number; action: "approve" | "return"; reason?: string | null }, userId: number) {
+  const db = await requireDb();
+  const schoolId = await actorSchoolId(userId);
+  const assessment = (await db.select().from(assessments).where(and(eq(assessments.id, input.assessmentId), eq(assessments.schoolId, schoolId))).limit(1))[0];
+  if (!assessment) throw new Error("ASSESSMENT_NOT_FOUND");
+  await assertAssessmentReviewer(assessment, userId);
+  if (!canClassTeacherReviewAssessment(assessment.status)) throw new Error("ASSESSMENT_MUST_BE_SUBMITTED");
+  const now = new Date();
+  if (input.action === "return") {
+    const reason = input.reason?.trim() ?? "";
+    if (reason.length < 10) throw new Error("RETURN_REASON_REQUIRED");
+    await db.update(assessments).set({ status: "returned", returnedByUserId: userId, returnedAt: now, returnReason: reason, updatedAt: now }).where(and(eq(assessments.id, assessment.id), eq(assessments.schoolId, schoolId)));
+    await writeAudit(userId, "assessment.return", "assessment", assessment.id, { reason, from: assessment.status, to: "returned" });
+    return { ok: true, status: "returned" as const };
+  }
+  const roster = await db.select({ id: learners.id }).from(learners).where(and(eq(learners.schoolId, schoolId), eq(learners.gradeId, assessment.gradeId), eq(learners.status, "active")));
+  const saved = await db.select({ learnerId: marks.learnerId, score: marks.score }).from(marks).where(and(eq(marks.schoolId, schoolId), eq(marks.assessmentId, assessment.id)));
+  if (!roster.length || missingAssessmentLearners(roster.map(row => row.id), saved).length) throw new Error("ASSESSMENT_INCOMPLETE_CANNOT_APPROVE");
+  await db.update(assessments).set({ status: "approved", verifiedByUserId: userId, verifiedAt: now, updatedAt: now }).where(and(eq(assessments.id, assessment.id), eq(assessments.schoolId, schoolId)));
+  await writeAudit(userId, "assessment.class_teacher_approve", "assessment", assessment.id, { from: assessment.status, to: "approved" });
+  return { ok: true, status: "approved" as const };
+}
+
+export async function listAssessmentApprovals(userId: number) {
+  const db = await requireDb();
+  const schoolId = await actorSchoolId(userId);
+  const access = await actorAccess(userId);
+  const rows = await db.select({ assessment: assessments, grade: grades, subject: subjects, teacher: staffProfiles })
+    .from(assessments)
+    .innerJoin(grades, eq(grades.id, assessments.gradeId))
+    .innerJoin(subjects, eq(subjects.id, assessments.subjectId))
+    .leftJoin(staffProfiles, eq(staffProfiles.userId, assessments.teacherUserId))
+    .where(and(eq(assessments.schoolId, schoolId), access.isMarklistReviewer ? eq(grades.schoolId, schoolId) : eq(grades.classTeacherUserId, userId)))
+    .orderBy(desc(assessments.updatedAt), grades.name, subjects.name);
+  if (!rows.length) return [];
+  const assessmentIds = rows.map(row => row.assessment.id);
+  const saved = await db.select({ assessmentId: marks.assessmentId, learnerId: marks.learnerId, score: marks.score }).from(marks).where(and(eq(marks.schoolId, schoolId), inArray(marks.assessmentId, assessmentIds)));
+  const marksByAssessment = new Map<number, typeof saved>();
+  for (const row of saved) marksByAssessment.set(row.assessmentId, [...(marksByAssessment.get(row.assessmentId) ?? []), row]);
+  const rosterCounts = new Map<number, number>();
+  for (const gradeId of Array.from(new Set(rows.map(row => row.assessment.gradeId)))) {
+    const roster = await db.select({ id: learners.id }).from(learners).where(and(eq(learners.schoolId, schoolId), eq(learners.gradeId, gradeId), eq(learners.status, "active")));
+    rosterCounts.set(gradeId, roster.length);
+  }
+  return rows.map(row => {
+    const entered = (marksByAssessment.get(row.assessment.id) ?? []).filter(mark => mark.score !== null).length;
+    const rosterCount = rosterCounts.get(row.assessment.gradeId) ?? 0;
+    return { assessment: row.assessment, grade: row.grade, subject: row.subject, teacherName: row.teacher?.displayName ?? `User ${row.assessment.teacherUserId}`, entered, missing: Math.max(0, rosterCount - entered), canReview: row.assessment.status === "submitted" };
+  });
 }
 
 export async function setAssessmentFinalState(input: { assessmentId: number; status: "approved" | "locked" }, userId: number) {
   const db = await requireDb();
   const access = await actorAccess(userId);
   if (!access.isAdmin) throw new Error("ASSESSMENT_ADMIN_REQUIRED");
-  const assessment = (await db.select().from(assessments).where(eq(assessments.id, input.assessmentId)).limit(1))[0];
+  const schoolId = await actorSchoolId(userId);
+  const assessment = (await db.select().from(assessments).where(and(eq(assessments.id, input.assessmentId), eq(assessments.schoolId, schoolId))).limit(1))[0];
   if (!assessment) throw new Error("ASSESSMENT_NOT_FOUND");
   if (!canTransitionAssessment(assessment.status, input.status)) {
     throw new Error(input.status === "approved" ? "ASSESSMENT_MUST_BE_SUBMITTED" : "ASSESSMENT_MUST_BE_APPROVED");
   }
   if (input.status === "approved") {
-    const roster = await db.select({ id: learners.id }).from(learners).where(and(eq(learners.gradeId, assessment.gradeId), eq(learners.status, "active")));
-    const saved = await db.select({ learnerId: marks.learnerId, score: marks.score }).from(marks).where(eq(marks.assessmentId, assessment.id));
+    const roster = await db.select({ id: learners.id }).from(learners).where(and(eq(learners.schoolId, schoolId), eq(learners.gradeId, assessment.gradeId), eq(learners.status, "active")));
+    const saved = await db.select({ learnerId: marks.learnerId, score: marks.score }).from(marks).where(and(eq(marks.schoolId, schoolId), eq(marks.assessmentId, assessment.id)));
     if (!roster.length || missingAssessmentLearners(roster.map(row => row.id), saved).length) throw new Error("ASSESSMENT_INCOMPLETE_CANNOT_APPROVE");
   }
   const now = new Date();
   await db.update(assessments).set(input.status === "approved"
     ? { status: "approved", verifiedByUserId: userId, verifiedAt: now, updatedAt: now }
-    : { status: "locked", lockedAt: now, updatedAt: now }).where(eq(assessments.id, assessment.id));
+    : { status: "locked", lockedAt: now, updatedAt: now }).where(and(eq(assessments.id, assessment.id), eq(assessments.schoolId, schoolId)));
   await writeAudit(userId, `assessment.${input.status}`, "assessment", assessment.id, { from: assessment.status, to: input.status });
   return { ok: true, status: input.status };
 }
@@ -441,9 +510,10 @@ export async function getAssessmentReportCard(input: { learnerId: number; academ
     eq(assessments.term, input.term),
     eq(assessments.assessmentType, input.assessmentType),
   ));
-  // Teacher-saved marks must flow to the marklist and report card immediately.
-  // Approval/lock controls publication status; they must not hide already-entered marks.
-  const ids = periodAssessments.map(row => row.id);
+  // Marklists can show teacher-entered work immediately, but report cards are
+  // publication outputs and must only use marks that passed class/school review.
+  const approvedAssessments = periodAssessments.filter(row => row.status === "approved" || row.status === "locked");
+  const ids = approvedAssessments.map(row => row.id);
   const saved = ids.length
     ? await db.select().from(marks).where(and(eq(marks.schoolId, schoolId), eq(marks.learnerId, input.learnerId), inArray(marks.assessmentId, ids)))
     : [];
@@ -453,6 +523,7 @@ export async function getAssessmentReportCard(input: { learnerId: number; academ
   const allocationBySubject = new Map(allocations.map(row => [row.subject.id, row]));
   const marksheet = Array.from(new Map(scopedSubjects.map(row => [row.subject.id, row])).values()).map(row => {
     const assessment = periodAssessments.find(item => item.subjectId === row.subject.id);
+    const approvedAssessment = approvedAssessments.find(item => item.subjectId === row.subject.id);
     const mark = savedBySubject.get(row.subject.id);
     const assignment = allocationBySubject.get(row.subject.id);
     return {
@@ -463,7 +534,7 @@ export async function getAssessmentReportCard(input: { learnerId: number; academ
       average: mark?.average == null ? null : Number(mark.average),
       cbcLevel: mark?.cbcLevel ?? null,
       teacherRemark: mark?.teacherRemark ?? null,
-      assessmentStatus: assessment?.status ?? "missing",
+      assessmentStatus: approvedAssessment?.status ?? (assessment?.status ?? "missing"),
       teacherName: assignment?.staff?.displayName ?? null,
     };
   });
