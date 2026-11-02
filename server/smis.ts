@@ -17,6 +17,7 @@ import {
   learnerGuardians,
   feeStructures,
   grades,
+  invoices,
   learners,
   marks,
   notifications,
@@ -559,6 +560,64 @@ export async function recordPayment(input: { learnerId: number; amount: number; 
   await db.insert(payments).values({ ...input, schoolId, amount: String(input.amount) });
   await writeAudit(userId, "finance.payment", "payment", input.reference, input);
   return { ok: true, reference: input.reference };
+}
+
+export async function listFeeStructures(userId: number) {
+  const db = await requireDb();
+  const schoolId = await actorSchoolId(userId);
+  return db.select({ fee: feeStructures, grade: grades }).from(feeStructures)
+    .leftJoin(grades, eq(grades.id, feeStructures.gradeId))
+    .where(eq(feeStructures.schoolId, schoolId)).orderBy(desc(feeStructures.academicYear), feeStructures.term, grades.name, feeStructures.itemName);
+}
+
+export async function saveFeeStructure(input: { id?: number; gradeId: number; term: string; academicYear: number; itemName: string; amount: number }, userId: number) {
+  const db = await requireDb();
+  const schoolId = await actorSchoolId(userId);
+  if (!input.itemName.trim() || !Number.isFinite(input.amount) || input.amount <= 0) throw new Error("FEE_ITEM_AND_AMOUNT_REQUIRED");
+  const grade = (await db.select({ id: grades.id }).from(grades).where(eq(grades.id, input.gradeId)).limit(1))[0];
+  if (!grade) throw new Error("CLASS_NOT_FOUND");
+  const values = { schoolId, gradeId: input.gradeId, term: input.term.trim(), academicYear: input.academicYear, itemName: input.itemName.trim(), amount: String(input.amount) };
+  if (input.id) {
+    const existing = (await db.select({ id: feeStructures.id }).from(feeStructures).where(and(eq(feeStructures.id, input.id), eq(feeStructures.schoolId, schoolId))).limit(1))[0];
+    if (!existing) throw new Error("FEE_ITEM_NOT_FOUND");
+    await db.update(feeStructures).set(values).where(and(eq(feeStructures.id, input.id), eq(feeStructures.schoolId, schoolId)));
+    await writeAudit(userId, "finance.fee_structure.update", "fee_structure", String(input.id), values);
+    return { id: input.id };
+  }
+  const id = (await db.insert(feeStructures).values(values).$returningId())[0].id;
+  await writeAudit(userId, "finance.fee_structure.create", "fee_structure", String(id), values);
+  return { id };
+}
+
+export async function deleteFeeStructure(feeId: number, userId: number) {
+  const db = await requireDb();
+  const schoolId = await actorSchoolId(userId);
+  const existing = (await db.select({ id: feeStructures.id }).from(feeStructures).where(and(eq(feeStructures.id, feeId), eq(feeStructures.schoolId, schoolId))).limit(1))[0];
+  if (!existing) throw new Error("FEE_ITEM_NOT_FOUND");
+  await db.delete(feeStructures).where(and(eq(feeStructures.id, feeId), eq(feeStructures.schoolId, schoolId)));
+  await writeAudit(userId, "finance.fee_structure.delete", "fee_structure", String(feeId), {});
+  return { ok: true };
+}
+
+export async function generateTermInvoices(input: { term: string; academicYear: number }, userId: number) {
+  const db = await requireDb();
+  const schoolId = await actorSchoolId(userId);
+  const feeRows = await db.select().from(feeStructures).where(and(eq(feeStructures.schoolId, schoolId), eq(feeStructures.term, input.term), eq(feeStructures.academicYear, input.academicYear)));
+  if (!feeRows.length) throw new Error("NO_FEE_ITEMS_CONFIGURED");
+  const learnerRows = await db.select().from(learners).where(and(eq(learners.schoolId, schoolId), eq(learners.status, "active")));
+  let created = 0; let updated = 0; let skipped = 0;
+  for (const learner of learnerRows) {
+    const lines = feeRows.filter(fee => fee.gradeId === learner.gradeId).map(fee => ({ itemName: fee.itemName, amount: Number(fee.amount) }));
+    if (!lines.length) { skipped++; continue; }
+    const total = lines.reduce((sum, line) => sum + line.amount, 0);
+    const invoiceNumber = `INV-${schoolId}-${input.academicYear}-${input.term.replace(/[^A-Za-z0-9]/g, "")}-${learner.id}`;
+    const existing = (await db.select({ id: invoices.id }).from(invoices).where(and(eq(invoices.schoolId, schoolId), eq(invoices.learnerId, learner.id), eq(invoices.term, input.term), eq(invoices.academicYear, input.academicYear))).limit(1))[0];
+    const values = { schoolId, learnerId: learner.id, gradeId: learner.gradeId, term: input.term, academicYear: input.academicYear, invoiceNumber, totalAmount: String(total), lineItemsJson: JSON.stringify(lines), generatedByUserId: userId };
+    if (existing) { await db.update(invoices).set(values).where(and(eq(invoices.id, existing.id), eq(invoices.schoolId, schoolId))); updated++; }
+    else { await db.insert(invoices).values(values); created++; }
+  }
+  await writeAudit(userId, "finance.invoice.generate", "invoice_batch", `${input.academicYear}-${input.term}`, { created, updated, skipped, term: input.term, academicYear: input.academicYear });
+  return { created, updated, skipped, term: input.term, academicYear: input.academicYear };
 }
 
 export async function getStoreOverview() {

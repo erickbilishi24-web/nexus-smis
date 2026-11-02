@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { ClipboardCopy, History, KeyRound, Lock, LockOpen, MoreHorizontal, Pencil, Plus, Search, ShieldCheck, ShieldOff, UserCheck, UserCog, UserPlus, Users, Trash2, Eye, School } from "lucide-react";
+import { ClipboardCopy, History, KeyRound, Lock, LockOpen, MoreHorizontal, Pencil, Plus, Search, ShieldCheck, ReceiptText, ShieldOff, UserCheck, UserCog, UserPlus, Users, Trash2, Eye, School } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { WorkspaceBreadcrumbs } from "@/components/WorkspaceBreadcrumbs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -248,15 +248,28 @@ function MatrixTab({ users, isSuper }: { users: Row[]; isSuper: boolean }) {
   </div>;
 }
 
+function FeeStructuresPanel({ catalog }: { catalog: Catalog }) {
+  const utils = trpc.useUtils();
+  const fees = trpc.smis.administration.feeStructures.useQuery();
+  const [editing, setEditing] = useState<number | null>(null);
+  const [form, setForm] = useState({ gradeId: catalog.grades[0]?.id ?? 0, term: "Term 3" as "Term 1" | "Term 2" | "Term 3", academicYear: catalog.academicYear, itemName: "", amount: "" });
+  const save = trpc.smis.administration.saveFeeStructure.useMutation({ onSuccess: () => { toast.success(editing ? "Fee item updated" : "Fee item added"); setEditing(null); setForm({ gradeId: catalog.grades[0]?.id ?? 0, term: "Term 3", academicYear: catalog.academicYear, itemName: "", amount: "" }); void utils.smis.administration.feeStructures.invalidate(); }, onError: e => toast.error(errText(e.message)) });
+  const remove = trpc.smis.administration.deleteFeeStructure.useMutation({ onSuccess: () => { toast.success("Fee item deleted"); void utils.smis.administration.feeStructures.invalidate(); }, onError: e => toast.error(errText(e.message)) });
+  const submit = (e: React.FormEvent) => { e.preventDefault(); if (!form.gradeId || !form.itemName.trim() || Number(form.amount) <= 0) return toast.error("Choose a class and enter a valid fee amount"); save.mutate({ ...form, id: editing ?? undefined, amount: Number(form.amount) }); };
+  const beginEdit = (row: any) => { setEditing(row.fee.id); setForm({ gradeId: row.fee.gradeId, term: row.fee.term, academicYear: row.fee.academicYear, itemName: row.fee.itemName, amount: String(row.fee.amount) }); };
+  return <div className="space-y-5 p-5"><div><p className="eyebrow">Finance configuration</p><h2 className="mt-1 text-lg font-bold text-[#28483f]">Fee Structures</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-[#718077]">Configure the fees used when generating learner invoices. Items are isolated to the current school.</p></div><form onSubmit={submit} className="grid gap-3 rounded-xl border border-[#d8ddd4] bg-[#fbfaf5] p-4 sm:grid-cols-2 lg:grid-cols-5 lg:items-end"><label className={label}>Class<select className={field} value={form.gradeId} onChange={e => setForm({ ...form, gradeId: Number(e.target.value) })}>{catalog.grades.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}</select></label><label className={label}>Term<select className={field} value={form.term} onChange={e => setForm({ ...form, term: e.target.value as typeof form.term })}><option>Term 1</option><option>Term 2</option><option>Term 3</option></select></label><label className={label}>Academic year<Input type="number" min={2000} max={2100} value={form.academicYear} onChange={e => setForm({ ...form, academicYear: Number(e.target.value) })} /></label><label className={label}>Fee item<Input required value={form.itemName} onChange={e => setForm({ ...form, itemName: e.target.value })} placeholder="Tuition" /></label><label className={label}>Amount (KES)<Input required type="number" min="0.01" step="0.01" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} placeholder="18000" /></label><div className="flex gap-2 lg:col-span-5"><button className="action-button" disabled={save.isPending}><Plus size={15} />{editing ? "Save changes" : "Add fee item"}</button>{editing && <button type="button" className={ghost} onClick={() => { setEditing(null); setForm({ ...form, itemName: "", amount: "" }); }}>Cancel</button>}</div></form><div className="overflow-x-auto"><table className="w-full min-w-[680px] text-left text-sm"><thead><tr className="border-b border-[#e2e6dc] text-[.68rem] uppercase tracking-wide text-[#718077]"><th className="px-3 py-3">Class</th><th>Term</th><th>Year</th><th>Item</th><th>Amount</th><th>Actions</th></tr></thead><tbody>{fees.data?.map((row: any) => <tr key={row.fee.id} className="border-b border-[#eef0e8]"><td className="px-3 py-3 font-semibold text-[#28483f]">{row.grade ? `${row.grade.name}${row.grade.stream ? ` ${row.grade.stream}` : ""}` : "—"}</td><td>{row.fee.term}</td><td>{row.fee.academicYear}</td><td>{row.fee.itemName}</td><td>KES {Number(row.fee.amount).toLocaleString("en-KE", { minimumFractionDigits: 2 })}</td><td><div className="flex gap-2"><button type="button" className={ghost} onClick={() => beginEdit(row)}>Edit</button><button type="button" className={`${ghost} text-[#a3382c]`} onClick={() => window.confirm("Delete this fee item?") && remove.mutate({ feeId: row.fee.id })}>Delete</button></div></td></tr>)}{!fees.isLoading && !fees.data?.length && <tr><td colSpan={6} className="px-3 py-8 text-center text-[#718077]">No fee items configured yet.</td></tr>}</tbody></table></div></div>;
+}
+
 type Confirm = { row: Row; action: "activate" | "suspend" | "deactivate" | "lock" | "unlock" } | null;
 const CONFIRM_TEXT = { activate: ["Activate account", "The user will be able to sign in again."], suspend: ["Suspend account", "The user is signed out immediately and cannot sign in until reactivated."], deactivate: ["Deactivate account", "The account will be disabled and can be restored later with Activate account. Existing school history is retained."], lock: ["Lock account", "The user is signed out immediately and cannot sign in until unlocked."], unlock: ["Unlock account", "Failed-login counters are cleared and the user can sign in."] } as const;
 
-export function AdministrationWorkspace() {
+type AdministrationTab = "users" | "matrix" | "classes" | "comments" | "schools" | "feeStructures" | "audit" | "deletions" | "teacherAttendance";
+export function AdministrationWorkspace({ initialTab = "users" }: { initialTab?: AdministrationTab } = {}) {
   const utils = trpc.useUtils();
   const authMe = trpc.auth.me.useQuery();
   const perms = trpc.smis.users.effectivePermissions.useQuery(); const catalogQ = trpc.smis.administration.catalog.useQuery();
-  const [tab, setTab] = useState<"users" | "matrix" | "classes" | "comments" | "schools" | "audit" | "deletions" | "teacherAttendance">("users");
-  const tabLabel = ({ users: "Users & Credentials", matrix: "Permission Matrix", classes: "Classes & Streams", comments: "Report Comments", schools: "School Registry", audit: "Audit Trail", deletions: "Account Deletions", teacherAttendance: "Teacher Attendance" } as const)[tab];
+  const [tab, setTab] = useState<AdministrationTab>(initialTab);
+  const tabLabel = ({ users: "Users & Credentials", matrix: "Permission Matrix", classes: "Classes & Streams", comments: "Report Comments", schools: "School Registry", audit: "Audit Trail", deletions: "Account Deletions", teacherAttendance: "Teacher Attendance", feeStructures: "Fee Structures" } as const)[tab];
   const [f, setF] = useState({ search: "", role: "", status: "" });
   const list = trpc.smis.administration.list.useQuery({ search: f.search || undefined, role: f.role || undefined, status: (f.status || undefined) as any });
   const overview = trpc.smis.administration.overview.useQuery();
@@ -288,7 +301,7 @@ export function AdministrationWorkspace() {
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-5">{[["Accounts", stats?.total], ["Active", stats?.active], ["Pending setup", stats?.pending], ["Suspended", stats?.suspended], ["Locked", stats?.locked]].map(([k, v]) => <div key={String(k)} className="rounded-xl bg-white/10 px-4 py-3"><p className="text-[0.66rem] font-bold uppercase tracking-wider text-[#d2e2d9]">{k}</p><p className="mt-1 text-2xl font-bold">{v ?? "—"}</p></div>)}</div>
     </section>
 
-    <div className="flex flex-wrap gap-2 border-b border-[#d8ddd4]" role="tablist">{([["users", "Users & Credentials", Users], ["matrix", "Permission Matrix", ShieldCheck], ["teacherAttendance", "Teacher Attendance", History], ...(has("settings.edit") ? [["classes", "Classes & Streams", Plus] as const, ["comments", "Report Comments", Pencil] as const] : []), ["audit", "Audit Trail", History], ["deletions", "Account Deletions", Trash2]] as const).map(([k, t, Icon]) =>
+    <div className="flex flex-wrap gap-2 border-b border-[#d8ddd4]" role="tablist">{([["users", "Users & Credentials", Users], ["matrix", "Permission Matrix", ShieldCheck], ["teacherAttendance", "Teacher Attendance", History], ...(has("settings.edit") ? [["classes", "Classes & Streams", Plus] as const, ["comments", "Report Comments", Pencil] as const, ["feeStructures", "Fee Structures", ReceiptText] as const] : []), ["audit", "Audit Trail", History], ["deletions", "Account Deletions", Trash2]] as const).map(([k, t, Icon]) =>
       <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className={`-mb-px inline-flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-bold ${tab === k ? "border-[#1d6a57] text-[#1d6a57]" : "border-transparent text-[#718077] hover:text-[#28483f]"}`}><Icon size={15} />{t}</button>)}</div>
 
     <section className="soft-card paper-noise rounded-[1.1rem]">
@@ -317,6 +330,7 @@ export function AdministrationWorkspace() {
       {tab === "teacherAttendance" && <TeacherAttendanceRegister />}
       {tab === "classes" && catalog && <ClassesStreamsPanel catalog={catalog} />}
       {tab === "comments" && has("settings.edit") && <CommentBankAdminPanel />}
+      {tab === "feeStructures" && has("settings.edit") && catalog && <FeeStructuresPanel catalog={catalog} />}
       {tab === "schools" && <SchoolRegistryPanel isSuper={isSuper} />}
       {tab === "audit" && <><AuditFilters withUser value={auditF} onChange={v => { setAuditF(v); setAuditPage(0); }} /><AuditTable filters={toQuery(auditF)} page={auditPage} onPage={setAuditPage} /></>}
       {tab === "deletions" && <><div className="border-b border-[#e2e6dc] px-4 py-4"><h2 className="font-bold text-[#28483f]">Account-deletion audit log</h2><p className="mt-1 text-xs text-[#718077]">Permanent account deletions only. Each entry records the administrator, affected account and timestamp; staff history remains retained.</p></div><AuditTable filters={{ action: "admin.user.delete" }} page={auditPage} onPage={setAuditPage} /></>}

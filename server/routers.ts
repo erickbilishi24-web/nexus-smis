@@ -81,6 +81,10 @@ import {
   listTeacherCodes,
   listTimetableRequirements,
   recordPayment,
+  listFeeStructures,
+  saveFeeStructure,
+  deleteFeeStructure,
+  generateTermInvoices,
   recordStoreMovement,
   saveAttendance,
   saveAttendanceBatch,
@@ -249,6 +253,7 @@ export const appRouter = router({
     finance: router({
       overview: permissionProcedure("finance.view").input(z.object({ learnerId: z.number().int().positive().optional() }).optional()).query(({ input, ctx }) => getFinanceOverview(input?.learnerId, currentUserId(ctx.user))),
       recordPayment: permissionProcedure("finance.edit").input(z.object({ learnerId: z.number().int().positive(), amount: z.number().positive(), paymentMethod: z.enum(["mpesa", "bank", "cash"]), reference: z.string().min(3).max(80) })).mutation(({ input, ctx }) => recordPayment(input, currentUserId(ctx.user))),
+      generateTermInvoices: permissionProcedure("finance.edit").input(z.object({ term: z.enum(["Term 1", "Term 2", "Term 3"]), academicYear: z.number().int().min(2000).max(2100) })).mutation(({ input, ctx }) => generateTermInvoices(input, currentUserId(ctx.user))),
       summary: permissionProcedure("finance.view").query(({ ctx }) => financialSummary(currentUserId(ctx.user))),
       expenditures: permissionProcedure("finance.view").query(({ ctx }) => listExpenditures(currentUserId(ctx.user))),
       expendituresPage: permissionProcedure("finance.view").input(z.object({ page: z.number().int().min(0).optional(), pageSize: z.number().int().min(10).max(100).optional() })).query(({ input, ctx }) => listExpendituresPage(input, currentUserId(ctx.user))),
@@ -397,6 +402,9 @@ export const appRouter = router({
     administration: router({
       overview: permissionProcedure("administration.view").query(({ ctx }) => adminOverview(ctx.user.id)),
       catalog: permissionProcedure("administration.view").query(({ ctx }) => adminCatalog(ctx.user.id)),
+      feeStructures: permissionProcedure("settings.edit").query(({ ctx }) => listFeeStructures(ctx.user.id)),
+      saveFeeStructure: permissionProcedure("settings.edit").input(z.object({ id: z.number().int().positive().optional(), gradeId: z.number().int().positive(), term: z.enum(["Term 1", "Term 2", "Term 3"]), academicYear: z.number().int().min(2000).max(2100), itemName: z.string().trim().min(2).max(120), amount: z.number().positive() })).mutation(({ input, ctx }) => saveFeeStructure(input, ctx.user.id)),
+      deleteFeeStructure: permissionProcedure("settings.edit").input(z.object({ feeId: z.number().int().positive() })).mutation(({ input, ctx }) => deleteFeeStructure(input.feeId, ctx.user.id)),
       schools: permissionProcedure("administration.view").query(({ ctx }) => listSchools(ctx.user)),
       createSchool: superProcedure.input(z.object({ schoolCode: z.string().min(3).max(40), schoolName: z.string().min(2).max(200), status: z.enum(["active", "pending_activation"]) })).mutation(({ input, ctx }) => adminCall(() => createSchool(input, ctx.user, ctx.req))),
       updateSchool: superProcedure.input(z.object({ schoolId: z.number().int().positive(), schoolName: z.string().min(2).max(200) })).mutation(({ input, ctx }) => adminCall(() => updateSchool(input, ctx.user, ctx.req))),

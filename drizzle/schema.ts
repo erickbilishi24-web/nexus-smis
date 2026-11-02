@@ -361,7 +361,20 @@ export const feeStructures = mysqlTable("fee_structures", {
   itemName: varchar("itemName", { length: 120 }).notNull(),
   amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
 });
-
+export const invoices = mysqlTable("invoices", {
+  id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+  schoolId: int("schoolId").notNull(),
+  learnerId: int("learnerId").notNull(),
+  gradeId: int("gradeId").notNull(),
+  term: varchar("term", { length: 40 }).notNull(),
+  academicYear: int("academicYear").notNull(),
+  invoiceNumber: varchar("invoiceNumber", { length: 100 }).notNull().unique(),
+  totalAmount: decimal("totalAmount", { precision: 12, scale: 2 }).notNull(),
+  lineItemsJson: text("lineItemsJson").notNull(),
+  status: mysqlEnum("status", ["issued", "paid", "void"]).notNull().default("issued"),
+  generatedByUserId: int("generatedByUserId").notNull(),
+  issuedAt: timestamp("issuedAt").defaultNow().notNull(),
+}, table => ({ invoiceLearnerTermUnique: uniqueIndex("invoice_learner_term_unique").on(table.schoolId, table.learnerId, table.term, table.academicYear) }));
 export const payments = mysqlTable("payments", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
   schoolId: int("schoolId"),
