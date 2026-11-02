@@ -558,8 +558,18 @@ export async function recordPayment(input: { learnerId: number; amount: number; 
   const learner = (await db.select({ id: learners.id }).from(learners).where(and(eq(learners.id, input.learnerId), eq(learners.schoolId, schoolId))).limit(1))[0];
   if (!learner) throw new Error("LEARNER_NOT_FOUND");
   await db.insert(payments).values({ ...input, schoolId, amount: String(input.amount) });
-  await writeAudit(userId, "finance.payment", "payment", input.reference, input);
-  return { ok: true, reference: input.reference };
+  const invoiceRows = await db.select().from(invoices).where(and(eq(invoices.schoolId, schoolId), eq(invoices.learnerId, input.learnerId), eq(invoices.status, "issued")));
+  const learnerPayments = await db.select({ amount: payments.amount }).from(payments).where(and(eq(payments.schoolId, schoolId), eq(payments.learnerId, input.learnerId)));
+  const paidTotal = learnerPayments.reduce((sum, row) => sum + Number(row.amount), 0);
+  let remainingPaid = paidTotal;
+  for (const invoice of invoiceRows.sort((a, b) => a.academicYear - b.academicYear || a.id - b.id)) {
+    const invoiceTotal = Number(invoice.totalAmount);
+    const isPaid = remainingPaid + 0.001 >= invoiceTotal;
+    await db.update(invoices).set({ status: isPaid ? "paid" : "issued" }).where(and(eq(invoices.id, invoice.id), eq(invoices.schoolId, schoolId)));
+    remainingPaid = Math.max(0, remainingPaid - invoiceTotal);
+  }
+  await writeAudit(userId, "finance.payment", "payment", input.reference, { ...input, invoiceStatusesUpdated: invoiceRows.length });
+  return { ok: true, reference: input.reference, invoiceStatusesUpdated: invoiceRows.length };
 }
 
 export async function listFeeStructures(userId: number) {
@@ -597,6 +607,17 @@ export async function deleteFeeStructure(feeId: number, userId: number) {
   await db.delete(feeStructures).where(and(eq(feeStructures.id, feeId), eq(feeStructures.schoolId, schoolId)));
   await writeAudit(userId, "finance.fee_structure.delete", "fee_structure", String(feeId), {});
   return { ok: true };
+}
+
+export async function listInvoices(input: { term?: string; academicYear?: number; search?: string; status?: "issued" | "paid" | "void"; gradeId?: number }, userId: number) {
+  const db = await requireDb();
+  const schoolId = await actorSchoolId(userId);
+  const term = input.term?.trim(); const search = input.search?.trim();
+  const rows = await db.select({ invoice: invoices, learner: learners, grade: grades }).from(invoices)
+    .innerJoin(learners, eq(learners.id, invoices.learnerId)).leftJoin(grades, eq(grades.id, invoices.gradeId))
+    .where(and(eq(invoices.schoolId, schoolId), term ? eq(invoices.term, term) : undefined, input.academicYear ? eq(invoices.academicYear, input.academicYear) : undefined, input.status ? eq(invoices.status, input.status) : undefined, input.gradeId ? eq(invoices.gradeId, input.gradeId) : undefined, search ? or(like(learners.fullName, `%${search}%`), like(learners.admissionNumber, `%${search}%`), like(invoices.invoiceNumber, `%${search}%`)) : undefined))
+    .orderBy(desc(invoices.issuedAt), learners.fullName);
+  return rows.map(row => ({ ...row.invoice, learnerName: row.learner.fullName, admissionNumber: row.learner.admissionNumber, gradeName: row.grade ? `${row.grade.name}${row.grade.stream ? ` ${row.grade.stream}` : ""}` : "Unassigned" }));
 }
 
 export async function generateTermInvoices(input: { term: string; academicYear: number }, userId: number) {
