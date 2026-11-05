@@ -32,12 +32,14 @@ export async function adminCatalog(actorUserId?: number) {
   const db = await requireDb();
   const settings = await getSettings();
   const actorProfile = actorUserId ? await getAccessProfile(actorUserId) : null;
+  const actorPermissions = actorUserId && actorProfile ? await computePermissions(actorUserId, actorProfile.role) : [];
+  const canSeeAllSchools = !actorProfile || actorProfile.level === "system" || actorPermissions.includes("*") || actorPermissions.includes(MANAGE_PERMISSIONS);
   const actorSchoolId = actorUserId ? (await db.select({ schoolId: users.schoolId }).from(users).where(eq(users.id, actorUserId)).limit(1))[0]?.schoolId : null;
   return {
     roles: ASSIGNABLE_ROLES.map(value => ({ value, label: ROLE_LABELS[value] })),
     grades: (await db.select().from(grades).orderBy(grades.name)).map(g => ({ id: g.id, name: `${g.name}${g.stream ? ` ${g.stream}` : ""}`, baseName: g.name, stream: g.stream })),
     subjects: await db.select({ id: subjects.id, name: subjects.name, code: subjects.code }).from(subjects).orderBy(subjects.name),
-    schools: (await db.select({ id: schools.id, schoolCode: schools.schoolCode, schoolName: schools.schoolName, status: schools.status }).from(schools).orderBy(schools.schoolName)).filter(s => !actorProfile || actorProfile.level === "system" || s.id === actorSchoolId),
+    schools: (await db.select({ id: schools.id, schoolCode: schools.schoolCode, schoolName: schools.schoolName, status: schools.status }).from(schools).orderBy(schools.schoolName)).filter(s => canSeeAllSchools || s.id === actorSchoolId),
     academicYear: settings.academicYear, term: settings.currentTerm, publicAppUrl: ENV.publicAppUrl,
     departments: Array.from(new Set((await db.select({ d: staffProfiles.department }).from(staffProfiles)).map(r => r.d).filter(Boolean))) as string[],
   };
@@ -100,9 +102,11 @@ export async function switchMySchool(input: { schoolId: number }, actorUserId: n
 
 export async function listSchools(actor: Actor) {
   const profile = await getAccessProfile(actor.id);
+  const permissions = await computePermissions(actor.id, profile.role);
+  const canSeeAllSchools = profile.level === "system" || permissions.includes("*") || permissions.includes(MANAGE_PERMISSIONS);
   const db = await requireDb();
   const columns = { id: schools.id, schoolCode: schools.schoolCode, schoolName: schools.schoolName, status: schools.status, createdAt: schools.createdAt };
-  if (profile.level === "system") return db.select(columns).from(schools).orderBy(schools.schoolName);
+  if (canSeeAllSchools) return db.select(columns).from(schools).orderBy(schools.schoolName);
   const account = (await db.select({ schoolId: users.schoolId }).from(users).where(eq(users.id, actor.id)).limit(1))[0];
   if (!account?.schoolId) return [];
   return db.select(columns).from(schools).where(eq(schools.id, account.schoolId)).orderBy(schools.schoolName);
