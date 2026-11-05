@@ -81,6 +81,13 @@ export async function setSchoolStatus(input: { schoolId: number; status: "active
 export async function listMySchoolMemberships(actorUserId: number) {
   const db = await requireDb();
   const account = (await db.select({ schoolId: users.schoolId }).from(users).where(eq(users.id, actorUserId)).limit(1))[0];
+  const profile = await getAccessProfile(actorUserId);
+  const permissions = await computePermissions(actorUserId, profile.role);
+  const canSwitchAllSchools = profile.level === "system" || permissions.includes("*") || permissions.includes(MANAGE_PERMISSIONS);
+  if (canSwitchAllSchools) {
+    const allSchools = await db.select({ id: schools.id, schoolCode: schools.schoolCode, schoolName: schools.schoolName, status: schools.status }).from(schools).where(or(eq(schools.status, "active"), eq(schools.status, "pending_activation"))).orderBy(schools.schoolName);
+    return allSchools.map(school => ({ ...school, isCurrent: school.id === account?.schoolId }));
+  }
   const rows = await db.select({ membership: schoolMemberships, school: schools }).from(schoolMemberships).innerJoin(schools, eq(schools.id, schoolMemberships.schoolId)).where(and(eq(schoolMemberships.userId, actorUserId), eq(schoolMemberships.status, "active"), or(eq(schools.status, "active"), eq(schools.status, "pending_activation"))));
   const memberships = rows.map(row => ({ id: row.school.id, schoolCode: row.school.schoolCode, schoolName: row.school.schoolName, status: row.school.status, isCurrent: row.school.id === account?.schoolId }));
   if (account?.schoolId && !memberships.some(row => row.id === account.schoolId)) {
@@ -93,7 +100,12 @@ export async function switchMySchool(input: { schoolId: number }, actorUserId: n
   const db = await requireDb();
   const account = (await db.select({ id: users.id, schoolId: users.schoolId }).from(users).where(eq(users.id, actorUserId)).limit(1))[0];
   if (!account) fail("USER_NOT_FOUND");
-  const membership = (await db.select({ schoolId: schoolMemberships.schoolId }).from(schoolMemberships).innerJoin(schools, eq(schools.id, schoolMemberships.schoolId)).where(and(eq(schoolMemberships.userId, actorUserId), eq(schoolMemberships.schoolId, input.schoolId), eq(schoolMemberships.status, "active"), eq(schools.status, "active"))).limit(1))[0];
+  const profile = await getAccessProfile(actorUserId);
+  const permissions = await computePermissions(actorUserId, profile.role);
+  const canSwitchAllSchools = profile.level === "system" || permissions.includes("*") || permissions.includes(MANAGE_PERMISSIONS);
+  const membership = canSwitchAllSchools
+    ? (await db.select({ schoolId: schools.id }).from(schools).where(and(eq(schools.id, input.schoolId), eq(schools.status, "active"))).limit(1))[0]
+    : (await db.select({ schoolId: schoolMemberships.schoolId }).from(schoolMemberships).innerJoin(schools, eq(schools.id, schoolMemberships.schoolId)).where(and(eq(schoolMemberships.userId, actorUserId), eq(schoolMemberships.schoolId, input.schoolId), eq(schoolMemberships.status, "active"), eq(schools.status, "active"))).limit(1))[0];
   if (!membership) fail("SCHOOL_MEMBERSHIP_REQUIRED");
   await db.update(users).set({ schoolId: input.schoolId }).where(eq(users.id, actorUserId));
   await audit(actorUserId, "admin.school.switch", null, { fromSchoolId: account.schoolId, toSchoolId: input.schoolId }, req);
