@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isPeopleImportUndoable, PEOPLE_IMPORT_UNDO_WINDOW_MS } from "./smis";
+import { isPeopleImportUndoable, normalizeImportedStaffRole, PEOPLE_IMPORT_UNDO_WINDOW_MS } from "./smis";
 import { splitPeopleImportRows } from "../shared/people-import";
 
 describe("people import undo window", () => {
@@ -17,5 +17,16 @@ describe("people import batch performance", () => {
     expect(batches).toHaveLength(12);
     expect(batches.every(batch => batch.length <= 100)).toBe(true);
     expect(batches.flat()).toEqual(rows);
+  });
+});
+
+describe("staff import role normalization", () => {
+  it("accepts display labels and internal role values", () => {
+    expect(normalizeImportedStaffRole("Teacher")).toBe("teacher");
+    expect(normalizeImportedStaffRole("Class Teacher")).toBe("class_teacher");
+    expect(normalizeImportedStaffRole("Accounts Officer")).toBe("finance");
+    expect(normalizeImportedStaffRole("administrator")).toBe("admin");
+    expect(normalizeImportedStaffRole("boarding-master")).toBe("boarding_master");
+    expect(normalizeImportedStaffRole("unknown role")).toBe("");
   });
 });

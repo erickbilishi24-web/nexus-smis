@@ -1512,6 +1512,20 @@ function importTextValue(row: PeopleImportRow, ...keys: string[]) {
   const found = Object.entries(row).find(([key, value]) => wanted.has(normalizedImportKey(key)) && value != null && String(value).trim() !== "");
   return found ? String(found[1]).trim() : "";
 }
+export function normalizeImportedStaffRole(value: string): PeopleStaffRole | "" {
+  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  const aliases: Record<string, PeopleStaffRole> = {
+    admin: "admin",
+    administrator: "admin",
+    class_teacher: "class_teacher",
+    teacher: "teacher",
+    finance: "finance",
+    accounts_officer: "finance",
+    nurse: "nurse",
+    boarding_master: "boarding_master",
+  };
+  return aliases[normalized] ?? "";
+}
 function normalizedClassPart(value: string) {
   return value.trim().replace(/\s+/g, " ").toLowerCase();
 }
@@ -1594,16 +1608,17 @@ export async function previewPeopleImport(input: { kind: PeopleImportKind; rows:
       if (fullName && admissionNumber && gradeName && (grade || (input.kind === "learners" && input.autoCreateMissingClasses))) preview.push({ row: rowNumber, learnerName: fullName, admissionNumber, gradeId: grade?.id ?? 0, grade: grade ? `${grade.name}${grade.stream ? ` ${grade.stream}` : ""}` : `${gradeName}${stream ? ` ${stream}` : ""}`, sourceGradeName: gradeName, sourceStream: stream || null, guardianName: importTextValue(row, "guardianName", "parentGuardianName", "parentName", "guardian") || null, guardianIdNumber: importTextValue(row, "guardianIdNumber", "parentGuardianId", "parentId", "guardianId") || null, guardianPhone: importTextValue(row, "guardianPhone", "parentGuardianPhone", "parentPhone", "guardianPhoneNumber") || null, status });
     } else {
       const displayName = importTextValue(row, "staffName", "displayName", "name", "teacherName");
-      const role = (importTextValue(row, "role", "systemRole", "designationRole") || "teacher") as PeopleStaffRole;
+      const rawRole = importTextValue(row, "role", "systemRole", "designationRole") || "teacher";
+      const role = normalizeImportedStaffRole(rawRole);
       const allowedRoles: PeopleStaffRole[] = ["admin", "class_teacher", "teacher", "finance", "nurse", "boarding_master"];
       if (!displayName) errors.push({ row: rowNumber, message: "Staff name is required." });
-      if (!allowedRoles.includes(role)) errors.push({ row: rowNumber, message: `Unknown staff role: ${role}.` });
+      if (!role || !allowedRoles.includes(role)) errors.push({ row: rowNumber, message: `Unknown staff role: ${rawRole}. Use Administrator, Class Teacher, Teacher, Accounts Officer, Nurse, or Boarding Master.` });
       const rawStatus = importTextValue(row, "status", "state").toLowerCase();
       const email = importTextValue(row, "email", "emailAddress");
       const status = rawStatus === "inactive" ? "inactive" : "active";
       if (rawStatus && rawStatus !== "active" && rawStatus !== "inactive") errors.push({ row: rowNumber, message: "Status must be active or inactive." });
       if (email && !/^\S+@\S+\.\S+$/.test(email)) errors.push({ row: rowNumber, message: "Email format is invalid." });
-      if (displayName && allowedRoles.includes(role)) preview.push({ row: rowNumber, displayName, title: importTextValue(row, "title") || null, designation: importTextValue(row, "designation", "roleLabel", "jobTitle") || null, phone: importTextValue(row, "phone", "phoneNumber", "mobile") || null, email: email || null, role, status });
+      if (displayName && role && allowedRoles.includes(role)) preview.push({ row: rowNumber, displayName, title: importTextValue(row, "title") || null, designation: importTextValue(row, "designation", "roleLabel", "jobTitle") || null, phone: importTextValue(row, "phone", "phoneNumber", "mobile") || null, email: email || null, role, status });
     }
   }
   return { kind: input.kind, total: input.rows.length, valid: preview.length, errors, preview };
