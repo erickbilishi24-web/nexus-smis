@@ -1,0 +1,2 @@
+ALTER TABLE `staff_profiles` DROP INDEX `staff_profiles_teacherCode_unique`;--> statement-breakpoint
+ALTER TABLE `staff_profiles` ADD CONSTRAINT `staff_school_teacher_code_unique` UNIQUE(`schoolId`,`teacherCode`);

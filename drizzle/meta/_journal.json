@@ -351,6 +351,13 @@
       "when": 1793604965123,
       "tag": "0049_majestic_black_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "5",
+      "when": 1793891432286,
+      "tag": "0050_powerful_betty_ross",
+      "breakpoints": true
     }
   ]
 }

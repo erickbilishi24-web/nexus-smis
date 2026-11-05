@@ -185,7 +185,7 @@ export const staffProfiles = mysqlTable("staff_profiles", {
   id: int("id").autoincrement().primaryKey(),
   schoolId: int("schoolId"),
   userId: int("userId").notNull(),
-  teacherCode: int("teacherCode").unique(),
+  teacherCode: int("teacherCode"),
   staffId: varchar("staffId", { length: 40 }),
   department: varchar("department", { length: 120 }),
   title: varchar("title", { length: 30 }),
@@ -196,7 +196,10 @@ export const staffProfiles = mysqlTable("staff_profiles", {
   role: mysqlEnum("role", ["super_admin", "admin", "teacher", "class_teacher", "exam_council", "nurse", "boarding_master", "senior_teacher", "deputy_head", "head_teacher", "finance", "storekeeper", "other"]).notNull().default("other"),
   status: mysqlEnum("status", ["active", "disabled"]).notNull().default("active"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-}, table => ({ staffSchoolNameIdx: index("staff_school_name_idx").on(table.schoolId, table.displayName) }));
+}, table => ({
+  staffSchoolNameIdx: index("staff_school_name_idx").on(table.schoolId, table.displayName),
+  staffSchoolTeacherCodeUnique: uniqueIndex("staff_school_teacher_code_unique").on(table.schoolId, table.teacherCode),
+}));
 
 export const grades = mysqlTable("grades", {
   id: int("id").autoincrement().primaryKey(),

@@ -1376,9 +1376,9 @@ export async function listStaffPage(input: { search?: string; page?: number; pag
   return { rows, total: Number(totalRows[0]?.total ?? 0), page, pageSize };
 }
 
-async function nextStaffCode() {
+async function nextStaffCode(schoolId: number) {
   const db = await requireDb();
-  const result = (await db.select({ maxCode: sql<number>`coalesce(max(${staffProfiles.teacherCode}), 0)` }).from(staffProfiles))[0];
+  const result = (await db.select({ maxCode: sql<number>`coalesce(max(${staffProfiles.teacherCode}), 0)` }).from(staffProfiles).where(eq(staffProfiles.schoolId, schoolId)))[0];
   return Number(result?.maxCode ?? 0) + 1;
 }
 
@@ -1392,7 +1392,7 @@ export async function createStaff(input: { displayName: string; title?: string |
   const schoolId = await actorSchoolId(userId);
   const displayName = input.displayName.trim();
   if (!displayName) throw new Error("STAFF_NAME_REQUIRED");
-  const code = input.teacherCode ?? await nextStaffCode();
+  const code = input.teacherCode ?? await nextStaffCode(schoolId);
   if (code < 1 || code > 999) throw new Error("INVALID_TEACHER_CODE");
   const existingCodeOwner = (await db.select({ id: staffProfiles.id }).from(staffProfiles).where(and(eq(staffProfiles.teacherCode, code), eq(staffProfiles.schoolId, schoolId))).limit(1))[0];
   if (existingCodeOwner) {
