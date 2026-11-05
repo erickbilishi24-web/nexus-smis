@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { ClipboardCopy, History, KeyRound, Lock, LockOpen, MoreHorizontal, Pencil, Plus, Search, ShieldCheck, ReceiptText, ShieldOff, UserCheck, UserCog, UserPlus, Users, Trash2, Eye, School } from "lucide-react";
+import { ClipboardCopy, History, KeyRound, Lock, LockOpen, MoreHorizontal, Pencil, Plus, RefreshCw, Search, ShieldCheck, ReceiptText, ShieldOff, UserCheck, UserCog, UserPlus, Users, Trash2, Eye, School } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { WorkspaceBreadcrumbs } from "@/components/WorkspaceBreadcrumbs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -66,14 +66,16 @@ export function SchoolRegistryPanel({ isSuper }: { isSuper: boolean }) {
   const publicAppUrl = catalog.data?.publicAppUrl ?? window.location.origin;
   const schoolLoginUrl = (schoolCode: string) => `${publicAppUrl}/school/${encodeURIComponent(schoolCode)}/login`;
   const schools = trpc.smis.administration.schools.useQuery();
-  const update = trpc.smis.administration.updateSchool.useMutation({ onSuccess: () => { toast.success("School details updated"); setEditingId(null); void utils.smis.administration.invalidate(); }, onError: e => toast.error(errText(e.message)) });
-  const lifecycle = trpc.smis.administration.setSchoolStatus.useMutation({ onSuccess: result => { toast.success(`School ${result.status}`); void utils.smis.administration.invalidate(); }, onError: e => toast.error(errText(e.message)) });
+  const refreshSchools = async (showToast = true) => { await schools.refetch(); if (showToast) toast.success("School list refreshed"); };
+  const update = trpc.smis.administration.updateSchool.useMutation({ onSuccess: async () => { toast.success("School details updated"); setEditingId(null); void utils.smis.administration.invalidate(); await refreshSchools(false); }, onError: e => toast.error(errText(e.message)) });
+  const lifecycle = trpc.smis.administration.setSchoolStatus.useMutation({ onSuccess: async result => { void utils.smis.administration.invalidate(); await refreshSchools(false); toast.success(`School ${result.status}`); }, onError: e => toast.error(errText(e.message)) });
   const create = trpc.smis.administration.createSchool.useMutation({
-    onSuccess: () => {
-      toast.success("School registered");
+    onSuccess: async () => {
       setCode("");
       setName("");
       void utils.smis.administration.invalidate();
+      await refreshSchools(false);
+      toast.success("School registered and added to the list");
     },
     onError: e => toast.error(errText(e.message)),
   });
@@ -101,6 +103,10 @@ export function SchoolRegistryPanel({ isSuper }: { isSuper: boolean }) {
           This view is limited to your assigned school. Only a Platform Super Administrator can register schools or view other schools.
         </p>
       )}
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-bold uppercase tracking-wide text-[#718077]">Registered schools · {schools.data?.length ?? 0}</p>
+        <button type="button" className={ghost} onClick={() => void refreshSchools()} disabled={schools.isFetching} aria-label="Refresh school registry" title="Reload the latest school list"><RefreshCw size={14} className={schools.isFetching ? "animate-spin motion-reduce:animate-none" : ""} />{schools.isFetching ? "Refreshing…" : "Refresh"}</button>
+      </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[560px] text-left text-sm">
           <thead><tr className="border-b border-[#e2e6dc] text-[0.68rem] uppercase tracking-wide text-[#718077]"><th className="px-3 py-3">Code</th><th className="px-3 py-3">School</th><th className="px-3 py-3">Status</th><th className="px-3 py-3">Login link</th><th className="px-3 py-3">Registered</th><th className="px-3 py-3">Actions</th></tr></thead>
