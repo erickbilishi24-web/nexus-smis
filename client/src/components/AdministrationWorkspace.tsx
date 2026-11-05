@@ -66,7 +66,7 @@ export function SchoolRegistryPanel({ isSuper }: { isSuper: boolean }) {
   const publicAppUrl = catalog.data?.publicAppUrl ?? window.location.origin;
   const schoolLoginUrl = (schoolCode: string) => `${publicAppUrl}/school/${encodeURIComponent(schoolCode)}/login`;
   const schools = trpc.smis.administration.schools.useQuery();
-  const refreshSchools = async (showToast = true) => { await schools.refetch(); if (showToast) toast.success("School list refreshed"); };
+  const refreshSchools = async (showToast = true) => { await Promise.all([schools.refetch(), catalog.refetch()]); if (showToast) toast.success("School list and dropdown refreshed"); };
   const update = trpc.smis.administration.updateSchool.useMutation({ onSuccess: async () => { toast.success("School details updated"); setEditingId(null); void utils.smis.administration.invalidate(); await refreshSchools(false); }, onError: e => toast.error(errText(e.message)) });
   const lifecycle = trpc.smis.administration.setSchoolStatus.useMutation({ onSuccess: async result => { void utils.smis.administration.invalidate(); await refreshSchools(false); toast.success(`School ${result.status}`); }, onError: e => toast.error(errText(e.message)) });
   const create = trpc.smis.administration.createSchool.useMutation({
