@@ -195,6 +195,8 @@ export const staffProfiles = mysqlTable("staff_profiles", {
   phone: varchar("phone", { length: 40 }),
   role: mysqlEnum("role", ["super_admin", "admin", "teacher", "class_teacher", "exam_council", "nurse", "boarding_master", "senior_teacher", "deputy_head", "head_teacher", "finance", "storekeeper", "other"]).notNull().default("other"),
   status: mysqlEnum("status", ["active", "disabled"]).notNull().default("active"),
+  deletedAt: timestamp("deletedAt"),
+  deletedByUserId: int("deletedByUserId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, table => ({
   staffSchoolNameIdx: index("staff_school_name_idx").on(table.schoolId, table.displayName),
@@ -229,6 +231,8 @@ export const learners = mysqlTable("learners", {
   contactAddress: varchar("contactAddress", { length: 255 }),
   gradeId: int("gradeId").notNull(),
   status: mysqlEnum("status", ["active", "inactive", "archived"]).notNull().default("active"),
+  deletedAt: timestamp("deletedAt"),
+  deletedByUserId: int("deletedByUserId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, table => ({ learnerSchoolNameIdx: index("learner_school_name_idx").on(table.schoolId, table.fullName) }));
 

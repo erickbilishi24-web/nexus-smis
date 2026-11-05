@@ -96,6 +96,18 @@ export async function actorSchoolId(userId: number): Promise<number> {
   return row.schoolId;
 }
 
+async function assertPeopleDeleteAdmin(userId: number) {
+  const db = await requireDb();
+  const actor = (await db.select({ user: users, staff: staffProfiles }).from(users).leftJoin(staffProfiles, eq(staffProfiles.userId, users.id)).where(eq(users.id, userId)).limit(1))[0];
+  if (actor?.user.role !== "admin" && actor?.staff?.role !== "admin" && actor?.staff?.role !== "super_admin") throw new Error("ADMINISTRATOR_REQUIRED");
+}
+
+export async function canManagePeopleDeletion(userId: number) {
+  const db = await requireDb();
+  const actor = (await db.select({ user: users, staff: staffProfiles }).from(users).leftJoin(staffProfiles, eq(staffProfiles.userId, users.id)).where(eq(users.id, userId)).limit(1))[0];
+  return actor?.user.role === "admin" || actor?.staff?.role === "admin" || actor?.staff?.role === "super_admin";
+}
+
 export async function writeAudit(userId: number | null, action: string, entityType: string, entityId?: string | number | null, metadata: Record<string, unknown> = {}) {
   const db = await requireDb();
   const schoolId = userId == null ? null : (await db.select({ schoolId: users.schoolId }).from(users).where(eq(users.id, userId)).limit(1))[0]?.schoolId ?? null;
@@ -190,7 +202,7 @@ export async function listLearners(search?: string, userId?: number) {
   const db = await requireDb();
   const term = search?.trim();
   const schoolId = userId == null ? null : await actorSchoolId(userId);
-  const rows = await db.select({ learner: learners, grade: grades }).from(learners).leftJoin(grades, eq(grades.id, learners.gradeId)).where(and(schoolId == null ? undefined : eq(learners.schoolId, schoolId), term ? or(like(learners.fullName, `%${term}%`), like(learners.admissionNumber, `%${term}%`), like(learners.guardianName, `%${term}%`), like(learners.status, `%${term}%`)) : undefined)).orderBy(learners.fullName);
+  const rows = await db.select({ learner: learners, grade: grades }).from(learners).leftJoin(grades, eq(grades.id, learners.gradeId)).where(and(isNull(learners.deletedAt), schoolId == null ? undefined : eq(learners.schoolId, schoolId), term ? or(like(learners.fullName, `%${term}%`), like(learners.admissionNumber, `%${term}%`), like(learners.guardianName, `%${term}%`), like(learners.status, `%${term}%`)) : undefined)).orderBy(learners.fullName);
   return rows.map(row => ({ ...row.learner, grade: row.grade ? `${row.grade.name}${row.grade.stream ? ` ${row.grade.stream}` : ""}` : "" }));
 }
 
@@ -199,7 +211,7 @@ export async function listLearnersPage(input: { search?: string; page?: number; 
   const schoolId = await actorSchoolId(userId);
   const { page, pageSize, offset } = peoplePageWindow(input.page, input.pageSize);
   const term = input.search?.trim();
-  const where = and(eq(learners.schoolId, schoolId), term ? or(like(learners.fullName, `%${term}%`), like(learners.admissionNumber, `%${term}%`), like(learners.guardianName, `%${term}%`), like(learners.status, `%${term}%`)) : undefined);
+  const where = and(eq(learners.schoolId, schoolId), isNull(learners.deletedAt), term ? or(like(learners.fullName, `%${term}%`), like(learners.admissionNumber, `%${term}%`), like(learners.guardianName, `%${term}%`), like(learners.status, `%${term}%`)) : undefined);
   const [rows, totalRows] = await Promise.all([
     db.select({ learner: learners, grade: grades }).from(learners).leftJoin(grades, eq(grades.id, learners.gradeId)).where(where).orderBy(learners.fullName).limit(pageSize).offset(offset),
     db.select({ total: count(learners.id) }).from(learners).where(where),
@@ -262,6 +274,29 @@ export async function setLearnerStatus(input: { learnerId: number; status: Learn
   await db.update(learners).set({ status: input.status }).where(and(eq(learners.id, input.learnerId), eq(learners.schoolId, schoolId)));
   await writeAudit(userId, `learner.${input.status}`, "learner", input.learnerId, input);
   return { ok: true };
+}
+
+export async function deleteLearners(input: { learnerIds: number[] }, userId: number) {
+  const db = await requireDb(); await assertPeopleDeleteAdmin(userId); const schoolId = await actorSchoolId(userId);
+  const ids = Array.from(new Set(input.learnerIds)); if (!ids.length) throw new Error("LEARNERS_REQUIRED");
+  const rows = await db.select({ id: learners.id, fullName: learners.fullName, status: learners.status }).from(learners).where(and(eq(learners.schoolId, schoolId), isNull(learners.deletedAt), inArray(learners.id, ids)));
+  if (!rows.length) throw new Error("LEARNERS_NOT_FOUND");
+  const now = new Date();
+  await db.transaction(async tx => {
+    await tx.update(learners).set({ deletedAt: now, deletedByUserId: userId, status: "archived" }).where(and(eq(learners.schoolId, schoolId), inArray(learners.id, rows.map(row => row.id))));
+    for (const row of rows) await tx.insert(auditLogs).values({ schoolId, userId, action: "learner.delete", entityType: "learner", entityId: String(row.id), metadata: JSON.stringify({ fullName: row.fullName, previousStatus: row.status, reversible: true }) });
+  });
+  await writeAudit(userId, "people.learners.bulk_delete", "learner", null, { learnerIds: rows.map(row => row.id), count: rows.length, reversible: true });
+  return { ok: true, rows: rows.map(row => ({ id: row.id, fullName: row.fullName })) };
+}
+
+export async function restoreLearners(input: { learnerIds: number[] }, userId: number) {
+  const db = await requireDb(); await assertPeopleDeleteAdmin(userId); const schoolId = await actorSchoolId(userId);
+  const ids = Array.from(new Set(input.learnerIds)); const rows = await db.select({ id: learners.id, fullName: learners.fullName }).from(learners).where(and(eq(learners.schoolId, schoolId), inArray(learners.id, ids)));
+  if (!rows.length) throw new Error("LEARNERS_NOT_FOUND");
+  await db.update(learners).set({ deletedAt: null, deletedByUserId: null, status: "active" }).where(and(eq(learners.schoolId, schoolId), inArray(learners.id, rows.map(row => row.id))));
+  await writeAudit(userId, "people.learners.restore", "learner", null, { learnerIds: rows.map(row => row.id), count: rows.length });
+  return { ok: true, rows: rows.map(row => ({ id: row.id, fullName: row.fullName })) };
 }
 
 type AttendanceSession = "morning" | "afternoon";
@@ -939,7 +974,7 @@ export async function getPersonalTimetable(userId: number) {
 export async function listTeacherCodes(userId: number) {
   const db = await requireDb();
   const schoolId = await actorSchoolId(userId);
-  return db.select({ profile: staffProfiles, user: users }).from(staffProfiles).leftJoin(users, eq(users.id, staffProfiles.userId)).where(eq(staffProfiles.schoolId, schoolId)).orderBy(staffProfiles.createdAt, staffProfiles.id);
+  return db.select({ profile: staffProfiles, user: users }).from(staffProfiles).leftJoin(users, eq(users.id, staffProfiles.userId)).where(and(eq(staffProfiles.schoolId, schoolId), isNull(staffProfiles.deletedAt))).orderBy(staffProfiles.createdAt, staffProfiles.id);
 }
 
 export async function updateTeacherCode(input: { staffProfileId: number; teacherCode: number }, userId: number) {
@@ -1360,7 +1395,7 @@ export async function listStaff(search?: string, userId?: number) {
   const db = await requireDb();
   const term = search?.trim();
   const schoolId = userId == null ? null : await actorSchoolId(userId);
-  return db.select({ profile: staffProfiles, user: users }).from(staffProfiles).leftJoin(users, eq(users.id, staffProfiles.userId)).where(and(schoolId == null ? undefined : eq(staffProfiles.schoolId, schoolId), term ? or(like(staffProfiles.displayName, `%${term}%`), like(staffProfiles.email, `%${term}%`), like(staffProfiles.phone, `%${term}%`), like(staffProfiles.role, `%${term}%`), like(staffProfiles.status, `%${term}%`)) : undefined)).orderBy(staffProfiles.displayName);
+  return db.select({ profile: staffProfiles, user: users }).from(staffProfiles).leftJoin(users, eq(users.id, staffProfiles.userId)).where(and(isNull(staffProfiles.deletedAt), schoolId == null ? undefined : eq(staffProfiles.schoolId, schoolId), term ? or(like(staffProfiles.displayName, `%${term}%`), like(staffProfiles.email, `%${term}%`), like(staffProfiles.phone, `%${term}%`), like(staffProfiles.role, `%${term}%`), like(staffProfiles.status, `%${term}%`)) : undefined)).orderBy(staffProfiles.displayName);
 }
 
 export async function listStaffPage(input: { search?: string; page?: number; pageSize?: number }, userId: number) {
@@ -1368,7 +1403,7 @@ export async function listStaffPage(input: { search?: string; page?: number; pag
   const schoolId = await actorSchoolId(userId);
   const { page, pageSize, offset } = peoplePageWindow(input.page, input.pageSize);
   const term = input.search?.trim();
-  const where = and(eq(staffProfiles.schoolId, schoolId), term ? or(like(staffProfiles.displayName, `%${term}%`), like(staffProfiles.email, `%${term}%`), like(staffProfiles.phone, `%${term}%`), like(staffProfiles.role, `%${term}%`), like(staffProfiles.status, `%${term}%`)) : undefined);
+  const where = and(eq(staffProfiles.schoolId, schoolId), isNull(staffProfiles.deletedAt), term ? or(like(staffProfiles.displayName, `%${term}%`), like(staffProfiles.email, `%${term}%`), like(staffProfiles.phone, `%${term}%`), like(staffProfiles.role, `%${term}%`), like(staffProfiles.status, `%${term}%`)) : undefined);
   const [rows, totalRows] = await Promise.all([
     db.select({ profile: staffProfiles, user: users }).from(staffProfiles).leftJoin(users, eq(users.id, staffProfiles.userId)).where(where).orderBy(staffProfiles.displayName).limit(pageSize).offset(offset),
     db.select({ total: count(staffProfiles.id) }).from(staffProfiles).where(where),
@@ -1477,6 +1512,7 @@ export async function setStaffStatus(input: { staffProfileId: number; status: Pe
 /** Removes a staff identity from live People, allocation, and timetable selections while preserving the disabled login shell and audit/history records. */
 export async function deleteStaffProfile(input: { staffProfileId: number }, userId: number) {
   const db = await requireDb();
+  await assertPeopleDeleteAdmin(userId);
   const schoolId = await actorSchoolId(userId);
   const current = (await db.select({ profile: staffProfiles, user: users }).from(staffProfiles).innerJoin(users, eq(users.id, staffProfiles.userId)).where(and(eq(staffProfiles.id, input.staffProfileId), eq(staffProfiles.schoolId, schoolId), eq(users.schoolId, schoolId))).limit(1))[0];
   if (!current) throw new Error("STAFF_NOT_FOUND");
@@ -1489,10 +1525,46 @@ export async function deleteStaffProfile(input: { staffProfileId: number }, user
     await tx.delete(timetableEntries).where(eq(timetableEntries.teacherUserId, current.user.id));
     await tx.delete(teacherAllocations).where(eq(teacherAllocations.teacherUserId, current.user.id));
     await tx.update(grades).set({ classTeacherUserId: null }).where(and(eq(grades.classTeacherUserId, current.user.id), eq(grades.schoolId, schoolId)));
-    await tx.delete(staffProfiles).where(and(eq(staffProfiles.id, input.staffProfileId), eq(staffProfiles.schoolId, schoolId)));
+    await tx.update(staffProfiles).set({ deletedAt: new Date(), deletedByUserId: userId, status: "disabled" }).where(and(eq(staffProfiles.id, input.staffProfileId), eq(staffProfiles.schoolId, schoolId)));
     await tx.update(users).set({ accountStatus: "disabled" }).where(and(eq(users.id, current.user.id), eq(users.schoolId, schoolId)));
   });
   return { ok: true };
+}
+
+export async function deleteStaffProfiles(input: { staffProfileIds: number[] }, userId: number) {
+  const db = await requireDb(); await assertPeopleDeleteAdmin(userId); const schoolId = await actorSchoolId(userId);
+  const ids = Array.from(new Set(input.staffProfileIds)); if (!ids.length) throw new Error("STAFF_REQUIRED");
+  const rows = await db.select({ profile: staffProfiles, user: users }).from(staffProfiles).innerJoin(users, eq(users.id, staffProfiles.userId)).where(and(eq(staffProfiles.schoolId, schoolId), eq(users.schoolId, schoolId), isNull(staffProfiles.deletedAt), inArray(staffProfiles.id, ids)));
+  if (!rows.length) throw new Error("STAFF_NOT_FOUND");
+  if (rows.some(row => row.user.id === userId)) throw new Error("CANNOT_DELETE_CURRENT_ACCOUNT");
+  if (rows.some(row => row.profile.role === "super_admin")) throw new Error("CANNOT_DELETE_PLATFORM_SUPER_ADMIN");
+  const now = new Date();
+  await db.transaction(async tx => {
+    for (const row of rows) {
+      await tx.delete(timetableEntries).where(and(eq(timetableEntries.schoolId, schoolId), eq(timetableEntries.teacherUserId, row.user.id)));
+      await tx.delete(teacherAllocations).where(and(eq(teacherAllocations.schoolId, schoolId), eq(teacherAllocations.teacherUserId, row.user.id)));
+      await tx.update(grades).set({ classTeacherUserId: null }).where(and(eq(grades.schoolId, schoolId), eq(grades.classTeacherUserId, row.user.id)));
+      await tx.update(staffProfiles).set({ deletedAt: now, deletedByUserId: userId, status: "disabled" }).where(and(eq(staffProfiles.id, row.profile.id), eq(staffProfiles.schoolId, schoolId)));
+      await tx.update(users).set({ accountStatus: "disabled" }).where(and(eq(users.id, row.user.id), eq(users.schoolId, schoolId)));
+      await tx.insert(auditLogs).values({ schoolId, userId, action: "staff.delete", entityType: "staff_profile", entityId: String(row.profile.id), metadata: JSON.stringify({ userId: row.user.id, displayName: row.profile.displayName, reversible: true }) });
+    }
+  });
+  await writeAudit(userId, "people.staff.bulk_delete", "staff_profile", null, { staffProfileIds: rows.map(row => row.profile.id), count: rows.length, reversible: true });
+  return { ok: true, rows: rows.map(row => ({ id: row.profile.id, displayName: row.profile.displayName })) };
+}
+
+export async function restoreStaffProfiles(input: { staffProfileIds: number[] }, userId: number) {
+  const db = await requireDb(); await assertPeopleDeleteAdmin(userId); const schoolId = await actorSchoolId(userId);
+  const ids = Array.from(new Set(input.staffProfileIds)); const rows = await db.select({ profile: staffProfiles, user: users }).from(staffProfiles).innerJoin(users, eq(users.id, staffProfiles.userId)).where(and(eq(staffProfiles.schoolId, schoolId), eq(users.schoolId, schoolId), inArray(staffProfiles.id, ids)));
+  if (!rows.length) throw new Error("STAFF_NOT_FOUND");
+  await db.transaction(async tx => {
+    for (const row of rows) {
+      await tx.update(staffProfiles).set({ deletedAt: null, deletedByUserId: null, status: "active" }).where(and(eq(staffProfiles.id, row.profile.id), eq(staffProfiles.schoolId, schoolId)));
+      await tx.update(users).set({ accountStatus: "active" }).where(and(eq(users.id, row.user.id), eq(users.schoolId, schoolId)));
+    }
+  });
+  await writeAudit(userId, "people.staff.restore", "staff_profile", null, { staffProfileIds: rows.map(row => row.profile.id), count: rows.length });
+  return { ok: true, rows: rows.map(row => ({ id: row.profile.id, displayName: row.profile.displayName })) };
 }
 
 export type PeopleImportKind = "learners" | "staff";

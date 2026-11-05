@@ -13,6 +13,13 @@ const DOMAIN_MESSAGES: Record<string, string> = {
   RETURN_REASON_REQUIRED: "Explain what must be corrected before returning this assessment.",
   BATCH_APPROVAL_SELECTION_REQUIRED: "Select at least one submitted assessment.",
   BATCH_APPROVAL_ONLY_SUBMITTED: "Batch approval only accepts assessments that are currently submitted.",
+  ADMINISTRATOR_REQUIRED: "Only an Administrator or Super Admin can delete or restore People records.",
+  LEARNERS_REQUIRED: "Select at least one learner before deleting.",
+  LEARNERS_NOT_FOUND: "The selected learner records are no longer available.",
+  STAFF_REQUIRED: "Select at least one staff member before deleting.",
+  STAFF_NOT_FOUND: "The selected staff records are no longer available.",
+  CANNOT_DELETE_CURRENT_ACCOUNT: "You cannot delete the account currently in use.",
+  CANNOT_DELETE_PLATFORM_SUPER_ADMIN: "The protected Super Admin account cannot be deleted.",
 };
 
 function messageFromValidationPayload(message: string): string | null {

@@ -59,6 +59,8 @@ import {
   deleteGradeClass,
   createLearningArea,
   createLearner,
+  deleteLearners,
+  restoreLearners,
   updateLearner,
   setLearnerStatus,
   previewPeopleImport,
@@ -71,6 +73,8 @@ import {
   setStaffStatus,
   restoreStaffProfile,
   deleteStaffProfile,
+  deleteStaffProfiles,
+  restoreStaffProfiles,
   updateStaffRole,
   listTimetable,
   listTimetablePlans,
@@ -97,6 +101,7 @@ import {
   updateTeacherCode,
   setTimetableRequirement,
   effectivePermissions,
+  canManagePeopleDeletion,
   userCan,
   writeAudit,
 } from "./smis";
@@ -213,6 +218,8 @@ export const appRouter = router({
       create: permissionProcedure("learners.add").input(z.object({ fullName: z.string().min(1).max(160), admissionNumber: z.string().min(1).max(40), guardianName: z.string().max(160).nullable().optional(), guardianIdNumber: z.string().max(40).nullable().optional(), guardianPhone: z.string().max(40).nullable().optional(), gradeId: z.number().int().positive(), status: z.enum(["active", "inactive"]) })).mutation(({ input, ctx }) => createLearner(input, currentUserId(ctx.user))),
       update: permissionProcedure("learners.edit").input(z.object({ learnerId: z.number().int().positive(), fullName: z.string().min(1).max(160), admissionNumber: z.string().min(1).max(40), guardianName: z.string().max(160).nullable().optional(), guardianIdNumber: z.string().max(40).nullable().optional(), guardianPhone: z.string().max(40).nullable().optional(), gradeId: z.number().int().positive(), status: z.enum(["active", "inactive"]) })).mutation(({ input, ctx }) => updateLearner(input, currentUserId(ctx.user))),
       setStatus: permissionProcedure("learners.deactivate").input(z.object({ learnerId: z.number().int().positive(), status: z.enum(["active", "inactive"]) })).mutation(({ input, ctx }) => setLearnerStatus(input, currentUserId(ctx.user))),
+      deleteMany: permissionProcedure("learners.edit").input(z.object({ learnerIds: z.array(z.number().int().positive()).min(1).max(100) })).mutation(({ input, ctx }) => deleteLearners(input, currentUserId(ctx.user))),
+      restoreMany: permissionProcedure("learners.edit").input(z.object({ learnerIds: z.array(z.number().int().positive()).min(1).max(100) })).mutation(({ input, ctx }) => restoreLearners(input, currentUserId(ctx.user))),
       previewImport: permissionProcedure("learners.add").input(z.object({ rows: z.array(z.record(z.string(), z.any())).max(500), rowOffset: z.number().int().min(0).optional(), autoCreateMissingClasses: z.boolean().optional() })).mutation(({ input }) => previewPeopleImport({ kind: "learners", rows: input.rows, rowOffset: input.rowOffset, autoCreateMissingClasses: input.autoCreateMissingClasses })),
       import: permissionProcedure("learners.add").input(z.object({ rows: z.array(z.record(z.string(), z.any())).max(500), autoCreateMissingClasses: z.boolean().optional() })).mutation(async ({ input, ctx }) => {
         if (input.autoCreateMissingClasses && !(await userCan(ctx.user.id, ctx.user.role, "settings.edit"))) throw new TRPCError({ code: "FORBIDDEN", message: "Only administrators can create missing classes during import." });
@@ -430,6 +437,7 @@ export const appRouter = router({
       audit: permissionProcedure("administration.view").input(z.object({ userId: z.number().int().positive().optional(), actorUserId: z.number().int().positive().optional(), action: z.string().max(80).optional(), module: z.string().max(40).optional(), from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), limit: z.number().int().min(1).max(200).optional(), offset: z.number().int().min(0).optional() }).optional()).query(({ input }) => listAuditTrail(input ?? {})),
     }),
     users: router({
+      peopleDeleteAccess: protectedProcedure.query(({ ctx }) => canManagePeopleDeletion(ctx.user.id)),
       list: permissionProcedure("users.edit").input(z.object({ search: z.string().optional() }).optional()).query(({ input, ctx }) => listStaff(input?.search, currentUserId(ctx.user))),
       page: permissionProcedure("users.edit").input(z.object({ search: z.string().optional(), page: z.number().int().min(0).optional(), pageSize: z.number().int().min(10).max(100).optional() })).query(({ input, ctx }) => listStaffPage(input, currentUserId(ctx.user))),
       lastImport: permissionProcedure("users.edit").query(() => getLastPeopleImport()),
@@ -439,6 +447,8 @@ export const appRouter = router({
       setStaffStatus: permissionProcedure("users.edit").input(z.object({ staffProfileId: z.number().int().positive(), status: z.enum(["active", "inactive"]) })).mutation(({ input, ctx }) => setStaffStatus(input, currentUserId(ctx.user))),
       restoreStaffProfile: protectedProcedure.input(z.object({ staffProfileId: z.number().int().positive() })).mutation(({ input, ctx }) => restoreStaffProfile(input, currentUserId(ctx.user))),
       deleteStaffProfile: permissionProcedure("users.edit").input(z.object({ staffProfileId: z.number().int().positive() })).mutation(({ input, ctx }) => deleteStaffProfile(input, currentUserId(ctx.user))),
+      deleteMany: permissionProcedure("users.edit").input(z.object({ staffProfileIds: z.array(z.number().int().positive()).min(1).max(100) })).mutation(({ input, ctx }) => deleteStaffProfiles(input, currentUserId(ctx.user))),
+      restoreMany: permissionProcedure("users.edit").input(z.object({ staffProfileIds: z.array(z.number().int().positive()).min(1).max(100) })).mutation(({ input, ctx }) => restoreStaffProfiles(input, currentUserId(ctx.user))),
       previewImport: permissionProcedure("users.edit").input(z.object({ rows: z.array(z.record(z.string(), z.any())).max(500), rowOffset: z.number().int().min(0).optional() })).mutation(({ input }) => previewPeopleImport({ kind: "staff", rows: input.rows, rowOffset: input.rowOffset })),
       import: permissionProcedure("users.edit").input(z.object({ rows: z.array(z.record(z.string(), z.any())).max(500) })).mutation(({ input, ctx }) => importPeopleRows({ kind: "staff", rows: input.rows }, currentUserId(ctx.user))),
       updateStaffRole: permissionProcedure("users.edit").input(z.object({ staffProfileId: z.number().int().positive(), role: z.enum(["admin", "teacher", "class_teacher", "finance", "nurse", "boarding_master"]) })).mutation(({ input, ctx }) => updateStaffRole(input, currentUserId(ctx.user))),
