@@ -1,6 +1,6 @@
 import { and, asc, eq } from "drizzle-orm";
-import { curriculumOfferings, schoolSettings } from "../drizzle/schema";
-import { requireDb, writeAudit } from "./smis";
+import { curriculumOfferings, grades, schoolSettings } from "../drizzle/schema";
+import { actorSchoolId, requireDb, writeAudit } from "./smis";
 
 export const KICD_CURRICULUM_SOURCE = "https://kicd.ac.ke/wp-content/uploads/2017/10/CURRICULUMFRAMEWORK.pdf";
 export const KICD_DESIGNS_SOURCE = "https://kicd.ac.ke/cbc-materials/curriculum-designs/";
@@ -31,12 +31,13 @@ export function curriculumCatalogue(): Entry[] {
   return rows;
 }
 
-export async function getCurriculumSetup() {
+export async function getCurriculumSetup(userId?: number) {
   const db = await requireDb();
-  const [saved, settings] = await Promise.all([db.select().from(curriculumOfferings).orderBy(asc(curriculumOfferings.level), asc(curriculumOfferings.gradeLabel), asc(curriculumOfferings.pathway), asc(curriculumOfferings.learningArea)), db.select({ enabledSchoolLevels: schoolSettings.enabledSchoolLevels }).from(schoolSettings).limit(1)]);
+  const schoolId = userId == null ? null : await actorSchoolId(userId);
+  const [saved, settings, classRows] = await Promise.all([db.select().from(curriculumOfferings).orderBy(asc(curriculumOfferings.level), asc(curriculumOfferings.gradeLabel), asc(curriculumOfferings.pathway), asc(curriculumOfferings.learningArea)), db.select({ enabledSchoolLevels: schoolSettings.enabledSchoolLevels }).from(schoolSettings).limit(1), db.select().from(grades).where(schoolId == null ? undefined : eq(grades.schoolId, schoolId)).orderBy(asc(grades.name), asc(grades.stream))]);
   const storedLevels = settings[0]?.enabledSchoolLevels?.split(",") ?? [];
   const levels = storedLevels.flatMap(level => level === "Primary" ? ["Lower Primary", "Upper Primary"] : level).filter(level => SCHOOL_LEVELS.includes(level as typeof SCHOOL_LEVELS[number]));
-  return { source: KICD_CURRICULUM_SOURCE, designsSource: KICD_DESIGNS_SOURCE, catalogue: curriculumCatalogue(), saved, enabledSchoolLevels: levels };
+  return { source: KICD_CURRICULUM_SOURCE, designsSource: KICD_DESIGNS_SOURCE, catalogue: curriculumCatalogue(), saved, enabledSchoolLevels: levels, grades: classRows };
 }
 
 export async function saveEnabledSchoolLevels(levels: string[], userId: number) {

@@ -1788,9 +1788,10 @@ export async function updateStaffRole(input: { staffProfileId: number; role: Sta
   return { ok: true, role: input.role };
 }
 
-export async function listAcademicCatalog() {
+export async function listAcademicCatalog(userId?: number) {
   const db = await requireDb();
-  const [allGradeRows, existingSubjects, settings] = await Promise.all([db.select().from(grades).orderBy(grades.name, grades.stream), db.select().from(subjects).orderBy(subjects.name), db.select({ enabledSchoolLevels: schoolSettings.enabledSchoolLevels }).from(schoolSettings).limit(1)]);
+  const schoolId = userId == null ? null : await actorSchoolId(userId);
+  const [allGradeRows, existingSubjects, settings] = await Promise.all([db.select().from(grades).where(schoolId == null ? undefined : eq(grades.schoolId, schoolId)).orderBy(grades.name, grades.stream), db.select().from(subjects).orderBy(subjects.name), db.select({ enabledSchoolLevels: schoolSettings.enabledSchoolLevels }).from(schoolSettings).limit(1)]);
   const enabledLevels = new Set((settings[0]?.enabledSchoolLevels || "ECDE,Lower Primary,Upper Primary,Junior School,Senior School").split(",").flatMap(level => level === "Primary" ? ["Lower Primary", "Upper Primary"] : level));
   const existingNames = new Set(existingSubjects.map(subject => subject.name.toLowerCase()));
   const existingCodes = new Set(existingSubjects.map(subject => subject.code.toLowerCase()));
@@ -1822,42 +1823,45 @@ export async function canManageSchoolLevels(userId: number) {
 
 export async function createGradeClass(input: { name: string; stream?: string | null }, userId: number) {
   const db = await requireDb();
+  const schoolId = await actorSchoolId(userId);
   const name = input.name.trim();
   const stream = input.stream?.trim() || null;
   const duplicate = (await db.select({ id: grades.id }).from(grades).where(stream
-    ? and(eq(grades.name, name), eq(grades.stream, stream))
-    : and(eq(grades.name, name), sql`${grades.stream} IS NULL`)).limit(1))[0];
+    ? and(eq(grades.name, name), eq(grades.stream, stream), eq(grades.schoolId, schoolId))
+    : and(eq(grades.name, name), sql`${grades.stream} IS NULL`, eq(grades.schoolId, schoolId))).limit(1))[0];
   if (duplicate) throw new Error("GRADE_CLASS_ALREADY_EXISTS");
-  await db.insert(grades).values({ name, stream });
+  await db.insert(grades).values({ schoolId, name, stream });
   await writeAudit(userId, "grade.create", "grade", name, { name, stream });
   return { ok: true };
 }
 
 export async function updateGradeClass(input: { id: number; name: string; stream?: string | null }, userId: number) {
   const db = await requireDb();
+  const schoolId = await actorSchoolId(userId);
   const name = input.name.trim();
   const stream = input.stream?.trim() || null;
   if (!name) throw new Error("GRADE_NAME_REQUIRED");
-  const current = (await db.select().from(grades).where(eq(grades.id, input.id)).limit(1))[0];
+  const current = (await db.select().from(grades).where(and(eq(grades.id, input.id), eq(grades.schoolId, schoolId))).limit(1))[0];
   if (!current) throw new Error("GRADE_CLASS_NOT_FOUND");
-  const duplicates = await db.select({ id: grades.id }).from(grades).where(and(eq(grades.name, name), stream ? eq(grades.stream, stream) : sql`${grades.stream} IS NULL`)).limit(2);
+  const duplicates = await db.select({ id: grades.id }).from(grades).where(and(eq(grades.name, name), eq(grades.schoolId, schoolId), stream ? eq(grades.stream, stream) : sql`${grades.stream} IS NULL`)).limit(2);
   if (duplicates.some(row => row.id !== input.id)) throw new Error("GRADE_CLASS_ALREADY_EXISTS");
-  await db.update(grades).set({ name, stream }).where(eq(grades.id, input.id));
+  await db.update(grades).set({ name, stream }).where(and(eq(grades.id, input.id), eq(grades.schoolId, schoolId)));
   await writeAudit(userId, "grade.update", "grade", input.id, { from: current, name, stream });
   return { ok: true };
 }
 export async function deleteGradeClass(id: number, userId: number) {
   const db = await requireDb();
-  const current = (await db.select().from(grades).where(eq(grades.id, id)).limit(1))[0];
+  const schoolId = await actorSchoolId(userId);
+  const current = (await db.select().from(grades).where(and(eq(grades.id, id), eq(grades.schoolId, schoolId))).limit(1))[0];
   if (!current) throw new Error("GRADE_CLASS_NOT_FOUND");
   const [learnerUse, allocationUse, timetableUse, requirementUse] = await Promise.all([
-    db.select({ id: learners.id }).from(learners).where(eq(learners.gradeId, id)).limit(1),
-    db.select({ id: teacherAllocations.id }).from(teacherAllocations).where(eq(teacherAllocations.gradeId, id)).limit(1),
-    db.select({ id: timetableEntries.id }).from(timetableEntries).where(eq(timetableEntries.gradeId, id)).limit(1),
-    db.select({ id: timetableRequirements.id }).from(timetableRequirements).where(eq(timetableRequirements.gradeId, id)).limit(1),
+    db.select({ id: learners.id }).from(learners).where(and(eq(learners.gradeId, id), eq(learners.schoolId, schoolId))).limit(1),
+    db.select({ id: teacherAllocations.id }).from(teacherAllocations).where(and(eq(teacherAllocations.gradeId, id), eq(teacherAllocations.schoolId, schoolId))).limit(1),
+    db.select({ id: timetableEntries.id }).from(timetableEntries).where(and(eq(timetableEntries.gradeId, id), eq(timetableEntries.schoolId, schoolId))).limit(1),
+    db.select({ id: timetableRequirements.id }).from(timetableRequirements).where(and(eq(timetableRequirements.gradeId, id), eq(timetableRequirements.schoolId, schoolId))).limit(1),
   ]);
   if (learnerUse.length || allocationUse.length || timetableUse.length || requirementUse.length) throw new Error("GRADE_CLASS_IN_USE_ARCHIVE_OR_REASSIGN_FIRST");
-  await db.delete(grades).where(eq(grades.id, id));
+  await db.delete(grades).where(and(eq(grades.id, id), eq(grades.schoolId, schoolId)));
   await writeAudit(userId, "grade.delete", "grade", id, { name: current.name, stream: current.stream });
   return { ok: true };
 }

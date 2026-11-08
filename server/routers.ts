@@ -459,7 +459,7 @@ export const appRouter = router({
       effectivePermissions: protectedProcedure.query(({ ctx }) => effectivePermissions(ctx.user.id, ctx.user.role)),
     }),
     allocations: router({
-      catalog: permissionProcedure("allocations.view").query(() => listAcademicCatalog()),
+      catalog: permissionProcedure("allocations.view").query(({ ctx }) => listAcademicCatalog(currentUserId(ctx.user))),
       list: permissionProcedure("allocations.view").input(z.object({ academicYear: z.number().int().optional(), term: z.string().max(40).optional(), status: z.enum(["active", "inactive", "replaced"]).optional() }).optional()).query(({ input, ctx }) => listAllocations(input, currentUserId(ctx.user))),
       create: permissionProcedure("allocations.create").input(z.object({ teacherUserId: z.number().int().positive(), gradeId: z.number().int().positive(), subjectId: z.number().int().min(0), academicYear: z.number().int().min(2000).max(2100), term: z.string().min(2).max(40), allocationType: z.enum(["class_teacher", "learning_area", "co_teacher", "substitute", "activity"]), startsOn: z.string().date().nullable().optional(), endsOn: z.string().date().nullable().optional() })).mutation(({ input, ctx }) => saveTeacherAllocation(input, currentUserId(ctx.user))),
       changeStatus: permissionProcedure("allocations.deactivate").input(z.object({ allocationId: z.number().int().positive(), status: z.enum(["active", "inactive", "replaced"]), replacedByUserId: z.number().int().positive().nullable().optional() })).mutation(({ input, ctx }) => changeTeacherAllocationStatus(input, currentUserId(ctx.user))),
@@ -471,7 +471,7 @@ export const appRouter = router({
       updateGrade: permissionProcedure("settings.edit").input(z.object({ id: z.number().int().positive(), name: z.string().min(1).max(80), stream: z.string().max(80).nullable().optional() })).mutation(({ input, ctx }) => updateGradeClass(input, currentUserId(ctx.user))),
       deleteGrade: permissionProcedure("settings.edit").input(z.object({ id: z.number().int().positive() })).mutation(({ input, ctx }) => deleteGradeClass(input.id, currentUserId(ctx.user))),
       createSubject: permissionProcedure("settings.edit").input(z.object({ name: z.string().min(1).max(120), code: z.string().min(1).max(30) })).mutation(({ input, ctx }) => createLearningArea(input, currentUserId(ctx.user))),
-      curriculum: permissionProcedure("settings.edit").query(() => getCurriculumSetup()),
+      curriculum: permissionProcedure("settings.edit").query(({ ctx }) => getCurriculumSetup(currentUserId(ctx.user))),
       canManageSchoolLevels: protectedProcedure.query(({ ctx }) => canManageSchoolLevels(currentUserId(ctx.user))),
       saveCurriculum: permissionProcedure("settings.edit").input(z.object({ selections: z.array(z.object({ level: z.string().max(40), grade: z.string().max(40), pathway: z.string().max(100).nullable().optional(), area: z.string().max(160), offered: z.boolean() })) })).mutation(({ input, ctx }) => saveCurriculumSelections(input, currentUserId(ctx.user))),
       saveSchoolLevels: schoolLevelProcedure.input(z.object({ levels: z.array(z.enum(["ECDE", "Lower Primary", "Upper Primary", "Junior School", "Senior School"])) })).mutation(({ input, ctx }) => saveEnabledSchoolLevels(input.levels, currentUserId(ctx.user))),
