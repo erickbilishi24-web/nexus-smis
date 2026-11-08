@@ -39,6 +39,7 @@ import {
   getFinanceOverview,
   getIntegratedReportCard,
   getReportCard,
+  actorSchoolId,
   getSettings,
   getStoreOverview,
   listAlumni,
@@ -466,7 +467,7 @@ export const appRouter = router({
       delete: permissionProcedure("allocations.deactivate").input(z.object({ allocationId: z.number().int().positive() })).mutation(({ input, ctx }) => deleteTeacherAllocation(input.allocationId, currentUserId(ctx.user))),
     }),
     settings: router({
-      get: permissionProcedure("dashboard.view").query(() => getSettings()),
+      get: permissionProcedure("dashboard.view").query(({ ctx }) => actorSchoolId(currentUserId(ctx.user)).then(getSettings)),
       createGrade: permissionProcedure("settings.edit").input(z.object({ name: z.string().min(1).max(80), stream: z.string().max(80).nullable().optional() })).mutation(({ input, ctx }) => createGradeClass(input, currentUserId(ctx.user))),
       updateGrade: permissionProcedure("settings.edit").input(z.object({ id: z.number().int().positive(), name: z.string().min(1).max(80), stream: z.string().max(80).nullable().optional() })).mutation(({ input, ctx }) => updateGradeClass(input, currentUserId(ctx.user))),
       deleteGrade: permissionProcedure("settings.edit").input(z.object({ id: z.number().int().positive() })).mutation(({ input, ctx }) => deleteGradeClass(input.id, currentUserId(ctx.user))),
@@ -475,7 +476,7 @@ export const appRouter = router({
       canManageSchoolLevels: protectedProcedure.query(({ ctx }) => canManageSchoolLevels(currentUserId(ctx.user))),
       saveCurriculum: permissionProcedure("settings.edit").input(z.object({ selections: z.array(z.object({ level: z.string().max(40), grade: z.string().max(40), pathway: z.string().max(100).nullable().optional(), area: z.string().max(160), offered: z.boolean() })) })).mutation(({ input, ctx }) => saveCurriculumSelections(input, currentUserId(ctx.user))),
       saveSchoolLevels: schoolLevelProcedure.input(z.object({ levels: z.array(z.enum(["ECDE", "Lower Primary", "Upper Primary", "Junior School", "Senior School"])) })).mutation(({ input, ctx }) => saveEnabledSchoolLevels(input.levels, currentUserId(ctx.user))),
-      update: adminProcedure.input(z.object({ schoolName: z.string().min(1).max(200), motto: z.string().max(255).nullable().optional(), currentTerm: z.string().min(1).max(40), academicYear: z.number().int().min(2000).max(2100), includeFeesOnReportCard: z.boolean(), showPercentagesOnReportCard: z.boolean().optional(), subjectShortNames: z.record(z.string().trim().min(1).max(30), z.string().trim().max(24)).optional(), themePrimaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(), themeAccentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(), themeSurfaceColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(), themeMode: z.enum(["light", "dark", "system"]).optional() })).mutation(({ input, ctx }) => saveSettings(input, currentUserId(ctx.user))),
+      update: adminProcedure.input(z.object({ schoolName: z.string().min(1).max(200), motto: z.string().max(255).nullable().optional(), currentTerm: z.string().min(1).max(40), academicYear: z.number().int().min(2000).max(2100), includeFeesOnReportCard: z.boolean(), showPercentagesOnReportCard: z.boolean().optional(), address: z.string().max(255).nullable().optional(), phone: z.string().max(40).nullable().optional(), email: z.string().email().max(320).nullable().optional(), logoPath: z.string().max(255).nullable().optional(), subjectShortNames: z.record(z.string().trim().min(1).max(30), z.string().trim().max(24)).optional(), gradingScale: z.array(z.object({ code: z.string().regex(/^(EE|ME|AE|BE)[12]$/), label: z.string().min(1).max(80), min: z.number().int().min(0).max(100), max: z.number().int().min(0).max(100) })).length(8).optional(), assessmentCategories: z.array(z.string().trim().min(1).max(80)).min(1).max(12).optional(), competencyLevels: z.array(z.string().trim().min(1).max(80)).min(1).max(12).optional(), reportCardSettings: z.object({ showLogo: z.boolean().optional(), showAddress: z.boolean().optional(), showPhone: z.boolean().optional(), showEmail: z.boolean().optional(), showMotto: z.boolean().optional() }).optional(), themePrimaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(), themeAccentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(), themeSurfaceColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(), themeMode: z.enum(["light", "dark", "system"]).optional() })).mutation(({ input, ctx }) => saveSettings(input, currentUserId(ctx.user))),
     }),
     academic: router({
       structure: adminProcedure.query(() => listAcademicStructure()),

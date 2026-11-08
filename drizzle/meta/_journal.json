@@ -372,6 +372,13 @@
       "when": 1794120207582,
       "tag": "0052_wide_skin",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "5",
+      "when": 1794126393038,
+      "tag": "0053_medical_timeslip",
+      "breakpoints": true
     }
   ]
 }

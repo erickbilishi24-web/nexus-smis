@@ -660,7 +660,7 @@ export async function getAssessmentReportCard(input: { learnerId: number; academ
   const assessmentStatus = statuses.includes("missing") ? "incomplete" : statuses.includes("draft") ? "draft" : statuses.includes("submitted") ? "submitted" : statuses.includes("approved") ? "approved" : "locked";
   const levels = marksheet.map(row => row.cbcLevel).filter((level): level is NonNullable<typeof level> => level !== null);
   const overall = levels.length ? (levels.filter(level => level.startsWith("EE")).length >= Math.ceil(levels.length / 2) ? "EE" : levels.filter(level => level.startsWith("ME")).length >= Math.ceil(levels.length / 2) ? "ME" : levels.filter(level => level.startsWith("BE")).length >= Math.ceil(levels.length / 2) ? "BE" : "AE") : null;
-  const settings = await getSettings();
+  const settings = await getSettings(schoolId);
   return {
     learner: learnerRow.learner,
     grade: learnerRow.grade,

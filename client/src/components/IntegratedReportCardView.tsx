@@ -7,11 +7,14 @@ import { trpc } from "@/lib/trpc";
 import { toUserError } from "@/lib/errorText";
 type AssessmentType = "mid_term" | "end_term";
 type GradeOption = { id: number; name: string; stream?: string | null };
+type GradingRow = { code: string; label: string; min: number; max: number };
 const MAGENTA = "#d000b9";
 const gradeLabels = ["Grade 7", "Grade 8", "Grade 9"];
 
-const levelLabel = (level: string | null) => {
+const levelLabel = (level: string | null, gradingScale?: GradingRow[]) => {
   if (!level) return "-";
+  const configured = gradingScale?.find(row => row.code === level)?.label;
+  if (configured) return configured;
   if (level.startsWith("EE")) return `Exceeding Expectations ${level.slice(2)}`;
   if (level.startsWith("ME")) return `Meeting Expectations ${level.slice(2)}`;
   if (level.startsWith("AE")) return `Approaching Expectations ${level.slice(2)}`;
@@ -124,6 +127,11 @@ export function IntegratedReportCardView({ canReview = false }: { canReview?: bo
         const line = (text: string, size = 10, font = regular, color = rgb(0.08, 0.18, 0.15)) => { page.drawText(text.slice(0, 105), { x: 36, y, size, font, color }); y -= size + 7; };
         page.drawRectangle({ x: 28, y: 28, width: 539, height: height - 56, borderColor: rgb(0.82, 0.05, 0.72), borderWidth: 3 });
         line(report.settings?.schoolName || "NEXUS-SMIS", 18, bold, rgb(0.82, 0.05, 0.72));
+        const documentSettings = report.settings?.reportCardSettings ?? {};
+        if (documentSettings.showAddress !== false && report.settings?.address) line(report.settings.address, 9);
+        if (documentSettings.showEmail !== false && report.settings?.email) line(report.settings.email, 9);
+        if (documentSettings.showPhone !== false && report.settings?.phone) line(report.settings.phone, 9);
+        if (documentSettings.showMotto !== false && report.settings?.motto) line(report.settings.motto, 9);
         line("LEARNER ASSESSMENT REPORT CARD", 13, bold, rgb(0.08, 0.08, 0.35));
         line(`Learner: ${report.learner.fullName} · ${report.learner.admissionNumber}`, 11, bold);
         line(`Grade: ${report.grade?.name ?? "-"}${report.grade?.stream ? ` · ${report.grade.stream}` : ""}`);
@@ -183,9 +191,9 @@ function VisionReportCard({ result, assessmentType, term, academicYear, status, 
   const totalEnd = values.reduce((sum: number, row: any) => sum + (row.end ?? 0), 0);
   const average = values.filter((row: any) => row.avg != null).length ? Math.round(values.reduce((sum: number, row: any) => sum + (row.avg ?? 0), 0) / values.filter((row: any) => row.avg != null).length) : null;
   return <article className="report-card-print mx-auto max-w-5xl bg-white p-2 text-[#101052] shadow-sm sm:p-4" style={{ border: `4px solid ${MAGENTA}` }}>
-    <VisionHeader schoolName={result.settings.schoolName} motto={result.settings.motto} />
+    <VisionHeader schoolName={result.settings.schoolName} motto={result.settings.motto} address={result.settings.address} phone={result.settings.phone} email={result.settings.email} logoPath={result.settings.logoPath} display={result.settings.reportCardSettings} />
     <div className="grid grid-cols-6 border-2 border-[#242477] text-[11px] font-bold sm:text-sm"><div className="col-span-3 border-b border-r border-[#242477] p-1">NAME <span className="ml-2 uppercase">{result.learner.fullName}</span></div><div className="col-span-3 border-b border-[#242477] p-1">GRADE <span className="ml-2">{result.grade?.name ?? "-"}</span></div><div className="col-span-3 border-r border-[#242477] p-1">STREAM <span className="ml-2">{result.grade?.stream ?? "-"}</span></div><div className="col-span-1 border-r border-[#242477] p-1">TERM</div><div className="col-span-2 p-1">{term.toUpperCase()} · {academicYear}</div></div>
-    <table className="mt-2 w-full border-collapse text-[9px] font-semibold sm:text-xs"><thead><tr className="bg-[#ef16c6] text-white"><th className="border border-[#242477] p-1 text-left">Learning Area</th><th className="border border-[#242477] p-1">M-Term</th><th className="border border-[#242477] p-1">E-Term</th><th className="border border-[#242477] p-1">AVG</th><th className="border border-[#242477] p-1">Performance Level</th><th className="border border-[#242477] p-1">Facilitator</th></tr></thead><tbody>{rows.map((row: any, index: number) => <tr key={row.subject.id}><td className="border border-[#242477] p-1">{row.subject.name}</td><td className="border border-[#242477] p-1 text-center">{numeric(values[index].mid)}</td><td className="border border-[#242477] p-1 text-center">{numeric(values[index].end)}</td><td className="border border-[#242477] p-1 text-center">{numeric(values[index].avg)}</td><td className="border border-[#242477] p-1 text-center">{levelLabel(row.cbcLevel)}</td><td className="border border-[#242477] p-1 text-center">{row.teacherName ?? "-"}</td></tr>)}</tbody></table>
+    <table className="mt-2 w-full border-collapse text-[9px] font-semibold sm:text-xs"><thead><tr className="bg-[#ef16c6] text-white"><th className="border border-[#242477] p-1 text-left">Learning Area</th><th className="border border-[#242477] p-1">M-Term</th><th className="border border-[#242477] p-1">E-Term</th><th className="border border-[#242477] p-1">AVG</th><th className="border border-[#242477] p-1">Performance Level</th><th className="border border-[#242477] p-1">Facilitator</th></tr></thead><tbody>{rows.map((row: any, index: number) => <tr key={row.subject.id}><td className="border border-[#242477] p-1">{row.subject.name}</td><td className="border border-[#242477] p-1 text-center">{numeric(values[index].mid)}</td><td className="border border-[#242477] p-1 text-center">{numeric(values[index].end)}</td><td className="border border-[#242477] p-1 text-center">{numeric(values[index].avg)}</td><td className="border border-[#242477] p-1 text-center">{levelLabel(row.cbcLevel, result.settings.gradingScale as GradingRow[] | undefined)}</td><td className="border border-[#242477] p-1 text-center">{row.teacherName ?? "-"}</td></tr>)}</tbody></table>
     <div className="grid grid-cols-4 border-2 border-t-0 border-[#242477] text-[9px] font-bold sm:text-xs"><div className="border-r border-[#242477] p-1">Total Scores</div><div className="border-r border-[#242477] p-1">{totalMid}/{rows.length * 100}</div><div className="border-r border-[#242477] p-1">{totalEnd}/{rows.length * 100}</div><div className="p-1">Termly Average: {average ?? "-"}/100</div></div>
     <PerformanceChart rows={rows} values={values} />
     <div className="mt-2 border-2 border-[#242477] text-[10px] sm:text-xs"><p className="border-b border-[#242477] p-1"><b>Class Teacher’s Comment:</b> {classTeacherComment || result.report?.classTeacherComment || "-"}</p><p className="p-1"><b>Head of Institution (PRINCIPAL) Comment:</b> {headTeacherComment || result.report?.headTeacherComment || "-"}</p></div>
@@ -195,8 +203,9 @@ function VisionReportCard({ result, assessmentType, term, academicYear, status, 
   </article>;
 }
 
-function VisionHeader({ schoolName, motto }: { schoolName: string; motto?: string | null }) {
-  return <header className="border-b-4 border-[#242477] text-center"><h2 className="text-lg font-black uppercase tracking-wide text-[#d000b9] sm:text-2xl">{schoolName || "Nexus-smis"}</h2><div className="grid grid-cols-3 items-center py-1 text-[9px] sm:text-xs"><div className="text-left text-[#242477]">P.O. BOX 54 KENYA<br />school@school.co.ke<br />+254 700 000 000</div><img src="/manus-storage/nexus-smis-logo_37d2287e.png" alt="Nexus-smis" className="mx-auto h-16 w-16 object-contain sm:h-20 sm:w-20" /><div className="text-right text-[#242477]">{motto || "Better Schools · Brighter Futures"}</div></div><h1 className="bg-[#ef16c6] py-1 text-base font-black text-white sm:text-2xl">LEARNER ASSESSMENT REPORT CARD</h1></header>;
+function VisionHeader({ schoolName, motto, address, phone, email, logoPath, display }: { schoolName: string; motto?: string | null; address?: string | null; phone?: string | null; email?: string | null; logoPath?: string | null; display?: { showLogo?: boolean; showAddress?: boolean; showPhone?: boolean; showEmail?: boolean; showMotto?: boolean } | null }) {
+  const show = { showLogo: true, showAddress: true, showPhone: true, showEmail: true, showMotto: true, ...(display ?? {}) };
+  return <header className="border-b-4 border-[#242477] text-center"><h2 className="text-lg font-black uppercase tracking-wide text-[#d000b9] sm:text-2xl">{schoolName || "Nexus-smis"}</h2><div className="grid grid-cols-3 items-center py-1 text-[9px] sm:text-xs"><div className="text-left text-[#242477]">{show.showAddress && <>{address || "Address not configured"}<br /></>}{show.showEmail && <>{email || "Email not configured"}<br /></>}{show.showPhone && (phone || "Phone not configured")}</div>{show.showLogo ? <img src={logoPath || "/manus-storage/nexus-smis-logo_37d2287e.png"} alt={`${schoolName || "Nexus-smis"} logo`} className="mx-auto h-16 w-16 object-contain sm:h-20 sm:w-20" /> : <span /> }<div className="text-right text-[#242477]">{show.showMotto ? (motto || "Better Schools · Brighter Futures") : ""}</div></div><h1 className="bg-[#ef16c6] py-1 text-base font-black text-white sm:text-2xl">LEARNER ASSESSMENT REPORT CARD</h1></header>;
 }
 
 function PerformanceChart({ rows, values }: { rows: any[]; values: any[] }) {

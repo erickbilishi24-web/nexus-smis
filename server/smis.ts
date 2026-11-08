@@ -126,11 +126,10 @@ export async function getSettings(schoolId?: number | null) {
   const row = (schoolId == null
     ? await db.select().from(schoolSettings).limit(1)
     : await db.select().from(schoolSettings).where(eq(schoolSettings.schoolId, schoolId)).limit(1))[0];
-  const defaults = { id: 0, schoolName: "Ebunangwe Junior School", motto: "Learn. Lead. Serve.", currentTerm: "Term 2", academicYear: 2026, includeFeesOnReportCard: 1, showPercentagesOnReportCard: 0, logoPath: null, principalSignaturePath: null, classTeacherSignaturePath: null, subjectShortNames: {}, themePrimaryColor: "#1d6a57", themeAccentColor: "#d99b3d", themeSurfaceColor: "#f7f4ed", themeMode: "light" as const };
+  const defaults = { id: 0, schoolName: "Ebunangwe Junior School", motto: "Learn. Lead. Serve.", currentTerm: "Term 2", academicYear: 2026, includeFeesOnReportCard: 1, showPercentagesOnReportCard: 0, logoPath: null, principalSignaturePath: null, classTeacherSignaturePath: null, address: null, phone: null, email: null, subjectShortNames: {}, gradingScale: [{ code: "EE1", label: "Exceeding Expectations 1", min: 90, max: 100 }, { code: "EE2", label: "Exceeding Expectations 2", min: 75, max: 89 }, { code: "ME1", label: "Meeting Expectations 1", min: 58, max: 74 }, { code: "ME2", label: "Meeting Expectations 2", min: 41, max: 57 }, { code: "AE1", label: "Approaching Expectations 1", min: 31, max: 40 }, { code: "AE2", label: "Approaching Expectations 2", min: 21, max: 30 }, { code: "BE1", label: "Below Expectations 1", min: 11, max: 20 }, { code: "BE2", label: "Below Expectations 2", min: 0, max: 10 }], assessmentCategories: ["Mid-Term", "End-Term"], competencyLevels: ["Exceeding Expectations", "Meeting Expectations", "Approaching Expectations", "Below Expectations"], reportCardSettings: { showLogo: true, showAddress: true, showPhone: true, showEmail: true, showMotto: true }, themePrimaryColor: "#1d6a57", themeAccentColor: "#d99b3d", themeSurfaceColor: "#f7f4ed", themeMode: "light" as const };
   if (!row) return defaults;
-  let subjectShortNames: Record<string, string> = {};
-  try { subjectShortNames = row.subjectShortNames ? JSON.parse(row.subjectShortNames) : {}; } catch { subjectShortNames = {}; }
-  return { ...row, subjectShortNames };
+  const parse = <T,>(value: string | null | undefined, fallback: T): T => { try { return value ? JSON.parse(value) as T : fallback; } catch { return fallback; } };
+  return { ...row, subjectShortNames: parse(row.subjectShortNames, {} as Record<string, string>), gradingScale: parse(row.gradingScale, defaults.gradingScale), assessmentCategories: parse(row.assessmentCategories, defaults.assessmentCategories), competencyLevels: parse(row.competencyLevels, defaults.competencyLevels), reportCardSettings: parse(row.reportCardSettings, defaults.reportCardSettings) };
 }
 
 export async function getDashboardSnapshot(userId?: number, accountRole?: string) {
@@ -1969,10 +1968,11 @@ export async function deleteTeacherAllocation(id: number, userId: number) {
   return { ok: true };
 }
 
-export async function saveSettings(input: { schoolName: string; motto?: string | null; currentTerm: string; academicYear: number; includeFeesOnReportCard: boolean; showPercentagesOnReportCard?: boolean; subjectShortNames?: Record<string, string>; themePrimaryColor?: string; themeAccentColor?: string; themeSurfaceColor?: string; themeMode?: "light" | "dark" | "system" }, userId: number) {
+export async function saveSettings(input: { schoolName: string; motto?: string | null; currentTerm: string; academicYear: number; includeFeesOnReportCard: boolean; showPercentagesOnReportCard?: boolean; address?: string | null; phone?: string | null; email?: string | null; logoPath?: string | null; subjectShortNames?: Record<string, string>; gradingScale?: Array<{ code: string; label: string; min: number; max: number }>; assessmentCategories?: string[]; competencyLevels?: string[]; reportCardSettings?: { showLogo?: boolean; showAddress?: boolean; showPhone?: boolean; showEmail?: boolean; showMotto?: boolean }; themePrimaryColor?: string; themeAccentColor?: string; themeSurfaceColor?: string; themeMode?: "light" | "dark" | "system" }, userId: number) {
   const db = await requireDb();
-  const current = (await db.select().from(schoolSettings).limit(1))[0];
-  const { subjectShortNames, ...profileInput } = input; const values = { ...profileInput, includeFeesOnReportCard: input.includeFeesOnReportCard ? 1 : 0, showPercentagesOnReportCard: input.showPercentagesOnReportCard ? 1 : 0, subjectShortNames: JSON.stringify(subjectShortNames ?? {}) };
+  const schoolId = await actorSchoolId(userId);
+  const current = (await db.select().from(schoolSettings).where(eq(schoolSettings.schoolId, schoolId)).limit(1))[0] ?? (await db.select().from(schoolSettings).where(isNull(schoolSettings.schoolId)).limit(1))[0];
+  const { subjectShortNames, gradingScale, assessmentCategories, competencyLevels, reportCardSettings, ...profileInput } = input; const values = { ...profileInput, schoolId, includeFeesOnReportCard: input.includeFeesOnReportCard ? 1 : 0, showPercentagesOnReportCard: input.showPercentagesOnReportCard ? 1 : 0, subjectShortNames: JSON.stringify(subjectShortNames ?? {}), gradingScale: JSON.stringify(gradingScale ?? []), assessmentCategories: JSON.stringify(assessmentCategories ?? []), competencyLevels: JSON.stringify(competencyLevels ?? []), reportCardSettings: JSON.stringify(reportCardSettings ?? {}) };
   if (current) await db.update(schoolSettings).set(values).where(eq(schoolSettings.id, current.id));
   else await db.insert(schoolSettings).values(values);
   await writeAudit(userId, "settings.update", "school_settings", current?.id ?? null, values);
