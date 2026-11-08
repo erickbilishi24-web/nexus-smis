@@ -14,6 +14,7 @@ export function AcademicSetupWorkspace() {
   const [termYearId, setTermYearId] = useState(0);
   const [editingTermId, setEditingTermId] = useState<number | null>(null);
   const [termName, setTermName] = useState<"Term 1" | "Term 2" | "Term 3">("Term 1");
+  const [termActive, setTermActive] = useState(true);
   const [termStarts, setTermStarts] = useState("");
   const [termEnds, setTermEnds] = useState("");
   const [fromYear, setFromYear] = useState(new Date().getFullYear());
@@ -25,7 +26,7 @@ export function AcademicSetupWorkspace() {
   const [approvedRun, setApprovedRun] = useState(false);
 
   const saveTerm = trpc.smis.academic.saveTerm.useMutation({
-    onSuccess: () => { toast.success(editingTermId ? "Term updated" : "Term saved"); setEditingTermId(null); setTermYearId(0); setTermStarts(""); setTermEnds(""); void utils.smis.academic.structure.invalidate(); },
+    onSuccess: () => { toast.success(editingTermId ? "Term updated" : "Term saved"); setEditingTermId(null); setTermYearId(0); setTermStarts(""); setTermEnds(""); setTermActive(true); void utils.smis.academic.structure.invalidate(); },
     onError: e => toast.error(toUserError(e)),
   });
   const deleteTerm = trpc.smis.academic.deleteTerm.useMutation({
@@ -85,14 +86,15 @@ export function AcademicSetupWorkspace() {
     <section className="soft-card rounded-[1.15rem] p-5">
       <h2 className="font-bold text-[#28483f]">Terms</h2>
       <p className="mt-2 text-sm text-[#718077]">Terms are stored against an academic year and can be edited without changing historical marks.</p>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
         <label className="text-xs font-bold text-[#53675d]">Academic year<select value={termYearId} onChange={e => setTermYearId(Number(e.target.value))} className={input}><option value={0}>Select year</option>{years.map(row => <option key={row.id} value={row.id}>{row.year}</option>)}</select></label>
         <label className="text-xs font-bold text-[#53675d]">Term<select value={termName} onChange={e => setTermName(e.target.value as typeof termName)} className={input}><option>Term 1</option><option>Term 2</option><option>Term 3</option></select></label>
         <label className="text-xs font-bold text-[#53675d]">Starts<input type="date" value={termStarts} onChange={e => setTermStarts(e.target.value)} className={input}/></label>
         <label className="text-xs font-bold text-[#53675d]">Ends<input type="date" value={termEnds} onChange={e => setTermEnds(e.target.value)} className={input}/></label>
-        <div className="flex gap-2 self-end"><button className="action-button justify-center" disabled={!termYearId || !termStarts || !termEnds || saveTerm.isPending} onClick={() => saveTerm.mutate({ id: editingTermId ?? undefined, academicYearId: termYearId, name: termName, startsOn: termStarts, endsOn: termEnds, isActive: true })}>{editingTermId ? "Save changes" : "Save term"}</button>{editingTermId && <button type="button" className="quiet-button" onClick={() => { setEditingTermId(null); setTermYearId(0); setTermStarts(""); setTermEnds(""); }}>Cancel</button>}</div>
+        <label className="flex items-center gap-2 self-end rounded-lg border border-[#d8ded7] bg-[#fbfaf5] px-3 py-2 text-xs font-bold text-[#53675d]"><input type="checkbox" checked={termActive} onChange={e => setTermActive(e.target.checked)}/>Active term</label>
+        <div className="flex gap-2 self-end"><button className="action-button justify-center" disabled={!termYearId || !termStarts || !termEnds || saveTerm.isPending} onClick={() => saveTerm.mutate({ id: editingTermId ?? undefined, academicYearId: termYearId, name: termName, startsOn: termStarts, endsOn: termEnds, isActive: termActive })}>{editingTermId ? "Save changes" : "Save term"}</button>{editingTermId && <button type="button" className="quiet-button" onClick={() => { setEditingTermId(null); setTermYearId(0); setTermStarts(""); setTermEnds(""); }}>Cancel</button>}</div>
       </div>
-      <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[620px] text-left text-xs"><thead className="bg-[#edf2ed]"><tr><th className="p-2">Term</th><th className="p-2">Academic year</th><th className="p-2">Dates</th><th className="p-2">Status</th><th className="p-2">Actions</th></tr></thead><tbody>{structure.data?.terms.map(row => <tr key={row.id} className="border-t border-[#eee9df]"><td className="p-2 font-bold">{row.name}</td><td className="p-2">{yearForTerm(row.academicYearId)}</td><td className="p-2">{String(row.startsOn).slice(0, 10)} – {String(row.endsOn).slice(0, 10)}</td><td className="p-2">{row.isActive ? "Active" : "Inactive"}</td><td className="p-2"><div className="flex gap-2"><button type="button" className="quiet-button" onClick={() => { setEditingTermId(row.id); setTermYearId(row.academicYearId); setTermName(row.name as typeof termName); setTermStarts(String(row.startsOn).slice(0, 10)); setTermEnds(String(row.endsOn).slice(0, 10)); }}>Edit</button><button type="button" className="quiet-button text-[#9c4038]" disabled={deleteTerm.isPending} onClick={() => window.confirm(`Delete ${row.name} for ${yearForTerm(row.academicYearId)}?`) && deleteTerm.mutate({ termId: row.id })}>Delete</button></div></td></tr>)}</tbody></table>{!structure.isLoading && !structure.data?.terms.length && <p className="mt-3 rounded-lg border border-dashed border-[#cbd8cc] p-3 text-xs text-[#718077]">No terms created yet.</p>}</div>
+      <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[620px] text-left text-xs"><thead className="bg-[#edf2ed]"><tr><th className="p-2">Term</th><th className="p-2">Academic year</th><th className="p-2">Dates</th><th className="p-2">Status</th><th className="p-2">Actions</th></tr></thead><tbody>{structure.data?.terms.map(row => <tr key={row.id} className="border-t border-[#eee9df]"><td className="p-2 font-bold">{row.name}</td><td className="p-2">{yearForTerm(row.academicYearId)}</td><td className="p-2">{String(row.startsOn).slice(0, 10)} – {String(row.endsOn).slice(0, 10)}</td><td className="p-2">{row.isActive ? "Active" : "Inactive"}</td><td className="p-2"><div className="flex gap-2"><button type="button" className="quiet-button" onClick={() => { setEditingTermId(row.id); setTermYearId(row.academicYearId); setTermName(row.name as typeof termName); setTermStarts(String(row.startsOn).slice(0, 10)); setTermEnds(String(row.endsOn).slice(0, 10)); setTermActive(Boolean(row.isActive)); }}>Edit</button><button type="button" className="quiet-button text-[#9c4038]" disabled={deleteTerm.isPending} onClick={() => window.confirm(`Delete ${row.name} for ${yearForTerm(row.academicYearId)}?`) && deleteTerm.mutate({ termId: row.id })}>Delete</button></div></td></tr>)}</tbody></table>{!structure.isLoading && !structure.data?.terms.length && <p className="mt-3 rounded-lg border border-dashed border-[#cbd8cc] p-3 text-xs text-[#718077]">No terms created yet.</p>}</div>
     </section>
 
     <section className="soft-card rounded-[1.15rem] p-5">
