@@ -71,7 +71,25 @@ export async function updateSchool(input: { schoolId: number; schoolCode: string
   if (duplicate && duplicate.id !== input.schoolId) fail("SCHOOL_CODE_TAKEN");
   await db.update(schools).set({ schoolCode, schoolName, county, subcounty, headInstitutionName }).where(eq(schools.id, input.schoolId));
   await audit(actor.id, "admin.school.update", null, { schoolId: input.schoolId, previousSchoolCode: row.schoolCode, schoolCode, schoolName, county, subcounty, headInstitutionName }, req);
-  return { ok: true };
+  return { ok: true, previousSchoolCode: row.schoolCode, schoolCode };
+}
+
+export async function listSchoolCodeHistory(actor: Actor) {
+  const profile = await getAccessProfile(actor.id);
+  if (profile.level !== "system") fail("ONLY_PLATFORM_SUPER_ADMIN");
+  const db = await requireDb();
+  const rows = await db.select({ log: auditLogs, actorName: users.name, actorUsername: users.username })
+    .from(auditLogs)
+    .leftJoin(users, eq(users.id, auditLogs.userId))
+    .where(eq(auditLogs.action, "admin.school.update"))
+    .orderBy(desc(auditLogs.createdAt), desc(auditLogs.id));
+  return rows.flatMap(({ log, actorName, actorUsername }) => {
+    try {
+      const details = JSON.parse(log.metadata ?? "{}") as Record<string, unknown>;
+      if (typeof details.previousSchoolCode !== "string" || typeof details.schoolCode !== "string" || details.previousSchoolCode === details.schoolCode) return [];
+      return [{ id: log.id, schoolId: Number(details.schoolId), schoolName: typeof details.schoolName === "string" ? details.schoolName : "—", oldCode: details.previousSchoolCode, newCode: details.schoolCode, changedAt: log.createdAt, changedBy: actorName ?? actorUsername ?? `User ${log.userId ?? "—"}` }];
+    } catch { return []; }
+  });
 }
 export async function setSchoolStatus(input: { schoolId: number; status: "active" | "suspended" | "archived" }, actor: Actor, req?: Request) {
   const profile = await getAccessProfile(actor.id);
