@@ -365,6 +365,13 @@
       "when": 1793892721975,
       "tag": "0051_worthless_blackheart",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "5",
+      "when": 1794120207582,
+      "tag": "0052_wide_skin",
+      "breakpoints": true
     }
   ]
 }

@@ -54,16 +54,19 @@ export async function getPublicSchoolIdentity(schoolCode: string) {
   return { ...row, logoPath: settings?.logoPath ?? null, motto: settings?.motto ?? null };
 }
 
-export async function updateSchool(input: { schoolId: number; schoolName: string }, actor: Actor, req?: Request) {
+export async function updateSchool(input: { schoolId: number; schoolName: string; county?: string | null; subcounty?: string | null; headInstitutionName?: string | null }, actor: Actor, req?: Request) {
   const profile = await getAccessProfile(actor.id);
   if (profile.level !== "system") fail("ONLY_PLATFORM_SUPER_ADMIN");
   const db = await requireDb();
   const schoolName = input.schoolName.trim();
   if (schoolName.length < 2) fail("SCHOOL_NAME_REQUIRED");
+  const county = input.county?.trim() || null;
+  const subcounty = input.subcounty?.trim() || null;
+  const headInstitutionName = input.headInstitutionName?.trim() || null;
   const row = (await db.select({ id: schools.id, schoolCode: schools.schoolCode }).from(schools).where(eq(schools.id, input.schoolId)).limit(1))[0];
   if (!row) fail("SCHOOL_NOT_FOUND");
-  await db.update(schools).set({ schoolName }).where(eq(schools.id, input.schoolId));
-  await audit(actor.id, "admin.school.update", null, { schoolId: input.schoolId, schoolCode: row.schoolCode, schoolName }, req);
+  await db.update(schools).set({ schoolName, county, subcounty, headInstitutionName }).where(eq(schools.id, input.schoolId));
+  await audit(actor.id, "admin.school.update", null, { schoolId: input.schoolId, schoolCode: row.schoolCode, schoolName, county, subcounty, headInstitutionName }, req);
   return { ok: true };
 }
 export async function setSchoolStatus(input: { schoolId: number; status: "active" | "suspended" | "archived" }, actor: Actor, req?: Request) {
@@ -117,25 +120,28 @@ export async function listSchools(actor: Actor) {
   const permissions = await computePermissions(actor.id, profile.role);
   const canSeeAllSchools = profile.level === "system" || permissions.includes("*") || permissions.includes(MANAGE_PERMISSIONS);
   const db = await requireDb();
-  const columns = { id: schools.id, schoolCode: schools.schoolCode, schoolName: schools.schoolName, status: schools.status, createdAt: schools.createdAt };
+  const columns = { id: schools.id, schoolCode: schools.schoolCode, schoolName: schools.schoolName, county: schools.county, subcounty: schools.subcounty, headInstitutionName: schools.headInstitutionName, status: schools.status, createdAt: schools.createdAt };
   if (canSeeAllSchools) return db.select(columns).from(schools).orderBy(schools.schoolName);
   const account = (await db.select({ schoolId: users.schoolId }).from(users).where(eq(users.id, actor.id)).limit(1))[0];
   if (!account?.schoolId) return [];
   return db.select(columns).from(schools).where(eq(schools.id, account.schoolId)).orderBy(schools.schoolName);
 }
 
-export async function createSchool(input: { schoolCode: string; schoolName: string; status: "active" | "pending_activation" }, actor: Actor, req?: Request) {
+export async function createSchool(input: { schoolCode: string; schoolName: string; county?: string | null; subcounty?: string | null; headInstitutionName?: string | null; status: "active" | "pending_activation" }, actor: Actor, req?: Request) {
   const profile = await getAccessProfile(actor.id);
   if (profile.level !== "system") fail("ONLY_PLATFORM_SUPER_ADMIN");
   const db = await requireDb();
   const schoolCode = normalizeSchoolCode(input.schoolCode);
   const schoolName = input.schoolName.trim();
+  const county = input.county?.trim() || null;
+  const subcounty = input.subcounty?.trim() || null;
+  const headInstitutionName = input.headInstitutionName?.trim() || null;
   if (!isValidSchoolCode(schoolCode)) fail("SCHOOL_CODE_INVALID");
   if (schoolName.length < 2) fail("SCHOOL_NAME_REQUIRED");
   if ((await db.select({ id: schools.id }).from(schools).where(eq(schools.schoolCode, schoolCode)).limit(1))[0]) fail("SCHOOL_CODE_TAKEN");
-  const row = (await db.insert(schools).values({ schoolCode, schoolName, status: input.status, createdByUserId: actor.id }).$returningId())[0];
-  await audit(actor.id, "admin.school.create", null, { schoolCode, schoolName, status: input.status, schoolId: row.id }, req);
-  return { id: row.id, schoolCode, schoolName, status: input.status };
+  const row = (await db.insert(schools).values({ schoolCode, schoolName, county, subcounty, headInstitutionName, status: input.status, createdByUserId: actor.id }).$returningId())[0];
+  await audit(actor.id, "admin.school.create", null, { schoolCode, schoolName, county, subcounty, headInstitutionName, status: input.status, schoolId: row.id }, req);
+  return { id: row.id, schoolCode, schoolName, county, subcounty, headInstitutionName, status: input.status };
 }
 
 async function assignmentsByUser(userIds?: number[]) {
