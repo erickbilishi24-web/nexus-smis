@@ -20,7 +20,7 @@ import { createNexusAiDocument, listNexusAiDocuments } from "./ai-documents";
 import { getPayrollWorkspace, getMyPayrollSlips, savePayrollRules, savePayrollCompensation, createPayrollAdjustment, reviewPayrollAdjustment, createPayrollLoan, reviewPayrollLoan, recordPayrollExport, createPayrollDraft, transitionPayrollRun } from "./payroll";
 import { getTransportWorkspace, getTransportLearnerOptions, setTransportEnabled, saveTransportVehicle, setTransportVehicleStatus, saveTransportRoute, assignLearnerTransport, setLearnerTransportStatus, billTransportPeriod, recordTransportPayment, saveTransportAttendance, recordTransportTrip, recordTransportCost, recordTransportIncident, resolveTransportIncident } from "./transport";
 import { addCounsellingNote, completeLearner, createBehaviourRecord, createCounsellingCase, createFollowUp, getArchiveFinance, listAlumniRecords, listArchiveLearners, listCounsellingCases, listApprovedBehaviour } from "./archives";
-import { approveRollover, deleteAcademicTerm, excludeRolloverItem, listAcademicStructure, listRollover, previewRollover, reverseRollover, saveAcademicTerm, saveAcademicYear } from "./academic";
+import { approveRollover, deleteAcademicTerm, deleteAcademicYear, excludeRolloverItem, listAcademicStructure, listRollover, previewRollover, reverseRollover, saveAcademicTerm, saveAcademicYear } from "./academic";
 import { addLibraryBook, batchCheckoutLibraryBooks, checkoutLibraryBook, libraryLookups, libraryOverview, listLibraryBooks, listLibraryBooksPage, listLibraryLoans, listLibraryLoansPage, renewLibraryLoan, returnLibraryBook } from "./library";
 import {
   archiveLearner,
@@ -479,7 +479,8 @@ export const appRouter = router({
     }),
     academic: router({
       structure: adminProcedure.query(() => listAcademicStructure()),
-      saveYear: adminProcedure.input(z.object({ year: z.number().int().min(2000).max(2100), startsOn: z.string().date(), endsOn: z.string().date(), rolloverOn: z.string().date().nullable().optional(), isCurrent: z.boolean() })).mutation(({ input }) => saveAcademicYear(input)),
+      saveYear: adminProcedure.input(z.object({ id: z.number().int().positive().optional(), year: z.number().int().min(2000).max(2100), startsOn: z.string().date(), endsOn: z.string().date(), rolloverOn: z.string().date().nullable().optional(), isCurrent: z.boolean() })).mutation(({ input }) => saveAcademicYear(input)),
+      deleteYear: adminProcedure.input(z.object({ yearId: z.number().int().positive() })).mutation(({ input }) => deleteAcademicYear(input.yearId)),
       saveTerm: adminProcedure.input(z.object({ id: z.number().int().positive().optional(), academicYearId: z.number().int().positive(), name: z.enum(["Term 1", "Term 2", "Term 3"]), startsOn: z.string().date(), endsOn: z.string().date(), isActive: z.boolean() })).mutation(({ input }) => saveAcademicTerm(input)),
       deleteTerm: adminProcedure.input(z.object({ termId: z.number().int().positive() })).mutation(({ input }) => deleteAcademicTerm(input.termId)),
       previewRollover: adminProcedure.input(z.object({ fromYear: z.number().int(), toYear: z.number().int() })).mutation(({ input, ctx }) => previewRollover(input, currentUserId(ctx.user))),

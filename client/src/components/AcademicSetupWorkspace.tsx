@@ -10,6 +10,7 @@ export function AcademicSetupWorkspace() {
   const structure = trpc.smis.academic.structure.useQuery();
   const utils = trpc.useUtils();
   const [year, setYear] = useState(new Date().getFullYear() + 1);
+  const [editingYearId, setEditingYearId] = useState<number | null>(null);
   const [termYearId, setTermYearId] = useState(0);
   const [editingTermId, setEditingTermId] = useState<number | null>(null);
   const [termName, setTermName] = useState<"Term 1" | "Term 2" | "Term 3">("Term 1");
@@ -32,7 +33,11 @@ export function AcademicSetupWorkspace() {
     onError: e => toast.error(toUserError(e)),
   });
   const saveYear = trpc.smis.academic.saveYear.useMutation({
-    onSuccess: () => { toast.success("Academic year saved"); void utils.smis.academic.structure.invalidate(); },
+    onSuccess: () => { toast.success(editingYearId ? "Academic year updated" : "Academic year saved"); setEditingYearId(null); void utils.smis.academic.structure.invalidate(); },
+    onError: e => toast.error(toUserError(e)),
+  });
+  const deleteYear = trpc.smis.academic.deleteYear.useMutation({
+    onSuccess: () => { toast.success("Academic year deleted"); void utils.smis.academic.structure.invalidate(); },
     onError: e => toast.error(toUserError(e)),
   });
   const preview = trpc.smis.academic.previewRollover.useMutation({
@@ -71,9 +76,9 @@ export function AcademicSetupWorkspace() {
         <label className="text-xs font-bold text-[#53675d]">Starts<input type="date" value={startsOn} onChange={e => setStartsOn(e.target.value)} className={input}/></label>
         <label className="text-xs font-bold text-[#53675d]">Ends<input type="date" value={endsOn} onChange={e => setEndsOn(e.target.value)} className={input}/></label>
         <label className="text-xs font-bold text-[#53675d]">Rollover date<input type="date" value={rolloverOn} onChange={e => setRolloverOn(e.target.value)} className={input}/></label>
-        <button className="action-button self-end justify-center" onClick={() => saveYear.mutate({ year, startsOn, endsOn, rolloverOn, isCurrent: true })}>{saveYear.isPending ? "Saving…" : "Save year"}</button>
+        <div className="flex gap-2 self-end"><button className="action-button justify-center" onClick={() => saveYear.mutate({ id: editingYearId ?? undefined, year, startsOn, endsOn, rolloverOn, isCurrent: true })}>{saveYear.isPending ? "Saving…" : editingYearId ? "Save changes" : "Save year"}</button>{editingYearId && <button type="button" className="quiet-button" onClick={() => setEditingYearId(null)}>Cancel</button>}</div>
       </div>
-      <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[620px] text-left text-xs"><thead className="bg-[#edf2ed]"><tr><th className="p-2">Year</th><th className="p-2">Dates</th><th className="p-2">Rollover</th><th className="p-2">Status</th></tr></thead><tbody>{structure.data?.years.map(row => <tr key={row.id} className="border-t border-[#eee9df]"><td className="p-2 font-bold">{row.year}{row.isCurrent ? " · Current" : ""}</td><td className="p-2">{String(row.startsOn).slice(0, 10)} – {String(row.endsOn).slice(0, 10)}</td><td className="p-2">{row.rolloverOn ? String(row.rolloverOn).slice(0, 10) : "Not set"}</td><td className="p-2 capitalize">{row.status}</td></tr>)}</tbody></table></div>
+      <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[620px] text-left text-xs"><thead className="bg-[#edf2ed]"><tr><th className="p-2">Year</th><th className="p-2">Dates</th><th className="p-2">Rollover</th><th className="p-2">Status</th><th className="p-2">Actions</th></tr></thead><tbody>{structure.data?.years.map(row => <tr key={row.id} className="border-t border-[#eee9df]"><td className="p-2 font-bold">{row.year}{row.isCurrent ? " · Current" : ""}</td><td className="p-2">{String(row.startsOn).slice(0, 10)} – {String(row.endsOn).slice(0, 10)}</td><td className="p-2">{row.rolloverOn ? String(row.rolloverOn).slice(0, 10) : "Not set"}</td><td className="p-2 capitalize">{row.status}</td><td className="p-2"><div className="flex gap-2"><button type="button" className="quiet-button" onClick={() => { setEditingYearId(row.id); setYear(row.year); setStartsOn(String(row.startsOn).slice(0, 10)); setEndsOn(String(row.endsOn).slice(0, 10)); setRolloverOn(row.rolloverOn ? String(row.rolloverOn).slice(0, 10) : ""); }}>Edit</button><button type="button" className="quiet-button text-[#9c4038]" disabled={Boolean(row.isCurrent) || deleteYear.isPending} title={row.isCurrent ? "The current academic year cannot be deleted" : "Delete academic year"} onClick={() => window.confirm(`Delete academic year ${row.year}?`) && deleteYear.mutate({ yearId: row.id })}>Delete</button></div></td></tr>)}</tbody></table></div>
     </section>
 
     <section className="soft-card rounded-[1.15rem] p-5">

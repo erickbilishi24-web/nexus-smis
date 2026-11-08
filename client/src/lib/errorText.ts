@@ -21,6 +21,12 @@ const DOMAIN_MESSAGES: Record<string, string> = {
   TERM_DATES_INVALID: "Term start date must be before the end date.",
   TERM_DATES_OVERLAP: "These term dates overlap another term in the same academic year.",
   TERM_NOT_FOUND: "This term no longer exists. Refresh the page and try again.",
+  ACADEMIC_YEAR_DATES_INVALID: "Academic year start date must be before the end date.",
+  ACADEMIC_YEAR_EXISTS: "That academic year already exists.",
+  ACADEMIC_YEAR_NOT_FOUND: "This academic year no longer exists. Refresh the page and try again.",
+  CANNOT_DELETE_CURRENT_ACADEMIC_YEAR: "The current academic year cannot be deleted. Set another year as current first.",
+  ACADEMIC_YEAR_HAS_TERMS: "Delete or move the terms under this year before deleting the academic year.",
+  ACADEMIC_YEAR_HAS_ROLLOVER_HISTORY: "This academic year has rollover history and cannot be deleted.",
   CANNOT_DELETE_CURRENT_ACCOUNT: "You cannot delete the account currently in use.",
   CANNOT_DELETE_PLATFORM_SUPER_ADMIN: "The protected Super Admin account cannot be deleted.",
 };
