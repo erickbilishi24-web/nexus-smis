@@ -54,10 +54,12 @@ export async function getPublicSchoolIdentity(schoolCode: string) {
   return { ...row, logoPath: settings?.logoPath ?? null, motto: settings?.motto ?? null };
 }
 
-export async function updateSchool(input: { schoolId: number; schoolName: string; county?: string | null; subcounty?: string | null; headInstitutionName?: string | null }, actor: Actor, req?: Request) {
+export async function updateSchool(input: { schoolId: number; schoolCode: string; schoolName: string; county?: string | null; subcounty?: string | null; headInstitutionName?: string | null }, actor: Actor, req?: Request) {
   const profile = await getAccessProfile(actor.id);
   if (profile.level !== "system") fail("ONLY_PLATFORM_SUPER_ADMIN");
   const db = await requireDb();
+  const schoolCode = normalizeSchoolCode(input.schoolCode);
+  if (!isValidSchoolCode(schoolCode)) fail("INVALID_SCHOOL_CODE");
   const schoolName = input.schoolName.trim();
   if (schoolName.length < 2) fail("SCHOOL_NAME_REQUIRED");
   const county = input.county?.trim() || null;
@@ -65,8 +67,10 @@ export async function updateSchool(input: { schoolId: number; schoolName: string
   const headInstitutionName = input.headInstitutionName?.trim() || null;
   const row = (await db.select({ id: schools.id, schoolCode: schools.schoolCode }).from(schools).where(eq(schools.id, input.schoolId)).limit(1))[0];
   if (!row) fail("SCHOOL_NOT_FOUND");
-  await db.update(schools).set({ schoolName, county, subcounty, headInstitutionName }).where(eq(schools.id, input.schoolId));
-  await audit(actor.id, "admin.school.update", null, { schoolId: input.schoolId, schoolCode: row.schoolCode, schoolName, county, subcounty, headInstitutionName }, req);
+  const duplicate = (await db.select({ id: schools.id }).from(schools).where(eq(schools.schoolCode, schoolCode)).limit(1))[0];
+  if (duplicate && duplicate.id !== input.schoolId) fail("SCHOOL_CODE_TAKEN");
+  await db.update(schools).set({ schoolCode, schoolName, county, subcounty, headInstitutionName }).where(eq(schools.id, input.schoolId));
+  await audit(actor.id, "admin.school.update", null, { schoolId: input.schoolId, previousSchoolCode: row.schoolCode, schoolCode, schoolName, county, subcounty, headInstitutionName }, req);
   return { ok: true };
 }
 export async function setSchoolStatus(input: { schoolId: number; status: "active" | "suspended" | "archived" }, actor: Actor, req?: Request) {
