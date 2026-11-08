@@ -127,6 +127,17 @@ export async function listSchools(actor: Actor) {
   return db.select(columns).from(schools).where(eq(schools.id, account.schoolId)).orderBy(schools.schoolName);
 }
 
+export async function listSchoolTeachers(schoolId: number, actor: Actor) {
+  const profile = await getAccessProfile(actor.id);
+  if (profile.level !== "system") fail("ONLY_PLATFORM_SUPER_ADMIN");
+  const db = await requireDb();
+  return db.select({ userId: users.id, name: staffProfiles.displayName, username: users.username, role: staffProfiles.role })
+    .from(staffProfiles)
+    .innerJoin(users, eq(users.id, staffProfiles.userId))
+    .where(and(eq(users.schoolId, schoolId), eq(staffProfiles.status, "active")))
+    .orderBy(staffProfiles.displayName);
+}
+
 export async function createSchool(input: { schoolCode: string; schoolName: string; county?: string | null; subcounty?: string | null; headInstitutionName?: string | null; status: "active" | "pending_activation" }, actor: Actor, req?: Request) {
   const profile = await getAccessProfile(actor.id);
   if (profile.level !== "system") fail("ONLY_PLATFORM_SUPER_ADMIN");
