@@ -18,6 +18,9 @@ const DOMAIN_MESSAGES: Record<string, string> = {
   LEARNERS_NOT_FOUND: "The selected learner records are no longer available.",
   STAFF_REQUIRED: "Select at least one staff member before deleting.",
   STAFF_NOT_FOUND: "The selected staff records are no longer available.",
+  TERM_DATES_INVALID: "Term start date must be before the end date.",
+  TERM_DATES_OVERLAP: "These term dates overlap another term in the same academic year.",
+  TERM_NOT_FOUND: "This term no longer exists. Refresh the page and try again.",
   CANNOT_DELETE_CURRENT_ACCOUNT: "You cannot delete the account currently in use.",
   CANNOT_DELETE_PLATFORM_SUPER_ADMIN: "The protected Super Admin account cannot be deleted.",
 };
