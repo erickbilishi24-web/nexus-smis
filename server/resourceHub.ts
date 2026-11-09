@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import {
   resourceAuditLogs,
   resourceCategories,
@@ -78,7 +78,7 @@ export async function ensureDefaultCategories(): Promise<ResourceCategory[]> {
 export async function getResourceHubSnapshot(schoolId?: number | null) {
   const db = await requireDb();
   const categories = await ensureDefaultCategories();
-  const allResources = await db.select().from(resources).where(schoolId == null ? undefined : eq(resources.schoolId, schoolId)).orderBy(asc(resources.displayOrder), desc(resources.updatedAt));
+  const allResources = await db.select().from(resources).where(schoolId == null ? undefined : or(eq(resources.schoolId, schoolId), isNull(resources.schoolId))).orderBy(asc(resources.displayOrder), desc(resources.updatedAt));
   const allVisibility = allResources.length
     ? await db.select().from(resourceRoleVisibility).where(inArray(resourceRoleVisibility.resourceId, allResources.map(resource => resource.id)))
     : [];
