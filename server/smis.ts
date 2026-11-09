@@ -1,6 +1,7 @@
 import { and, count, desc, eq, gte, inArray, isNull, like, lte, ne, or, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db";
+import { storagePutForSchool } from "./storage";
 import { computePermissions, MANAGE_PERMISSIONS } from "./access";
 import { curriculumCatalogue } from "./curriculum";
 import { attendanceGradeLevel, validateAttendanceBatch, type AttendanceBatchEntry } from "../shared/attendance";
@@ -126,7 +127,7 @@ export async function getSettings(schoolId?: number | null) {
   const row = (schoolId == null
     ? await db.select().from(schoolSettings).limit(1)
     : await db.select().from(schoolSettings).where(eq(schoolSettings.schoolId, schoolId)).limit(1))[0];
-  const defaults = { id: 0, schoolName: "Ebunangwe Junior School", motto: "Learn. Lead. Serve.", currentTerm: "Term 2", academicYear: 2026, includeFeesOnReportCard: 1, showPercentagesOnReportCard: 0, logoPath: null, principalSignaturePath: null, classTeacherSignaturePath: null, address: null, phone: null, email: null, subjectShortNames: {}, gradingScale: [{ code: "EE1", label: "Exceeding Expectations 1", min: 90, max: 100 }, { code: "EE2", label: "Exceeding Expectations 2", min: 75, max: 89 }, { code: "ME1", label: "Meeting Expectations 1", min: 58, max: 74 }, { code: "ME2", label: "Meeting Expectations 2", min: 41, max: 57 }, { code: "AE1", label: "Approaching Expectations 1", min: 31, max: 40 }, { code: "AE2", label: "Approaching Expectations 2", min: 21, max: 30 }, { code: "BE1", label: "Below Expectations 1", min: 11, max: 20 }, { code: "BE2", label: "Below Expectations 2", min: 0, max: 10 }], assessmentCategories: ["Mid-Term", "End-Term"], competencyLevels: ["Exceeding Expectations", "Meeting Expectations", "Approaching Expectations", "Below Expectations"], reportCardSettings: { showLogo: true, showAddress: true, showPhone: true, showEmail: true, showMotto: true }, themePrimaryColor: "#1d6a57", themeAccentColor: "#d99b3d", themeSurfaceColor: "#f7f4ed", themeMode: "light" as const };
+  const defaults = { id: 0, schoolName: "Ebunangwe Junior School", motto: "Learn. Lead. Serve.", currentTerm: "Term 2", academicYear: 2026, includeFeesOnReportCard: 1, showPercentagesOnReportCard: 0, logoPath: null, principalSignaturePath: null, classTeacherSignaturePath: null, address: null, phone: null, email: null, subjectShortNames: {}, gradingScale: [{ code: "EE1", label: "Exceeding Expectations 1", min: 90, max: 100 }, { code: "EE2", label: "Exceeding Expectations 2", min: 75, max: 89 }, { code: "ME1", label: "Meeting Expectations 1", min: 58, max: 74 }, { code: "ME2", label: "Meeting Expectations 2", min: 41, max: 57 }, { code: "AE1", label: "Approaching Expectations 1", min: 31, max: 40 }, { code: "AE2", label: "Approaching Expectations 2", min: 21, max: 30 }, { code: "BE1", label: "Below Expectations 1", min: 11, max: 20 }, { code: "BE2", label: "Below Expectations 2", min: 0, max: 10 }], assessmentCategories: ["Mid-Term", "End-Term"], competencyLevels: ["Exceeding Expectations", "Meeting Expectations", "Approaching Expectations", "Below Expectations"], reportCardSettings: { showLogo: true, showAddress: true, showPhone: true, showEmail: true, showMotto: true, layoutStyle: "classic", colorTheme: "emerald" }, themePrimaryColor: "#1d6a57", themeAccentColor: "#d99b3d", themeSurfaceColor: "#f7f4ed", themeMode: "light" as const };
   if (!row) return defaults;
   const parse = <T,>(value: string | null | undefined, fallback: T): T => { try { return value ? JSON.parse(value) as T : fallback; } catch { return fallback; } };
   return { ...row, subjectShortNames: parse(row.subjectShortNames, {} as Record<string, string>), gradingScale: parse(row.gradingScale, defaults.gradingScale), assessmentCategories: parse(row.assessmentCategories, defaults.assessmentCategories), competencyLevels: parse(row.competencyLevels, defaults.competencyLevels), reportCardSettings: parse(row.reportCardSettings, defaults.reportCardSettings) };
@@ -1966,6 +1967,23 @@ export async function deleteTeacherAllocation(id: number, userId: number) {
   await db.delete(teacherAllocations).where(eq(teacherAllocations.id, id));
   await writeAudit(userId, "allocation.delete", "teacher_allocation", id, { teacherUserId: current.teacherUserId, gradeId: current.gradeId, subjectId: current.subjectId });
   return { ok: true };
+}
+
+export async function uploadSchoolLogo(input: { fileName: string; mimeType: string; base64: string }, userId: number) {
+  const allowed = new Set(["image/png", "image/jpeg", "image/webp"]);
+  if (!allowed.has(input.mimeType)) throw new Error("LOGO_FORMAT_UNSUPPORTED");
+  const raw = input.base64.replace(/^data:[^;]+;base64,/, "");
+  const buffer = Buffer.from(raw, "base64");
+  if (!buffer.length || buffer.length > 5 * 1024 * 1024) throw new Error("LOGO_SIZE_INVALID");
+  const schoolId = await actorSchoolId(userId);
+  const extension = input.mimeType === "image/png" ? "png" : input.mimeType === "image/webp" ? "webp" : "jpg";
+  const uploaded = await storagePutForSchool(schoolId, `branding/school-logo.${extension}`, buffer, input.mimeType);
+  const db = await requireDb();
+  const current = (await db.select().from(schoolSettings).where(eq(schoolSettings.schoolId, schoolId)).limit(1))[0];
+  if (current) await db.update(schoolSettings).set({ logoPath: uploaded.url }).where(eq(schoolSettings.id, current.id));
+  else await db.insert(schoolSettings).values({ schoolId, logoPath: uploaded.url, schoolName: "Ebunangwe Junior School", currentTerm: "Term 2", academicYear: 2026 });
+  await writeAudit(userId, "settings.logo_upload", "school_settings", current?.id ?? null, { fileName: input.fileName, mimeType: input.mimeType });
+  return { url: uploaded.url };
 }
 
 export async function saveSettings(input: { schoolName: string; motto?: string | null; currentTerm: string; academicYear: number; includeFeesOnReportCard: boolean; showPercentagesOnReportCard?: boolean; address?: string | null; phone?: string | null; email?: string | null; logoPath?: string | null; subjectShortNames?: Record<string, string>; gradingScale?: Array<{ code: string; label: string; min: number; max: number }>; assessmentCategories?: string[]; competencyLevels?: string[]; reportCardSettings?: { showLogo?: boolean; showAddress?: boolean; showPhone?: boolean; showEmail?: boolean; showMotto?: boolean }; themePrimaryColor?: string; themeAccentColor?: string; themeSurfaceColor?: string; themeMode?: "light" | "dark" | "system" }, userId: number) {
