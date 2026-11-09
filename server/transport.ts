@@ -4,7 +4,7 @@ import {
   auditLogs, expenditures, guardians, learnerGuardians, learners, payments, schoolSettings,
   staffProfiles, transportAllocations, transportAttendance, transportChargePayments,
   transportCharges, transportCosts, transportIncidents, transportRoutes, transportSettings, transportTrips,
-  transportVehicles,
+  transportVehicles, users,
 } from "../drizzle/schema";
 import { actorSchoolId, requireDb, userCan, writeAudit } from "./smis";
 
@@ -122,6 +122,17 @@ export async function saveTransportVehicle(input: {
   return { ok: true, id };
 }
 
+export async function listTransportVehicleHistory(vehicleId: number, userId: number, role: string) {
+  await demand(userId, role, "transport.view");
+  const { db, schoolId } = await schoolScope(userId, true);
+  const vehicle = (await db.select({ id: transportVehicles.id }).from(transportVehicles).where(and(eq(transportVehicles.id, vehicleId), eq(transportVehicles.schoolId, schoolId))).limit(1))[0];
+  if (!vehicle) throw new Error("VEHICLE_NOT_FOUND");
+  const rows = await db.select({ audit: auditLogs, actorName: users.name, actorUsername: users.username })
+    .from(auditLogs).leftJoin(users, eq(users.id, auditLogs.userId))
+    .where(and(eq(auditLogs.schoolId, schoolId), eq(auditLogs.entityType, "transport_vehicle"), eq(auditLogs.entityId, String(vehicleId))))
+    .orderBy(desc(auditLogs.createdAt), desc(auditLogs.id)).limit(100);
+  return rows.map(({ audit, actorName, actorUsername }) => ({ id: audit.id, action: audit.action, metadata: audit.metadata ? (() => { try { return JSON.parse(audit.metadata as string); } catch { return {}; } })() : {}, changedAt: audit.createdAt, changedBy: actorName ?? actorUsername ?? "System administrator" }));
+}
 export async function setTransportVehicleStatus(input: { vehicleId: number; status: "active" | "service" | "retired" }, userId: number, role: string) {
   await demand(userId, role, "transport.manage");
   const { db, schoolId } = await schoolScope(userId);
