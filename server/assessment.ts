@@ -541,6 +541,9 @@ export async function getClassMarklist(input: { academicYear: number; term: stri
     ? await db.select().from(marks).where(and(inArray(marks.assessmentId, assessmentIds), eq(marks.schoolId, schoolId)))
     : [];
   const assessmentTypeById = new Map(assessmentsForPeriod.map(row => [row.id, row.assessmentType]));
+  const changedByIds = Array.from(new Set(saved.map(row => row.updatedByUserId).filter((id): id is number => id !== null)));
+  const changedByUsers = changedByIds.length ? await db.select({ id: users.id, name: users.name, username: users.username }).from(users).where(inArray(users.id, changedByIds)) : [];
+  const changedByName = new Map(changedByUsers.map(row => [row.id, row.name ?? row.username ?? `User ${row.id}`]));
   const marksBySubjectLearnerType = new Map(saved.map(row => [`${row.subjectId}:${row.learnerId}:${assessmentTypeById.get(row.assessmentId)}`, row]));
   const classList = roster.map(learner => {
     const subjectMarks = subjectRows.map(subject => {
@@ -552,7 +555,8 @@ export async function getClassMarklist(input: { academicYear: number; term: stri
       const score = input.assessmentType === "average"
         ? averageAssessmentScores(midScore, endScore)
         : selected?.score == null ? null : Number(selected.score);
-      return { subjectId: subject.id, score, cbcLevel: score === null ? null : cbcLevel(score), missing: score === null };
+      const changed = input.assessmentType === "average" ? (end ?? mid) : selected;
+      return { subjectId: subject.id, score, cbcLevel: score === null ? null : cbcLevel(score), missing: score === null, lastChangedBy: changed?.updatedByUserId ? (changedByName.get(changed.updatedByUserId) ?? `User ${changed.updatedByUserId}`) : null, lastChangedAt: changed?.updatedAt ?? null };
     });
     const entered = subjectMarks.filter(mark => mark.score !== null);
     const total = entered.reduce((sum, mark) => sum + (mark.score ?? 0), 0);
@@ -577,6 +581,24 @@ export async function getClassMarklist(input: { academicYear: number; term: stri
     learners: classList,
     missingCount: classList.reduce((sum, row) => sum + row.missingCount, 0),
   };
+}
+
+export async function getPerformanceReports(input: { academicYear: number; term: string; gradeId?: number }, userId: number) {
+  const db = await requireDb();
+  const schoolId = await actorSchoolId(userId);
+  const gradeRows = await db.select({ id: grades.id, name: grades.name, stream: grades.stream }).from(grades).where(eq(grades.schoolId, schoolId)).orderBy(grades.name);
+  const selectedGrades = input.gradeId ? gradeRows.filter(row => row.id === input.gradeId) : gradeRows;
+  const gradeIds = selectedGrades.map(row => row.id);
+  if (!gradeIds.length) return { academicYear: input.academicYear, term: input.term, grades: gradeRows, rows: [] };
+  const assessmentRows = await db.select().from(assessments).where(and(eq(assessments.schoolId, schoolId), eq(assessments.academicYear, input.academicYear), eq(assessments.term, input.term), inArray(assessments.gradeId, gradeIds)));
+  const assessmentIds = assessmentRows.map(row => row.id);
+  const markRows = assessmentIds.length ? await db.select().from(marks).where(and(eq(marks.schoolId, schoolId), inArray(marks.assessmentId, assessmentIds))) : [];
+  const byGrade = selectedGrades.map(grade => {
+    const ids = new Set(assessmentRows.filter(row => row.gradeId === grade.id).map(row => row.id));
+    const scores = markRows.filter(row => ids.has(row.assessmentId)).map(row => Number(row.score)).filter(Number.isFinite);
+    return { gradeId: grade.id, grade: grade.name, stream: grade.stream, learnersAssessed: new Set(markRows.filter(row => ids.has(row.assessmentId)).map(row => row.learnerId)).size, enteredMarks: scores.length, averageMark: scores.length ? Math.round(scores.reduce((a,b) => a + b, 0) / scores.length * 100) / 100 : null, highest: scores.length ? Math.max(...scores) : null, lowest: scores.length ? Math.min(...scores) : null };
+  });
+  return { academicYear: input.academicYear, term: input.term, grades: gradeRows, rows: byGrade };
 }
 
 export async function getAssessmentReportCard(input: { learnerId: number; academicYear: number; term: string; assessmentType: AssessmentType }, userId: number) {
