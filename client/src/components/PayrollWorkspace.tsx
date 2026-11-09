@@ -1,7 +1,7 @@
 import { toUserError } from "@/lib/errorText";
 // @ts-nocheck
 import { useMemo, useState } from "react";
-import { Banknote, Download, FileCheck2, LoaderCircle, ShieldCheck, Users } from "lucide-react";
+import { Banknote, Download, FileCheck2, LoaderCircle, Plus, ShieldCheck, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
 import { DEFAULT_KENYA_PAYROLL_RULES } from "@shared/payroll";
 import { trpc } from "@/lib/trpc";
@@ -17,6 +17,15 @@ const dateText = (value: unknown) => value instanceof Date ? value.toISOString()
 const fail = (error: unknown) => toast.error(toUserError(error));
 
 type Props = { canView: boolean; canEdit: boolean; canApprove: boolean; canEditRules: boolean; canFinance: boolean };
+type ContractLine = { name: string; amount: string; taxable: boolean; pensionable: boolean; taxDeductible?: boolean };
+const emptyContractLine = (deduction = false): ContractLine => ({ name: "", amount: "", taxable: true, pensionable: false, ...(deduction ? { taxDeductible: false } : {}) });
+const contractLinesFromJson = (value: unknown, deduction = false): ContractLine[] => {
+  try {
+    const parsed = JSON.parse(String(value ?? "[]"));
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map(line => ({ name: String(line?.name ?? ""), amount: String(line?.amount ?? ""), taxable: line?.taxable !== false, pensionable: line?.pensionable === true, ...(deduction ? { taxDeductible: line?.taxDeductible === true } : {}) }));
+  } catch { return []; }
+};
 
 export function PayrollWorkspace({ canView, canEdit, canApprove, canEditRules, canFinance }: Props) {
   const utils = trpc.useUtils();
@@ -24,7 +33,9 @@ export function PayrollWorkspace({ canView, canEdit, canApprove, canEditRules, c
   const mySlips = trpc.smis.payroll.mySlips.useQuery(undefined, { retry: false });
   const [period, setPeriod] = useState(currentMonth());
   const [staffProfileId, setStaffProfileId] = useState("");
-  const [contract, setContract] = useState({ effectiveFrom: today(), basicSalary: "", earningsJson: "[]", deductionsJson: "[]", resident: true, additionalPension: "0", postRetirementMedical: "0", mortgageInterest: "0" });
+  const [contract, setContract] = useState({ effectiveFrom: today(), basicSalary: "", resident: true, additionalPension: "0", postRetirementMedical: "0", mortgageInterest: "0" });
+  const [earnings, setEarnings] = useState<ContractLine[]>([]);
+  const [deductions, setDeductions] = useState<ContractLine[]>([]);
   const [adjustment, setAdjustment] = useState({ staffProfileId: "", period: currentMonth(), kind: "earning" as "earning" | "deduction", description: "", amount: "", taxable: true });
   const [loan, setLoan] = useState({ staffProfileId: "", loanType: "loan" as "loan" | "advance", description: "", principalAmount: "", installmentAmount: "", startPeriod: currentMonth() });
   const [reportPeriod, setReportPeriod] = useState(currentMonth());
@@ -50,6 +61,25 @@ export function PayrollWorkspace({ canView, canEdit, canApprove, canEditRules, c
   const selectedStaff = data?.staff.find(person => person.id === Number(staffProfileId));
   const viewOnlySlips = mySlips.data ?? [];
   const fallbackRules = useMemo(() => JSON.stringify(data?.rules[0]?.rules ?? DEFAULT_KENYA_PAYROLL_RULES, null, 2), [data?.rules]);
+  const earningsTotal = earnings.reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
+  const deductionsTotal = deductions.reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
+  const selectContractStaff = (value: string) => {
+    setStaffProfileId(value);
+    setAdjustment(current => ({ ...current, staffProfileId: value }));
+    const existing = data?.compensation?.filter(row => row.staffProfileId === Number(value)).sort((a, b) => dateText(b.effectiveFrom).localeCompare(dateText(a.effectiveFrom)))[0];
+    if (!existing) {
+      setContract(current => ({ ...current, basicSalary: "" })); setEarnings([]); setDeductions([]); return;
+    }
+    setContract(current => ({ ...current, effectiveFrom: dateText(existing.effectiveFrom), basicSalary: String(existing.basicSalary ?? ""), resident: existing.resident !== 0, additionalPension: String(existing.additionalPension ?? "0"), postRetirementMedical: String(existing.postRetirementMedical ?? "0"), mortgageInterest: String(existing.mortgageInterest ?? "0") }));
+    setEarnings(contractLinesFromJson(JSON.stringify(existing.earnings ?? []))); setDeductions(contractLinesFromJson(JSON.stringify(existing.deductions ?? []), true));
+  };
+  const updateLine = (setLines: React.Dispatch<React.SetStateAction<ContractLine[]>>, index: number, patch: Partial<ContractLine>) => setLines(lines => lines.map((line, lineIndex) => lineIndex === index ? { ...line, ...patch } : line));
+  const lineEditor = (title: string, lines: ContractLine[], setLines: React.Dispatch<React.SetStateAction<ContractLine[]>>, deduction = false) => <div className="rounded-xl border border-[#dfe7df] bg-[#fbfcf9] p-4">
+    <div className="flex items-start justify-between gap-3"><div><h3 className="text-sm font-bold text-[#294a3c]">{title}</h3><p className="mt-1 text-xs text-[#718077]">Add each line separately. The payroll register will calculate the totals automatically.</p></div><button type="button" className={secondary} onClick={() => setLines(current => [...current, emptyContractLine(deduction)])}><Plus size={14}/>Add line</button></div>
+    {!lines.length ? <p className="mt-3 rounded-lg border border-dashed border-[#ccd9cd] px-3 py-3 text-xs text-[#718077]">No additional {deduction ? "deductions" : "earnings"} configured.</p> : <div className="mt-3 space-y-3">{lines.map((line, index) => <div key={`${title}-${index}`} className="rounded-lg border border-[#e1e8e1] bg-white p-3">
+      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_9rem_auto] sm:items-end"><label className="grid gap-1 text-xs font-semibold text-[#5e7065]"><span>Name</span><input className={control} placeholder={deduction ? "e.g. Staff loan" : "e.g. House allowance"} value={line.name} onChange={event => updateLine(setLines, index, { name: event.target.value })}/></label><label className="grid gap-1 text-xs font-semibold text-[#5e7065]"><span>Amount (KSh)</span><input className={control} type="number" min="0" step="0.01" placeholder="0.00" value={line.amount} onChange={event => updateLine(setLines, index, { amount: event.target.value })}/></label><button type="button" aria-label={`Remove ${title.toLowerCase()} line ${index + 1}`} className="inline-flex h-10 items-center justify-center rounded-lg border border-[#efc9c3] px-3 text-[#a34d43] hover:bg-[#fff4f1]" onClick={() => setLines(current => current.filter((_, lineIndex) => lineIndex !== index))}><Trash2 size={15}/></button></div>
+      <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-xs text-[#53675d]"><label className="inline-flex items-center gap-2"><input type="checkbox" checked={line.taxable} onChange={event => updateLine(setLines, index, { taxable: event.target.checked })}/>Taxable</label><label className="inline-flex items-center gap-2"><input type="checkbox" checked={line.pensionable} onChange={event => updateLine(setLines, index, { pensionable: event.target.checked })}/>Pensionable</label>{deduction && <label className="inline-flex items-center gap-2"><input type="checkbox" checked={line.taxDeductible === true} onChange={event => updateLine(setLines, index, { taxDeductible: event.target.checked })}/>Tax-deductible</label>}</div>
+    </div>)}</div>}</div>;
 
   const field = (label: string, child: React.ReactNode) => <label className="grid gap-1.5 text-xs font-semibold text-[#5e7065]"><span>{label}</span>{child}</label>;
   const panel = (title: string, description: string, content: React.ReactNode, icon?: React.ReactNode) => <section className="soft-card rounded-xl border border-[#d8ded7] bg-white p-5"><div className="mb-4 flex items-start gap-3">{icon && <span className="rounded-lg bg-[#edf3ed] p-2 text-[#2b5747]">{icon}</span>}<div><h2 className="font-semibold text-[#193d32]">{title}</h2><p className="mt-1 text-xs text-[#6e7c72]">{description}</p></div></div>{content}</section>;
@@ -141,19 +171,16 @@ export function PayrollWorkspace({ canView, canEdit, canApprove, canEditRules, c
         <p className="text-xs text-[#7b877f]">Latest saved rule set: {data.rules[0] ? dateText(data.rules[0].effectiveFrom) : "none saved yet"}. The initial migration seeds the reviewed 2026 baseline. Source details are in <a className="underline" href="/payroll-sources.html" target="_blank" rel="noreferrer">the statutory reference note</a>.</p>
       </form>, <ShieldCheck size={18}/>)}
 
-      {canEdit && panel("Effective-dated salary contract", "Stores compensation, taxable and pensionable earning flags, selected deductions, and individual tax relief inputs. No bank account, PIN or tax password is stored.", <form className="grid gap-3 md:grid-cols-3" onSubmit={event => { event.preventDefault(); try { const earnings = JSON.parse(contract.earningsJson); const deductions = JSON.parse(contract.deductionsJson); if (!Array.isArray(earnings) || !Array.isArray(deductions)) throw new Error(); void run(() => saveComp.mutateAsync({ staffProfileId: Number(staffProfileId), effectiveFrom: contract.effectiveFrom, basicSalary: Number(contract.basicSalary), earnings, deductions, resident: contract.resident, additionalPension: Number(contract.additionalPension), postRetirementMedical: Number(contract.postRetirementMedical), mortgageInterest: Number(contract.mortgageInterest) }), "Salary contract saved"); } catch { toast.error("Earnings and deduction fields must contain valid JSON arrays."); } }}>
-        {field("Active staff member", <select className={control} required value={staffProfileId} onChange={e => { setStaffProfileId(e.target.value); setAdjustment({ ...adjustment, staffProfileId: e.target.value }); }}><option value="">Choose staff member</option>{data.staff.filter(person => person.status === "active").map(person => <option key={person.id} value={person.id}>{person.displayName} · {person.role}</option>)}</select>)}
+      {canEdit && panel("Effective-dated salary contract", "Build the contract with simple line items. NEXUS validates the entries and stores the same secure payroll structure behind the scenes.", <form className="grid gap-3 md:grid-cols-3" onSubmit={event => { event.preventDefault(); const normalize = (lines: ContractLine[], deduction = false) => lines.map(line => { const amount = Number(line.amount); if (!line.name.trim() || !Number.isFinite(amount) || amount < 0) throw new Error("Each line needs a name and a valid non-negative amount."); return { name: line.name.trim(), amount, taxable: line.taxable, pensionable: line.pensionable, ...(deduction ? { taxDeductible: line.taxDeductible === true } : {}) }; }); try { const cleanEarnings = normalize(earnings); const cleanDeductions = normalize(deductions, true); void run(() => saveComp.mutateAsync({ staffProfileId: Number(staffProfileId), effectiveFrom: contract.effectiveFrom, basicSalary: Number(contract.basicSalary), earnings: cleanEarnings, deductions: cleanDeductions, resident: contract.resident, additionalPension: Number(contract.additionalPension), postRetirementMedical: Number(contract.postRetirementMedical), mortgageInterest: Number(contract.mortgageInterest) }), "Salary contract saved"); } catch (error) { toast.error(error instanceof Error ? error.message : "Check the contract line items and try again."); } }}>
+        {field("Active staff member", <select className={control} required value={staffProfileId} onChange={e => selectContractStaff(e.target.value)}><option value="">Choose staff member</option>{data.staff.filter(person => person.status === "active").map(person => <option key={person.id} value={person.id}>{person.displayName} · {person.role}</option>)}</select>)}
         {field("Effective from", <input className={control} type="date" value={contract.effectiveFrom} onChange={e => setContract({ ...contract, effectiveFrom: e.target.value })}/>)}
         {field("Basic salary (KSh)", <input className={control} required type="number" min="0" step="0.01" value={contract.basicSalary} onChange={e => setContract({ ...contract, basicSalary: e.target.value })}/>)}
         {field("Tax residency", <select className={control} value={contract.resident ? "resident" : "nonresident"} onChange={e => setContract({ ...contract, resident: e.target.value === "resident" })}><option value="resident">Resident (personal relief applied)</option><option value="nonresident">Non-resident</option></select>)}
         {field("Additional pension (KSh)", <input className={control} type="number" min="0" step="0.01" value={contract.additionalPension} onChange={e => setContract({ ...contract, additionalPension: e.target.value })}/>)}
         {field("Post-retirement medical contribution (KSh)", <input className={control} type="number" min="0" step="0.01" value={contract.postRetirementMedical} onChange={e => setContract({ ...contract, postRetirementMedical: e.target.value })}/>)}
         {field("Mortgage-interest qualifying deduction (KSh)", <input className={control} type="number" min="0" step="0.01" value={contract.mortgageInterest} onChange={e => setContract({ ...contract, mortgageInterest: e.target.value })}/>)}
-        <div className="md:col-span-3 grid gap-3 md:grid-cols-2">
-          {field("Earnings JSON", <textarea className={`${control} min-h-24 font-mono text-xs`} value={contract.earningsJson} onChange={e => setContract({ ...contract, earningsJson: e.target.value })}/>)}
-          {field("Deductions JSON", <textarea className={`${control} min-h-24 font-mono text-xs`} value={contract.deductionsJson} onChange={e => setContract({ ...contract, deductionsJson: e.target.value })}/>)}
-          <p className="md:col-span-2 text-xs leading-5 text-[#7b877f]">Example line: <code>{'{"name":"House allowance","amount":12000,"taxable":true,"pensionable":false}'}</code>. A deduction may set <code>taxDeductible:true</code> only if verified as legally eligible.</p>
-        </div>
+        <div className="md:col-span-3 grid gap-3 lg:grid-cols-2">{lineEditor("Additional earnings", earnings, setEarnings)}{lineEditor("Contract deductions", deductions, setDeductions, true)}</div>
+        <div className="md:col-span-3 grid gap-3 rounded-xl border border-[#cfe0d3] bg-[#f3f8f3] p-4 sm:grid-cols-3"><div><p className="text-xs font-semibold text-[#687b70]">Basic salary</p><p className="mt-1 text-sm font-bold text-[#193d32]">{cash(contract.basicSalary)}</p></div><div><p className="text-xs font-semibold text-[#687b70]">Additional earnings</p><p className="mt-1 text-sm font-bold text-[#193d32]">{cash(earningsTotal)}</p></div><div><p className="text-xs font-semibold text-[#687b70]">Contract deductions</p><p className="mt-1 text-sm font-bold text-[#193d32]">{cash(deductionsTotal)}</p></div><p className="sm:col-span-3 text-xs leading-5 text-[#687b70]">Tax-deductible deductions reduce taxable income only when legally eligible. Statutory PAYE, NSSF, SHIF and housing levy calculations are applied when a payroll run is prepared.</p></div>
         <div className="md:col-span-3"><button className={button} disabled={busy || !staffProfileId}>Save effective-dated contract</button></div>
       </form>, <Users size={18}/>)}
 
