@@ -20,7 +20,7 @@ async function assertManager(userId: number, authRole: string) {
 
 export async function getClockingSetup(userId: number) {
   const db = await requireDb();
-  const settings = (await db.select({ latitude: schoolSettings.latitude, longitude: schoolSettings.longitude, radius: schoolSettings.geofenceRadiusMeters }).from(schoolSettings).limit(1))[0];
+  const settings = (await db.select({ latitude: schoolSettings.latitude, longitude: schoolSettings.longitude, radius: schoolSettings.geofenceRadiusMeters }).from(schoolSettings).where(eq(schoolSettings.schoolId, await actorSchoolId(userId))).limit(1))[0];
   const existing = (await db.select().from(staffClockings).where(and(eq(staffClockings.userId, userId), eq(staffClockings.clockDate, new Date(`${today()}T00:00:00Z`)))).limit(1))[0];
   return { configured: settings?.latitude != null && settings.longitude != null, latitude: settings?.latitude ?? null, longitude: settings?.longitude ?? null, radiusMeters: settings?.radius ?? 150, clockedIn: !!existing, clockedOut: !!existing?.clockedOutAt, clocking: existing ?? null, date: today() };
 }
@@ -28,7 +28,7 @@ export async function getClockingSetup(userId: number) {
 export async function saveSchoolLocation(input: { latitude: number; longitude: number; radiusMeters: number }, userId: number, authRole: string) {
   await assertManager(userId, authRole);
   const db = await requireDb();
-  const current = (await db.select({ id: schoolSettings.id }).from(schoolSettings).limit(1))[0];
+  const current = (await db.select({ id: schoolSettings.id }).from(schoolSettings).where(eq(schoolSettings.schoolId, await actorSchoolId(userId))).limit(1))[0];
   if (current) await db.update(schoolSettings).set({ latitude: input.latitude.toFixed(7), longitude: input.longitude.toFixed(7), geofenceRadiusMeters: input.radiusMeters }).where(eq(schoolSettings.id, current.id));
   else await db.insert(schoolSettings).values({ schoolName: "Ebunangwe Junior School", currentTerm: "Term 2", academicYear: new Date().getUTCFullYear(), latitude: input.latitude.toFixed(7), longitude: input.longitude.toFixed(7), geofenceRadiusMeters: input.radiusMeters });
   await writeAudit(userId, "settings.school_location.update", "school_settings", current?.id ?? null, input);
@@ -37,7 +37,7 @@ export async function saveSchoolLocation(input: { latitude: number; longitude: n
 
 export async function clockIn(input: { latitude: number; longitude: number }, userId: number) {
   const db = await requireDb();
-  const settings = (await db.select({ latitude: schoolSettings.latitude, longitude: schoolSettings.longitude, radius: schoolSettings.geofenceRadiusMeters }).from(schoolSettings).limit(1))[0];
+  const settings = (await db.select({ latitude: schoolSettings.latitude, longitude: schoolSettings.longitude, radius: schoolSettings.geofenceRadiusMeters }).from(schoolSettings).where(eq(schoolSettings.schoolId, await actorSchoolId(userId))).limit(1))[0];
   if (!settings?.latitude || !settings.longitude) throw new Error("SCHOOL_LOCATION_NOT_CONFIGURED");
   const existing = (await db.select().from(staffClockings).where(and(eq(staffClockings.userId, userId), eq(staffClockings.clockDate, new Date(`${today()}T00:00:00Z`)))).limit(1))[0];
   if (existing) return { ok: true, alreadyClockedIn: true, distanceMeters: Number(existing.distanceMeters), clocking: existing };

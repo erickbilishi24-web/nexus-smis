@@ -34,7 +34,7 @@ export function curriculumCatalogue(): Entry[] {
 export async function getCurriculumSetup(userId?: number) {
   const db = await requireDb();
   const schoolId = userId == null ? null : await actorSchoolId(userId);
-  const [saved, settings, classRows] = await Promise.all([db.select().from(curriculumOfferings).orderBy(asc(curriculumOfferings.level), asc(curriculumOfferings.gradeLabel), asc(curriculumOfferings.pathway), asc(curriculumOfferings.learningArea)), db.select({ enabledSchoolLevels: schoolSettings.enabledSchoolLevels }).from(schoolSettings).limit(1), db.select().from(grades).where(schoolId == null ? undefined : eq(grades.schoolId, schoolId)).orderBy(asc(grades.name), asc(grades.stream))]);
+  const [saved, settings, classRows] = await Promise.all([db.select().from(curriculumOfferings).orderBy(asc(curriculumOfferings.level), asc(curriculumOfferings.gradeLabel), asc(curriculumOfferings.pathway), asc(curriculumOfferings.learningArea)), db.select({ enabledSchoolLevels: schoolSettings.enabledSchoolLevels }).from(schoolSettings).where(schoolId == null ? undefined : eq(schoolSettings.schoolId, schoolId)).limit(1), db.select().from(grades).where(schoolId == null ? undefined : eq(grades.schoolId, schoolId)).orderBy(asc(grades.name), asc(grades.stream))]);
   const storedLevels = settings[0]?.enabledSchoolLevels?.split(",") ?? [];
   const levels = storedLevels.flatMap(level => level === "Primary" ? ["Lower Primary", "Upper Primary"] : level).filter(level => SCHOOL_LEVELS.includes(level as typeof SCHOOL_LEVELS[number]));
   return { source: KICD_CURRICULUM_SOURCE, designsSource: KICD_DESIGNS_SOURCE, catalogue: curriculumCatalogue(), saved, enabledSchoolLevels: levels, grades: classRows };
@@ -44,7 +44,7 @@ export async function saveEnabledSchoolLevels(levels: string[], userId: number) 
   const db = await requireDb();
   const selected = Array.from(new Set(levels.flatMap(level => level === "Primary" ? ["Lower Primary", "Upper Primary"] : level).filter(level => SCHOOL_LEVELS.includes(level as typeof SCHOOL_LEVELS[number]))));
   if (!selected.length) throw new Error("SCHOOL_LEVEL_REQUIRED");
-  const current = (await db.select({ id: schoolSettings.id }).from(schoolSettings).limit(1))[0];
+  const current = (await db.select({ id: schoolSettings.id }).from(schoolSettings).where(eq(schoolSettings.schoolId, await actorSchoolId(userId))).limit(1))[0];
   if (!current) throw new Error("SCHOOL_SETTINGS_REQUIRED");
   await db.update(schoolSettings).set({ enabledSchoolLevels: selected.join(",") }).where(eq(schoolSettings.id, current.id));
   const disabled = SCHOOL_LEVELS.filter(level => !selected.includes(level));

@@ -126,7 +126,7 @@ export async function getSettings(schoolId?: number | null) {
   const db = await requireDb();
   const row = (schoolId == null
     ? await db.select().from(schoolSettings).limit(1)
-    : await db.select().from(schoolSettings).where(eq(schoolSettings.schoolId, schoolId)).limit(1))[0];
+    : await db.select().from(schoolSettings).where(schoolId == null ? undefined : eq(schoolSettings.schoolId, schoolId)).limit(1))[0];
   const defaults = { id: 0, schoolName: "Ebunangwe Junior School", motto: "Learn. Lead. Serve.", currentTerm: "Term 2", academicYear: 2026, includeFeesOnReportCard: 1, showPercentagesOnReportCard: 0, logoPath: null, principalSignaturePath: null, classTeacherSignaturePath: null, address: null, phone: null, email: null, subjectShortNames: {}, gradingScale: [{ code: "EE1", label: "Exceeding Expectations 1", min: 90, max: 100 }, { code: "EE2", label: "Exceeding Expectations 2", min: 75, max: 89 }, { code: "ME1", label: "Meeting Expectations 1", min: 58, max: 74 }, { code: "ME2", label: "Meeting Expectations 2", min: 41, max: 57 }, { code: "AE1", label: "Approaching Expectations 1", min: 31, max: 40 }, { code: "AE2", label: "Approaching Expectations 2", min: 21, max: 30 }, { code: "BE1", label: "Below Expectations 1", min: 11, max: 20 }, { code: "BE2", label: "Below Expectations 2", min: 0, max: 10 }], assessmentCategories: ["Mid-Term", "End-Term"], competencyLevels: ["Exceeding Expectations", "Meeting Expectations", "Approaching Expectations", "Below Expectations"], reportCardSettings: { showLogo: true, showAddress: true, showPhone: true, showEmail: true, showMotto: true, layoutStyle: "classic", colorTheme: "emerald" }, themePrimaryColor: "#1d6a57", themeAccentColor: "#d99b3d", themeSurfaceColor: "#f7f4ed", themeMode: "light" as const };
   if (!row) return defaults;
   const parse = <T,>(value: string | null | undefined, fallback: T): T => { try { return value ? JSON.parse(value) as T : fallback; } catch { return fallback; } };
@@ -952,7 +952,8 @@ export async function getPersonalTimetable(userId: number) {
   const db = await requireDb();
   const profile = (await db.select({ displayName: staffProfiles.displayName, teacherCode: staffProfiles.teacherCode }).from(staffProfiles).where(eq(staffProfiles.userId, userId)).limit(1))[0];
   const user = (await db.select({ name: users.name, username: users.username }).from(users).where(eq(users.id, userId)).limit(1))[0];
-  const settings = (await db.select({ enabledSchoolLevels: schoolSettings.enabledSchoolLevels, academicYear: schoolSettings.academicYear }).from(schoolSettings).limit(1))[0];
+  const schoolId = await actorSchoolId(userId);
+  const settings = (await db.select({ enabledSchoolLevels: schoolSettings.enabledSchoolLevels, academicYear: schoolSettings.academicYear }).from(schoolSettings).where(schoolId == null ? undefined : eq(schoolSettings.schoolId, schoolId)).limit(1))[0];
   const enabledLevels = new Set((settings?.enabledSchoolLevels || "ECDE,Lower Primary,Upper Primary,Junior School,Senior School").split(",").flatMap(level => level === "Primary" ? ["Lower Primary", "Upper Primary"] : level));
   const relevantAreas = new Set(curriculumCatalogue().filter(row => enabledLevels.has(row.level)).map(row => row.area.toLowerCase()));
   const entries = await db.select({ entry: timetableEntries, grade: grades, subject: subjects })
@@ -1791,7 +1792,7 @@ export async function updateStaffRole(input: { staffProfileId: number; role: Sta
 export async function listAcademicCatalog(userId?: number) {
   const db = await requireDb();
   const schoolId = userId == null ? null : await actorSchoolId(userId);
-  const [allGradeRows, existingSubjects, settings] = await Promise.all([db.select().from(grades).where(schoolId == null ? undefined : eq(grades.schoolId, schoolId)).orderBy(grades.name, grades.stream), db.select().from(subjects).orderBy(subjects.name), db.select({ enabledSchoolLevels: schoolSettings.enabledSchoolLevels }).from(schoolSettings).limit(1)]);
+  const [allGradeRows, existingSubjects, settings] = await Promise.all([db.select().from(grades).where(schoolId == null ? undefined : eq(grades.schoolId, schoolId)).orderBy(grades.name, grades.stream), db.select().from(subjects).orderBy(subjects.name), db.select({ enabledSchoolLevels: schoolSettings.enabledSchoolLevels }).from(schoolSettings).where(schoolId == null ? undefined : eq(schoolSettings.schoolId, schoolId)).limit(1)]);
   const enabledLevels = new Set((settings[0]?.enabledSchoolLevels || "ECDE,Lower Primary,Upper Primary,Junior School,Senior School").split(",").flatMap(level => level === "Primary" ? ["Lower Primary", "Upper Primary"] : level));
   const existingNames = new Set(existingSubjects.map(subject => subject.name.toLowerCase()));
   const existingCodes = new Set(existingSubjects.map(subject => subject.code.toLowerCase()));
@@ -1969,7 +1970,7 @@ export async function deleteTeacherAllocation(id: number, userId: number) {
   return { ok: true };
 }
 
-export async function uploadSchoolLogo(input: { fileName: string; mimeType: string; base64: string }, userId: number) {
+export async function uploadSchoolLogo(input: { target?: "logo" | "principalSignature" | "classTeacherSignature"; fileName: string; mimeType: string; base64: string }, userId: number) {
   const allowed = new Set(["image/png", "image/jpeg", "image/webp"]);
   if (!allowed.has(input.mimeType)) throw new Error("LOGO_FORMAT_UNSUPPORTED");
   const raw = input.base64.replace(/^data:[^;]+;base64,/, "");
@@ -1977,24 +1978,26 @@ export async function uploadSchoolLogo(input: { fileName: string; mimeType: stri
   if (!buffer.length || buffer.length > 5 * 1024 * 1024) throw new Error("LOGO_SIZE_INVALID");
   const schoolId = await actorSchoolId(userId);
   const extension = input.mimeType === "image/png" ? "png" : input.mimeType === "image/webp" ? "webp" : "jpg";
-  const uploaded = await storagePutForSchool(schoolId, `branding/school-logo.${extension}`, buffer, input.mimeType);
+  const target = input.target ?? "logo";
+  const keyName = target === "principalSignature" ? "principal-signature" : target === "classTeacherSignature" ? "class-teacher-signature" : "school-logo";
+  const uploaded = await storagePutForSchool(schoolId, `branding/${keyName}.${extension}`, buffer, input.mimeType);
   const db = await requireDb();
-  const current = (await db.select().from(schoolSettings).where(eq(schoolSettings.schoolId, schoolId)).limit(1))[0];
-  if (current) await db.update(schoolSettings).set({ logoPath: uploaded.url }).where(eq(schoolSettings.id, current.id));
+  const current = (await db.select().from(schoolSettings).where(schoolId == null ? undefined : eq(schoolSettings.schoolId, schoolId)).limit(1))[0];
+  if (current) await db.update(schoolSettings).set(target === "principalSignature" ? { principalSignaturePath: uploaded.url } : target === "classTeacherSignature" ? { classTeacherSignaturePath: uploaded.url } : { logoPath: uploaded.url }).where(eq(schoolSettings.id, current.id));
   else await db.insert(schoolSettings).values({ schoolId, logoPath: uploaded.url, schoolName: "Ebunangwe Junior School", currentTerm: "Term 2", academicYear: 2026 });
   await writeAudit(userId, "settings.logo_upload", "school_settings", current?.id ?? null, { fileName: input.fileName, mimeType: input.mimeType });
   return { url: uploaded.url };
 }
 
-export async function saveSettings(input: { schoolName: string; motto?: string | null; currentTerm: string; academicYear: number; includeFeesOnReportCard: boolean; showPercentagesOnReportCard?: boolean; address?: string | null; phone?: string | null; email?: string | null; logoPath?: string | null; subjectShortNames?: Record<string, string>; gradingScale?: Array<{ code: string; label: string; min: number; max: number }>; assessmentCategories?: string[]; competencyLevels?: string[]; reportCardSettings?: { showLogo?: boolean; showAddress?: boolean; showPhone?: boolean; showEmail?: boolean; showMotto?: boolean }; themePrimaryColor?: string; themeAccentColor?: string; themeSurfaceColor?: string; themeMode?: "light" | "dark" | "system" }, userId: number) {
+export async function saveSettings(input: { schoolName: string; motto?: string | null; currentTerm: string; academicYear: number; includeFeesOnReportCard: boolean; showPercentagesOnReportCard?: boolean; address?: string | null; phone?: string | null; email?: string | null; logoPath?: string | null; subjectShortNames?: Record<string, string>; gradingScale?: Array<{ code: string; label: string; min: number; max: number }>; assessmentCategories?: string[]; competencyLevels?: string[]; principalSignaturePath?: string | null; classTeacherSignaturePath?: string | null; reportCardSettings?: { showLogo?: boolean; showAddress?: boolean; showPhone?: boolean; showEmail?: boolean; showMotto?: boolean; layoutStyle?: "classic" | "compact" | "modern" | "executive" | "minimal"; colorTheme?: "emerald" | "navy" | "gold" | "magenta" }; themePrimaryColor?: string; themeAccentColor?: string; themeSurfaceColor?: string; themeMode?: "light" | "dark" | "system" }, userId: number) {
   const db = await requireDb();
   const schoolId = await actorSchoolId(userId);
-  const current = (await db.select().from(schoolSettings).where(eq(schoolSettings.schoolId, schoolId)).limit(1))[0] ?? (await db.select().from(schoolSettings).where(isNull(schoolSettings.schoolId)).limit(1))[0];
+  const current = (await db.select().from(schoolSettings).where(schoolId == null ? undefined : eq(schoolSettings.schoolId, schoolId)).limit(1))[0] ?? (await db.select().from(schoolSettings).where(isNull(schoolSettings.schoolId)).limit(1))[0];
   const { subjectShortNames, gradingScale, assessmentCategories, competencyLevels, reportCardSettings, ...profileInput } = input; const values = { ...profileInput, schoolId, includeFeesOnReportCard: input.includeFeesOnReportCard ? 1 : 0, showPercentagesOnReportCard: input.showPercentagesOnReportCard ? 1 : 0, subjectShortNames: JSON.stringify(subjectShortNames ?? {}), gradingScale: JSON.stringify(gradingScale ?? []), assessmentCategories: JSON.stringify(assessmentCategories ?? []), competencyLevels: JSON.stringify(competencyLevels ?? []), reportCardSettings: JSON.stringify(reportCardSettings ?? {}) };
   if (current) await db.update(schoolSettings).set(values).where(eq(schoolSettings.id, current.id));
   else await db.insert(schoolSettings).values(values);
   await writeAudit(userId, "settings.update", "school_settings", current?.id ?? null, values);
-  return getSettings();
+  return getSettings(schoolId);
 }
 
 export async function listAuditLogs() {

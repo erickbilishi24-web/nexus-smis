@@ -6,16 +6,16 @@ import {
   transportCharges, transportCosts, transportIncidents, transportRoutes, transportSettings, transportTrips,
   transportVehicles,
 } from "../drizzle/schema";
-import { requireDb, userCan, writeAudit } from "./smis";
+import { actorSchoolId, requireDb, userCan, writeAudit } from "./smis";
 
 const money = (value: number) => Math.round(value * 100) / 100;
 const safeNumber = (value: unknown) => Number(value ?? 0);
 const asDate = (value: string | null | undefined) => value ? new Date(`${value.slice(0, 10)}T00:00:00.000Z`) : null;
 const dateString = (value: Date | string | null | undefined) => value instanceof Date ? value.toISOString().slice(0, 10) : String(value ?? "").slice(0, 10);
 
-async function schoolScope(allowDisabled = false) {
+async function schoolScope(userId: number, allowDisabled = false) {
   const db = await requireDb();
-  const row = (await db.select({ id: schoolSettings.id }).from(schoolSettings).limit(1))[0];
+  const row = (await db.select({ id: schoolSettings.id }).from(schoolSettings).where(eq(schoolSettings.schoolId, await actorSchoolId(userId))).limit(1))[0];
   if (!row?.id) throw new Error("SCHOOL_SETTINGS_NOT_CONFIGURED");
   const setting = (await db.select({ enabled: transportSettings.enabled }).from(transportSettings).where(eq(transportSettings.schoolId, row.id)).limit(1))[0];
   if (!allowDisabled && setting?.enabled === 0) throw new Error("TRANSPORT_MODULE_DISABLED");
@@ -28,7 +28,7 @@ async function demand(userId: number, role: string, permission: string) {
 
 export async function getTransportWorkspace(userId: number, role: string) {
   await demand(userId, role, "transport.view");
-  const { db, schoolId } = await schoolScope(true);
+  const { db, schoolId } = await schoolScope(userId, true);
   const [setting, vehicleRows, routeRows, allocationRows, chargeRows, linkRows, attendanceRows, costRows, tripRows, incidentRows] = await Promise.all([
     db.select().from(transportSettings).where(eq(transportSettings.schoolId, schoolId)).limit(1),
     db.select().from(transportVehicles).where(eq(transportVehicles.schoolId, schoolId)).orderBy(transportVehicles.registration),
@@ -80,7 +80,7 @@ export async function getTransportWorkspace(userId: number, role: string) {
 
 export async function setTransportEnabled(input: { enabled: boolean }, userId: number, role: string) {
   await demand(userId, role, "transport.manage");
-  const { db, schoolId } = await schoolScope(true);
+  const { db, schoolId } = await schoolScope(userId, true);
   await db.insert(transportSettings).values({ schoolId, enabled: input.enabled ? 1 : 0, updatedByUserId: userId }).onDuplicateKeyUpdate({ set: { enabled: input.enabled ? 1 : 0, updatedByUserId: userId } });
   await writeAudit(userId, "transport.settings.update", "transport_settings", schoolId, { enabled: input.enabled });
   return { ok: true };
@@ -95,7 +95,7 @@ export async function saveTransportVehicle(input: {
   const description = input.description.trim();
   if (!/^[A-Z0-9 -]{3,24}$/.test(registration) || !description || !Number.isInteger(input.capacity) || input.capacity < 1 || input.capacity > 80) throw new Error("VEHICLE_INPUT_INVALID");
   if (!Number.isFinite(input.odometerKm ?? 0) || (input.odometerKm ?? 0) < 0) throw new Error("ODOMETER_INVALID");
-  const { db, schoolId } = await schoolScope();
+  const { db, schoolId } = await schoolScope(userId);
   if (input.driverStaffProfileId) {
     const driver = (await db.select({ id: staffProfiles.id }).from(staffProfiles).where(and(eq(staffProfiles.id, input.driverStaffProfileId), eq(staffProfiles.status, "active"))).limit(1))[0];
     if (!driver) throw new Error("ACTIVE_DRIVER_NOT_FOUND");
@@ -124,7 +124,7 @@ export async function saveTransportVehicle(input: {
 
 export async function setTransportVehicleStatus(input: { vehicleId: number; status: "active" | "service" | "retired" }, userId: number, role: string) {
   await demand(userId, role, "transport.manage");
-  const { db, schoolId } = await schoolScope();
+  const { db, schoolId } = await schoolScope(userId);
   await db.update(transportVehicles).set({ status: input.status }).where(and(eq(transportVehicles.id, input.vehicleId), eq(transportVehicles.schoolId, schoolId)));
   await writeAudit(userId, "transport.vehicle.status", "transport_vehicle", input.vehicleId, { status: input.status });
   return { ok: true };
@@ -132,7 +132,7 @@ export async function setTransportVehicleStatus(input: { vehicleId: number; stat
 
 export async function saveTransportRoute(input: { routeId?: number; name: string; vehicleId?: number | null; feeAmount: number; billingCycle: "monthly" | "termly"; status: "active" | "inactive" }, userId: number, role: string) {
   await demand(userId, role, "transport.manage");
-  const { db, schoolId } = await schoolScope();
+  const { db, schoolId } = await schoolScope(userId);
   const name = input.name.trim();
   if (!name || !Number.isFinite(input.feeAmount) || input.feeAmount < 0 || input.feeAmount > 2_000_000) throw new Error("ROUTE_INPUT_INVALID");
   if (input.vehicleId) {
@@ -156,7 +156,7 @@ export async function saveTransportRoute(input: { routeId?: number; name: string
 
 export async function assignLearnerTransport(input: { learnerId: number; routeId: number; stopName: string; authorizedGuardianId?: number | null; startsOn: string }, userId: number, role: string) {
   await demand(userId, role, "transport.manage");
-  const { db, schoolId } = await schoolScope();
+  const { db, schoolId } = await schoolScope(userId);
   const learner = (await db.select({ id: learners.id, status: learners.status }).from(learners).where(eq(learners.id, input.learnerId)).limit(1))[0];
   const route = (await db.select().from(transportRoutes).where(and(eq(transportRoutes.id, input.routeId), eq(transportRoutes.schoolId, schoolId))).limit(1))[0];
   if (!learner || learner.status !== "active") throw new Error("ACTIVE_LEARNER_NOT_FOUND");
@@ -189,7 +189,7 @@ export async function assignLearnerTransport(input: { learnerId: number; routeId
 
 export async function setLearnerTransportStatus(input: { allocationId: number; status: "active" | "paused" | "ended" }, userId: number, role: string) {
   await demand(userId, role, "transport.manage");
-  const { db, schoolId } = await schoolScope();
+  const { db, schoolId } = await schoolScope(userId);
   await db.update(transportAllocations).set({ status: input.status, endsOn: input.status === "ended" ? asDate(new Date().toISOString().slice(0, 10)) : null }).where(and(eq(transportAllocations.id, input.allocationId), eq(transportAllocations.schoolId, schoolId)));
   await writeAudit(userId, `transport.learner.${input.status}`, "transport_allocation", input.allocationId, {});
   return { ok: true };
@@ -198,7 +198,7 @@ export async function setLearnerTransportStatus(input: { allocationId: number; s
 export async function billTransportPeriod(input: { period: string }, userId: number, role: string) {
   await demand(userId, role, "transport.manage");
   if (!isValidTransportPeriod(input.period)) throw new Error("PERIOD_INVALID");
-  const { db, schoolId } = await schoolScope();
+  const { db, schoolId } = await schoolScope(userId);
   const active = await db.select().from(transportAllocations).where(and(eq(transportAllocations.schoolId, schoolId), eq(transportAllocations.status, "active")));
   const routes = await db.select().from(transportRoutes).where(and(eq(transportRoutes.schoolId, schoolId), eq(transportRoutes.status, "active")));
   const byRoute = new Map(routes.map(route => [route.id, route]));
@@ -221,7 +221,7 @@ export async function recordTransportPayment(input: { chargeId: number; amount: 
   const amount = money(input.amount);
   const reference = input.reference.trim();
   if (!Number.isFinite(amount) || amount <= 0 || reference.length < 3 || reference.length > 80) throw new Error("PAYMENT_INPUT_INVALID");
-  const { db, schoolId } = await schoolScope();
+  const { db, schoolId } = await schoolScope(userId);
   return db.transaction(async tx => {
     await tx.execute(sql`SELECT id FROM transport_charges WHERE id = ${input.chargeId} AND schoolId = ${schoolId} FOR UPDATE`);
     const charge = (await tx.select().from(transportCharges).where(and(eq(transportCharges.id, input.chargeId), eq(transportCharges.schoolId, schoolId))).limit(1))[0];
@@ -244,7 +244,7 @@ export async function recordTransportPayment(input: { chargeId: number; amount: 
 export async function saveTransportAttendance(input: { routeId: number; attendanceDate: string; shift: "am" | "pm"; entries: Array<{ learnerId: number; status: "boarded" | "absent" | "excused" }> }, userId: number, role: string) {
   await demand(userId, role, "transport.edit");
   if (input.entries.length < 1 || input.entries.length > 120 || new Set(input.entries.map(row => row.learnerId)).size !== input.entries.length) throw new Error("ATTENDANCE_BATCH_INVALID");
-  const { db, schoolId } = await schoolScope();
+  const { db, schoolId } = await schoolScope(userId);
   const allocations = await db.select().from(transportAllocations).where(and(eq(transportAllocations.schoolId, schoolId), eq(transportAllocations.routeId, input.routeId), eq(transportAllocations.status, "active")));
   const allocated = new Set(allocations.map(row => row.learnerId));
   if (input.entries.some(row => !allocated.has(row.learnerId))) throw new Error("LEARNER_NOT_ON_ROUTE");
@@ -260,7 +260,7 @@ export async function saveTransportAttendance(input: { routeId: number; attendan
 export async function recordTransportTrip(input: { vehicleId: number; routeId?: number | null; driverStaffProfileId?: number | null; tripDate: string; shift: "am" | "pm" | "other"; odometerStartKm: number; odometerEndKm: number; notes?: string | null }, userId: number, role: string) {
   await demand(userId, role, "transport.edit");
   if (!isValidOdometerTrip(input.odometerStartKm, input.odometerEndKm)) throw new Error("ODOMETER_RANGE_INVALID");
-  const { db, schoolId } = await schoolScope();
+  const { db, schoolId } = await schoolScope(userId);
   const vehicle = (await db.select().from(transportVehicles).where(and(eq(transportVehicles.id, input.vehicleId), eq(transportVehicles.schoolId, schoolId))).limit(1))[0];
   if (!vehicle || vehicle.status !== "active") throw new Error("ACTIVE_VEHICLE_REQUIRED");
   const driverId = input.driverStaffProfileId ?? vehicle.driverStaffProfileId;
@@ -280,7 +280,7 @@ export async function recordTransportCost(input: { vehicleId: number; costType: 
   const amount = money(input.amount);
   const description = input.description.trim();
   if (amount <= 0 || amount > 50_000_000 || !description || !/^[0-9a-f-]{36}$/i.test(input.idempotencyKey)) throw new Error("COST_INPUT_INVALID");
-  const { db, schoolId } = await schoolScope();
+  const { db, schoolId } = await schoolScope(userId);
   const previous = (await db.select().from(transportCosts).where(and(eq(transportCosts.schoolId, schoolId), eq(transportCosts.idempotencyKey, input.idempotencyKey))).limit(1))[0];
   if (previous) {
     if (previous.vehicleId !== input.vehicleId || previous.costType !== input.costType || dateString(previous.costDate) !== input.costDate || safeNumber(previous.amount) !== amount || previous.description !== description || dateString(previous.nextDueOn) !== String(input.nextDueOn ?? "")) throw new Error("COST_REQUEST_KEY_REUSED");
@@ -298,7 +298,7 @@ export async function recordTransportCost(input: { vehicleId: number; costType: 
 
 export async function getTransportLearnerOptions(userId: number, role: string) {
   await demand(userId, role, "transport.manage");
-  const { db } = await schoolScope();
+  const { db } = await schoolScope(userId);
   const learnerRows = await db.select({ id: learners.id, fullName: learners.fullName, admissionNumber: learners.admissionNumber, guardianName: learners.guardianName }).from(learners).where(eq(learners.status, "active")).orderBy(learners.fullName);
   const guardianRows = learnerRows.length ? await db.select({ learnerId: learnerGuardians.learnerId, id: guardians.id, fullName: guardians.fullName, phone: guardians.phone }).from(learnerGuardians).innerJoin(guardians, eq(guardians.id, learnerGuardians.guardianId)).where(inArray(learnerGuardians.learnerId, learnerRows.map(row => row.id))) : [];
   const activeStaff = await db.select({ id: staffProfiles.id, displayName: staffProfiles.displayName, role: staffProfiles.role }).from(staffProfiles).where(eq(staffProfiles.status, "active")).orderBy(staffProfiles.displayName);
@@ -313,7 +313,7 @@ export async function recordTransportIncident(input: { vehicleId: number; routeI
   await demand(userId, role, "transport.edit");
   const description = input.description.trim();
   if (!description || description.length > 1000) throw new Error("INCIDENT_DESCRIPTION_REQUIRED");
-  const { db, schoolId } = await schoolScope();
+  const { db, schoolId } = await schoolScope(userId);
   const vehicle = (await db.select({ id: transportVehicles.id }).from(transportVehicles).where(and(eq(transportVehicles.id, input.vehicleId), eq(transportVehicles.schoolId, schoolId))).limit(1))[0];
   if (!vehicle) throw new Error("VEHICLE_NOT_FOUND");
   if (input.routeId && !(await db.select({ id: transportRoutes.id }).from(transportRoutes).where(and(eq(transportRoutes.id, input.routeId), eq(transportRoutes.schoolId, schoolId))).limit(1))[0]) throw new Error("ROUTE_NOT_FOUND");
@@ -326,7 +326,7 @@ export async function resolveTransportIncident(input: { incidentId: number; reso
   await demand(userId, role, "transport.manage");
   const resolution = input.resolution.trim();
   if (!resolution || resolution.length > 500) throw new Error("INCIDENT_RESOLUTION_REQUIRED");
-  const { db, schoolId } = await schoolScope();
+  const { db, schoolId } = await schoolScope(userId);
   const incident = (await db.select({ id: transportIncidents.id, status: transportIncidents.status }).from(transportIncidents).where(and(eq(transportIncidents.id, input.incidentId), eq(transportIncidents.schoolId, schoolId))).limit(1))[0];
   if (!incident) throw new Error("INCIDENT_NOT_FOUND");
   if (incident.status === "resolved") throw new Error("INCIDENT_ALREADY_RESOLVED");
