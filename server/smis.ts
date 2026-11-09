@@ -308,13 +308,16 @@ export async function restoreLearners(input: { learnerIds: number[] }, userId: n
 type AttendanceSession = "morning" | "afternoon";
 type AttendanceSummaryPeriod = "weekly" | "monthly" | "termly" | "yearly";
 
-function dateWindow(period: AttendanceSummaryPeriod, now = new Date()) {
+function dateWindow(period: AttendanceSummaryPeriod, now = new Date(), term?: string, fromDate?: string, toDate?: string) {
   const end = new Date(now); end.setHours(23, 59, 59, 999);
   const start = new Date(end);
   if (period === "weekly") start.setDate(start.getDate() - 6);
   if (period === "monthly") start.setDate(1);
   if (period === "termly") { start.setMonth(start.getMonth() >= 8 ? 8 : start.getMonth() >= 4 ? 4 : 0, 1); }
   if (period === "yearly") start.setMonth(0, 1);
+  if (term) { const match = term.match(/Term ([123])/i); const termNo = match ? Number(match[1]) : 0; if (termNo === 1) { start.setMonth(0, 1); end.setMonth(3, 30); } if (termNo === 2) { start.setMonth(4, 1); end.setMonth(7, 31); } if (termNo === 3) { start.setMonth(8, 1); end.setMonth(11, 31); } }
+  if (fromDate) { const explicitStart = new Date(`${fromDate}T00:00:00`); if (!Number.isNaN(explicitStart.getTime())) start.setTime(explicitStart.getTime()); }
+  if (toDate) { const explicitEnd = new Date(`${toDate}T23:59:59.999`); if (!Number.isNaN(explicitEnd.getTime())) end.setTime(explicitEnd.getTime()); }
   return { start, end };
 }
 
@@ -423,14 +426,14 @@ export async function setAttendanceRegisterStatus(input: { attendanceDate: strin
   await writeAudit(userId, `attendance.register.${input.action}`, "attendance_register", `${input.attendanceDate}:${input.gradeId}`, input);
   return getAttendanceRegisterApproval(input.attendanceDate, input.gradeId, userId);
 }
-export async function getAttendanceSummary(input: { period: AttendanceSummaryPeriod; gradeLevel?: number }, userId: number) {
+export async function getAttendanceSummary(input: { period: AttendanceSummaryPeriod; gradeLevel?: number; term?: string; fromDate?: string; toDate?: string }, userId: number) {
   const db = await requireDb();
   const schoolId = await actorSchoolId(userId);
   const actor = (await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1))[0];
   const staff = (await db.select({ role: staffProfiles.role }).from(staffProfiles).where(eq(staffProfiles.userId, userId)).limit(1))[0];
   const allowed = isAttendanceAdmin(actor?.role, staff?.role) ? null : new Set(await attendanceVisibleGradeIds(userId));
   if (!allowed && !isAttendanceAdmin(actor?.role, staff?.role)) return { period: input.period, rows: [], totals: { present: 0, absent: 0, late: 0, excused: 0, sessions: 0 } };
-  const window = dateWindow(input.period);
+  const window = dateWindow(input.period, new Date(), input.term, input.fromDate, input.toDate);
   const learnerRows = await db.select({ learner: learners, grade: grades }).from(learners).leftJoin(grades, eq(grades.id, learners.gradeId)).where(and(eq(learners.status, "active"), eq(learners.schoolId, schoolId)));
   const rows = await db.select({ attendance: attendances }).from(attendances).where(and(eq(attendances.schoolId, schoolId), gte(attendances.attendanceDate, window.start), lte(attendances.attendanceDate, window.end)));
   const grouped = new Map<number, { learnerId: number; learner: string; admissionNumber: string; grade: string; present: number; absent: number; late: number; excused: number; sessions: number }>();

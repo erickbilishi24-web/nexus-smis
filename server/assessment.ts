@@ -589,16 +589,23 @@ export async function getPerformanceReports(input: { academicYear: number; term:
   const gradeRows = await db.select({ id: grades.id, name: grades.name, stream: grades.stream }).from(grades).where(eq(grades.schoolId, schoolId)).orderBy(grades.name);
   const selectedGrades = input.gradeId ? gradeRows.filter(row => row.id === input.gradeId) : gradeRows;
   const gradeIds = selectedGrades.map(row => row.id);
-  if (!gradeIds.length) return { academicYear: input.academicYear, term: input.term, grades: gradeRows, rows: [] };
+  if (!gradeIds.length) return { academicYear: input.academicYear, term: input.term, grades: gradeRows, rows: [], subjects: [] };
   const assessmentRows = await db.select().from(assessments).where(and(eq(assessments.schoolId, schoolId), eq(assessments.academicYear, input.academicYear), eq(assessments.term, input.term), inArray(assessments.gradeId, gradeIds)));
   const assessmentIds = assessmentRows.map(row => row.id);
   const markRows = assessmentIds.length ? await db.select().from(marks).where(and(eq(marks.schoolId, schoolId), inArray(marks.assessmentId, assessmentIds))) : [];
+  const subjectIds = Array.from(new Set(markRows.map(row => row.subjectId)));
+  const subjectRows = subjectIds.length ? await db.select({ id: subjects.id, name: subjects.name, code: subjects.code }).from(subjects).where(and(eq(subjects.schoolId, schoolId), inArray(subjects.id, subjectIds))) : [];
+  const subjectName = new Map(subjectRows.map(row => [row.id, row.name]));
+  const bySubject = subjectIds.map(subjectId => {
+    const scores = markRows.filter(row => row.subjectId === subjectId).map(row => Number(row.score)).filter(Number.isFinite);
+    return { subjectId, subject: subjectName.get(subjectId) ?? `Subject ${subjectId}`, averageMark: scores.length ? Math.round(scores.reduce((a,b) => a + b, 0) / scores.length * 100) / 100 : null, highest: scores.length ? Math.max(...scores) : null, lowest: scores.length ? Math.min(...scores) : null, enteredMarks: scores.length };
+  }).sort((a, b) => a.subject.localeCompare(b.subject));
   const byGrade = selectedGrades.map(grade => {
     const ids = new Set(assessmentRows.filter(row => row.gradeId === grade.id).map(row => row.id));
     const scores = markRows.filter(row => ids.has(row.assessmentId)).map(row => Number(row.score)).filter(Number.isFinite);
     return { gradeId: grade.id, grade: grade.name, stream: grade.stream, learnersAssessed: new Set(markRows.filter(row => ids.has(row.assessmentId)).map(row => row.learnerId)).size, enteredMarks: scores.length, averageMark: scores.length ? Math.round(scores.reduce((a,b) => a + b, 0) / scores.length * 100) / 100 : null, highest: scores.length ? Math.max(...scores) : null, lowest: scores.length ? Math.min(...scores) : null };
   });
-  return { academicYear: input.academicYear, term: input.term, grades: gradeRows, rows: byGrade };
+  return { academicYear: input.academicYear, term: input.term, grades: gradeRows, rows: byGrade, subjects: bySubject };
 }
 
 export async function getAssessmentReportCard(input: { learnerId: number; academicYear: number; term: string; assessmentType: AssessmentType }, userId: number) {
