@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { ClipboardCopy, History, KeyRound, Lock, LockOpen, MoreHorizontal, Pencil, Plus, RefreshCw, Search, ShieldCheck, ReceiptText, ShieldOff, UserCheck, UserCog, UserPlus, Users, Trash2, Eye, School } from "lucide-react";
 import { trpc } from "@/lib/trpc";
@@ -288,6 +288,8 @@ export function AdministrationWorkspace({ initialTab = "users" }: { initialTab?:
   const tabLabel = ({ users: "Users & Credentials", matrix: "Permission Matrix", classes: "Classes & Streams", comments: "Report Comments", schools: "School Registry", audit: "Audit Trail", deletions: "Account Deletions", teacherAttendance: "Teacher Attendance", feeStructures: "Fee Structures" } as const)[tab];
   const [f, setF] = useState({ search: "", role: "", status: "" });
   const [userPage, setUserPage] = useState(0);
+  const [sortKey, setSortKey] = useState("fullName");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const list = trpc.smis.administration.list.useQuery({ search: f.search || undefined, role: f.role || undefined, status: (f.status || undefined) as any });
   const overview = trpc.smis.administration.overview.useQuery();
   const [dialog, setDialog] = useState<{ mode: "create" | "edit"; row?: Row } | null>(null);
@@ -305,8 +307,10 @@ export function AdministrationWorkspace({ initialTab = "users" }: { initialTab?:
   const catalog = catalogQ.data;
   const stats = overview.data;
   const allRows = list.data ?? [];
-  const totalUsers = allRows.length;
-  const rows = allRows.slice(userPage * 25, userPage * 25 + 25);
+  const sortedRows = useMemo(() => [...allRows].sort((a: any, b: any) => { const rawA = a[sortKey] ?? ""; const rawB = b[sortKey] ?? ""; const av = Array.isArray(rawA) ? rawA.map((item: any) => item.name ?? "").join(", ") : rawA; const bv = Array.isArray(rawB) ? rawB.map((item: any) => item.name ?? "").join(", ") : rawB; const result = String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: "base" }); return sortDirection === "asc" ? result : -result; }), [allRows, sortKey, sortDirection]);
+  const totalUsers = sortedRows.length;
+  const rows = sortedRows.slice(userPage * 25, userPage * 25 + 25);
+  const toggleSort = (key: string) => { setUserPage(0); if (sortKey === key) setSortDirection(value => value === "asc" ? "desc" : "asc"); else { setSortKey(key); setSortDirection("asc"); } };
   const deleteIsSelf = !!deleteRow && authMe.data?.id === deleteRow.userId;
   const deleteIsProtected = deleteRow?.role === "super_admin";
   const deletePhraseMatches = !!deleteRow && !deleteIsSelf && !deleteIsProtected && deletePhrase.trim() === (deleteRow.username ?? String(deleteRow.userId));
@@ -329,7 +333,7 @@ export function AdministrationWorkspace({ initialTab = "users" }: { initialTab?:
           <select aria-label="Filter by role" className={`${field.replace("w-full", "")} !mt-0 w-auto`} value={f.role} onChange={e => { setF({ ...f, role: e.target.value }); setUserPage(0); }}><option value="">All roles</option>{catalog?.roles.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}</select>
           <select aria-label="Filter by status" className={`${field.replace("w-full", "")} !mt-0 w-auto`} value={f.status} onChange={e => { setF({ ...f, status: e.target.value }); setUserPage(0); }}><option value="">All statuses</option><option value="active">Active</option><option value="pending">Pending setup</option><option value="suspended">Suspended</option><option value="locked">Locked</option></select></div>
         {isSuper && <p className="mx-4 mb-3 rounded-lg border border-[#d8e6dc] bg-[#f4f9f3] px-3 py-2 text-xs font-semibold text-[#386052]">Super Admin controls are in the Actions column: <b>Edit User</b> and <b className="text-[#a3382c]">Delete</b>. Password reset is inside the ⋯ menu.</p>}
-        <div className="overflow-x-auto"><table className="admin-users-table w-full min-w-[1555px] table-fixed text-left text-xs sm:text-sm"><colgroup>{[70, 150, 110, 75, 100, 100, 100, 340, 85, 110, 120, 95, 100].map((width, index) => <col key={index} style={{ width }} />)}</colgroup><thead><tr className="border-y border-[#e2e6dc] text-[0.66rem] uppercase tracking-wide text-[#718077]">{["User ID", "Full name", "Username", "Staff ID", "Role", "Department", "Class", "Subjects", "Status", "Last login", "Password changed", "Created", "Actions"].map(h => <th key={h} className="px-2 py-3">{h}</th>)}</tr></thead>
+        <div className="overflow-x-auto"><table className="admin-users-table w-full min-w-[1555px] table-fixed text-left text-xs sm:text-sm"><colgroup>{[70, 150, 110, 75, 100, 100, 100, 340, 85, 110, 120, 95, 100].map((width, index) => <col key={index} style={{ width }} />)}</colgroup><thead><tr className="border-y border-[#e2e6dc] text-[0.66rem] uppercase tracking-wide text-[#718077]">{[["User ID", "userId"], ["Full name", "fullName"], ["Username", "username"], ["Staff ID", "staffId"], ["Role", "roleLabel"], ["Department", "department"], ["Class", "classes"], ["Subjects", "subjects"], ["Status", "status"], ["Last login", "lastLogin"], ["Password changed", "passwordChangedAt"], ["Created", "createdAt"], ["Actions", ""]].map(([heading, key]) => <th key={heading} className="px-2 py-3">{key ? <button type="button" className="inline-flex items-center gap-1 font-bold hover:text-[#1d6a57]" onClick={() => toggleSort(key)}>{heading}<span aria-hidden="true">{sortKey === key ? (sortDirection === "asc" ? "↑" : "↓") : "↕"}</span></button> : heading}</th>)}</tr></thead>
           <tbody>{rows.map(u => <tr key={u.userId} className="border-b border-[#eef0e8] align-top hover:bg-[#f7f9f3]">
             <td data-label="User ID" className="px-3 py-3 font-mono text-xs text-[#718077]">#{u.userId}</td><td data-label="Full name" className="px-3 py-3 font-bold text-[#28483f]">{u.fullName}</td><td data-label="Username" className="px-3 py-3 text-[#718077]">{u.username ?? "—"}</td><td data-label="Staff ID" className="px-3 py-3 text-[#718077]">{u.staffId ?? "—"}</td>
             <td data-label="Role" className="px-3 py-3"><span className="rounded-md bg-[#f1f4ec] px-2 py-1 text-xs font-bold text-[#28483f]">{u.roleLabel}</span></td><td data-label="Department" className="px-3 py-3 text-[#718077]">{u.department ?? "—"}</td>
