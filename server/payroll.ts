@@ -2,7 +2,7 @@ import { and, desc, eq, gte, inArray, lte } from "drizzle-orm";
 import { allocatePayrollLoanRepayments, calculateKenyaPayroll, DEFAULT_KENYA_PAYROLL_RULES, type KenyaPayrollRules, type PayrollLine } from "../shared/payroll";
 import {
   auditLogs, expenditures, payrollAdjustments, payrollCompensation, payrollItems,
-  payrollLoanRepayments, payrollLoans, payrollRules, payrollRuns, schoolSettings, staffProfiles,
+  payrollLoanRepayments, payrollLoans, payrollRules, payrollRuns, staffProfiles,
 } from "../drizzle/schema";
 import { actorSchoolId, requireDb, userCan, writeAudit } from "./smis";
 
@@ -13,9 +13,9 @@ const dateString = (value: Date | string | null | undefined) => value instanceof
 
 async function schoolScope(userId: number) {
   const db = await requireDb();
-  const row = (await db.select({ id: schoolSettings.id }).from(schoolSettings).where(eq(schoolSettings.schoolId, await actorSchoolId(userId))).limit(1))[0];
-  if (!row?.id) throw new Error("SCHOOL_SETTINGS_NOT_CONFIGURED");
-  return { db, schoolId: row.id };
+  // Workspace availability must not depend on optional school_settings rows.
+  // The authenticated account's school is the tenant boundary for all payroll data.
+  return { db, schoolId: await actorSchoolId(userId) };
 }
 
 async function demand(userId: number, role: string, permission: string) {
@@ -59,7 +59,7 @@ export async function getPayrollWorkspace(userId: number, role: string) {
   await demand(userId, role, "payroll.view");
   const { db, schoolId } = await schoolScope(userId);
   const [staffRows, compensationRows, adjustmentRows, runRows, ruleRows, loanRows] = await Promise.all([
-    db.select({ id: staffProfiles.id, displayName: staffProfiles.displayName, role: staffProfiles.role, status: staffProfiles.status }).from(staffProfiles).orderBy(staffProfiles.displayName),
+    db.select({ id: staffProfiles.id, displayName: staffProfiles.displayName, role: staffProfiles.role, status: staffProfiles.status }).from(staffProfiles).where(eq(staffProfiles.schoolId, schoolId)).orderBy(staffProfiles.displayName),
     db.select().from(payrollCompensation).where(eq(payrollCompensation.schoolId, schoolId)).orderBy(desc(payrollCompensation.effectiveFrom)),
     db.select().from(payrollAdjustments).where(eq(payrollAdjustments.schoolId, schoolId)).orderBy(desc(payrollAdjustments.id)).limit(150),
     db.select().from(payrollRuns).where(eq(payrollRuns.schoolId, schoolId)).orderBy(desc(payrollRuns.period)).limit(36),
@@ -86,7 +86,7 @@ export async function getPayrollWorkspace(userId: number, role: string) {
 
 export async function getMyPayrollSlips(userId: number) {
   const { db, schoolId } = await schoolScope(userId);
-  const profile = (await db.select({ id: staffProfiles.id }).from(staffProfiles).where(eq(staffProfiles.userId, userId)).limit(1))[0];
+  const profile = (await db.select({ id: staffProfiles.id }).from(staffProfiles).where(and(eq(staffProfiles.userId, userId), eq(staffProfiles.schoolId, schoolId))).limit(1))[0];
   if (!profile) return [];
   const slips = await db.select().from(payrollItems).where(and(eq(payrollItems.schoolId, schoolId), eq(payrollItems.staffProfileId, profile.id))).orderBy(desc(payrollItems.id)).limit(36);
   const runs = slips.length ? await db.select().from(payrollRuns).where(and(eq(payrollRuns.schoolId, schoolId), eq(payrollRuns.status, "closed"), inArray(payrollRuns.id, slips.map(row => row.runId)))) : [];
@@ -109,7 +109,7 @@ export async function savePayrollCompensation(input: {
 }, userId: number, role: string) {
   await demand(userId, role, "payroll.edit");
   const { db, schoolId } = await schoolScope(userId);
-  const staff = (await db.select({ id: staffProfiles.id, displayName: staffProfiles.displayName }).from(staffProfiles).where(and(eq(staffProfiles.id, input.staffProfileId), eq(staffProfiles.status, "active"))).limit(1))[0];
+  const staff = (await db.select({ id: staffProfiles.id, displayName: staffProfiles.displayName }).from(staffProfiles).where(and(eq(staffProfiles.id, input.staffProfileId), eq(staffProfiles.schoolId, schoolId), eq(staffProfiles.status, "active"))).limit(1))[0];
   if (!staff) throw new Error("ACTIVE_STAFF_NOT_FOUND");
   const amountFields = [input.basicSalary, input.additionalPension, input.postRetirementMedical, input.mortgageInterest];
   if (amountFields.some(value => !Number.isFinite(value) || value < 0 || value > 10_000_000)) throw new Error("COMPENSATION_AMOUNT_INVALID");
@@ -134,7 +134,7 @@ export async function createPayrollAdjustment(input: { staffProfileId: number; p
   const { db, schoolId } = await schoolScope(userId);
   const description = input.description.trim();
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(input.period) || !description || description.length > 120 || !Number.isFinite(input.amount) || input.amount <= 0 || input.amount > 10_000_000) throw new Error("PAYROLL_ADJUSTMENT_INVALID");
-  const staff = (await db.select({ id: staffProfiles.id }).from(staffProfiles).where(and(eq(staffProfiles.id, input.staffProfileId), eq(staffProfiles.status, "active"))).limit(1))[0];
+  const staff = (await db.select({ id: staffProfiles.id }).from(staffProfiles).where(and(eq(staffProfiles.id, input.staffProfileId), eq(staffProfiles.schoolId, schoolId), eq(staffProfiles.status, "active"))).limit(1))[0];
   if (!staff) throw new Error("ACTIVE_STAFF_NOT_FOUND");
   const id = (await db.insert(payrollAdjustments).values({ schoolId, staffProfileId: input.staffProfileId, period: input.period, kind: input.kind, description, amount: String(money(input.amount)), taxable: input.taxable ? 1 : 0, status: "pending", createdByUserId: userId }).$returningId())[0].id;
   await writeAudit(userId, "payroll.adjustment.create", "payroll_adjustment", id, { staffProfileId: input.staffProfileId, period: input.period, kind: input.kind, amount: money(input.amount) });
@@ -157,7 +157,7 @@ export async function createPayrollLoan(input: { staffProfileId: number; loanTyp
   const { db, schoolId } = await schoolScope(userId);
   const description = input.description.trim();
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(input.startPeriod) || !description || description.length > 160 || !Number.isFinite(input.principalAmount) || input.principalAmount <= 0 || input.principalAmount > 10_000_000 || !Number.isFinite(input.installmentAmount) || input.installmentAmount <= 0 || input.installmentAmount > input.principalAmount) throw new Error("PAYROLL_LOAN_INPUT_INVALID");
-  const staff = (await db.select({ id: staffProfiles.id }).from(staffProfiles).where(and(eq(staffProfiles.id, input.staffProfileId), eq(staffProfiles.status, "active"))).limit(1))[0];
+  const staff = (await db.select({ id: staffProfiles.id }).from(staffProfiles).where(and(eq(staffProfiles.id, input.staffProfileId), eq(staffProfiles.schoolId, schoolId), eq(staffProfiles.status, "active"))).limit(1))[0];
   if (!staff) throw new Error("ACTIVE_STAFF_NOT_FOUND");
   const id = (await db.insert(payrollLoans).values({ schoolId, staffProfileId: input.staffProfileId, loanType: input.loanType, description, principalAmount: String(money(input.principalAmount)), outstandingBalance: String(money(input.principalAmount)), installmentAmount: String(money(input.installmentAmount)), startPeriod: input.startPeriod, status: "pending", createdByUserId: userId }).$returningId())[0].id;
   await writeAudit(userId, "payroll.loan.create", "payroll_loan", id, { staffProfileId: input.staffProfileId, loanType: input.loanType, principalAmount: money(input.principalAmount), installmentAmount: money(input.installmentAmount), startPeriod: input.startPeriod });
@@ -203,7 +203,7 @@ export async function createPayrollDraft(input: { period: string }, userId: numb
   const periodDateValue = asDate(periodDate);
   const { rules, rulesRow } = await rulesForPeriod(db, schoolId, periodDateValue);
   const [staffRows, allContracts, adjustmentRows, loanRows] = await Promise.all([
-    db.select({ id: staffProfiles.id, displayName: staffProfiles.displayName }).from(staffProfiles).where(eq(staffProfiles.status, "active")).orderBy(staffProfiles.displayName),
+    db.select({ id: staffProfiles.id, displayName: staffProfiles.displayName }).from(staffProfiles).where(and(eq(staffProfiles.schoolId, schoolId), eq(staffProfiles.status, "active"))).orderBy(staffProfiles.displayName),
     db.select().from(payrollCompensation).where(and(eq(payrollCompensation.schoolId, schoolId), lte(payrollCompensation.effectiveFrom, periodDateValue))).orderBy(desc(payrollCompensation.effectiveFrom)),
     db.select().from(payrollAdjustments).where(and(eq(payrollAdjustments.schoolId, schoolId), eq(payrollAdjustments.period, input.period), eq(payrollAdjustments.status, "approved"))),
     db.select().from(payrollLoans).where(and(eq(payrollLoans.schoolId, schoolId), eq(payrollLoans.status, "approved"), lte(payrollLoans.startPeriod, input.period))).orderBy(payrollLoans.id),
@@ -265,7 +265,7 @@ export async function transitionPayrollRun(input: { runId: number; action: "subm
     const totalEmployerCost = money(items.reduce((sum, item) => sum + Number(JSON.parse(item.calculationJson).totalEmployerCost ?? item.gross), 0));
     if (totalEmployerCost <= 0) throw new Error("PAYROLL_RUN_TOTAL_INVALID");
     return db.transaction(async tx => {
-      const expenditureId = (await tx.insert(expenditures).values({ expenditureDate: asDate(`${run.period}-28`), amount: String(totalEmployerCost), category: "Payroll", description: `External payroll disbursement recorded for ${run.period}`.slice(0, 255), responsiblePerson: "NEXUS Payroll Register", createdByUserId: userId }).$returningId())[0].id;
+      const expenditureId = (await tx.insert(expenditures).values({ schoolId, expenditureDate: asDate(`${run.period}-28`), amount: String(totalEmployerCost), category: "Payroll", description: `External payroll disbursement recorded for ${run.period}`.slice(0, 255), responsiblePerson: "NEXUS Payroll Register", createdByUserId: userId }).$returningId())[0].id;
       const result = await tx.update(payrollRuns).set({ status: "recorded", recordedAt: new Date(), financeExpenditureId: Number(expenditureId) }).where(and(eq(payrollRuns.id, run.id), eq(payrollRuns.schoolId, schoolId), eq(payrollRuns.status, "approved")));
       if (!result[0].affectedRows) throw new Error("PAYROLL_RUN_STATE_CONFLICT");
       let repaymentCount = 0;

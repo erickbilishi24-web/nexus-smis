@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { permissionCatalog, permissionsByRole } from "./smis";
-import { ASSIGNABLE_ROLES, ROLE_LABELS, permissionRole, rolesCanCreateAssessments, rolesCanViewWholeClassMarklist } from "./access";
+import { ASSIGNABLE_ROLES, ROLE_LABELS, WORKFORCE_PERMISSIONS, fullWorkforcePermissions, permissionRole, rolesCanCreateAssessments, rolesCanViewWholeClassMarklist } from "./access";
 
 describe("NEXUS-SMIS permission model", () => {
   it("includes the critical granular permissions", () => {
@@ -11,6 +11,8 @@ describe("NEXUS-SMIS permission model", () => {
       "attendance.edit",
       "assessments.edit",
       "finance.edit",
+      "payroll.view",
+      "transport.view",
       "store.edit",
       "settings.edit",
       "ai.access",
@@ -32,6 +34,13 @@ describe("NEXUS-SMIS permission model", () => {
     expect(permissionsByRole.admin).toContain("archives.view");
     expect(permissionsByRole.admin).toContain("archives.edit");
     expect(permissionsByRole.admin).not.toContain("counselling.view");
+  });
+
+  it("gives school administrators full workforce capability without widening ordinary staff access", () => {
+    expect(fullWorkforcePermissions(["admin"])).toEqual([...WORKFORCE_PERMISSIONS]);
+    expect(fullWorkforcePermissions(["head_teacher"])).toEqual([...WORKFORCE_PERMISSIONS]);
+    expect(fullWorkforcePermissions(["teacher"])).toEqual([]);
+    expect(permissionsByRole.admin).toEqual(expect.arrayContaining([...WORKFORCE_PERMISSIONS]));
   });
 
   it("keeps Exam Council read-only for consolidated marklists", () => {

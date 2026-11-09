@@ -6,12 +6,14 @@ import { grades, rolePermissions, staffProfiles, teacherAllocations, userPermiss
 export const MODULES = [
   ["dashboard", "Dashboard"], ["learners", "Learners"], ["attendance", "Attendance"], ["assessments", "Assessments"],
   ["marklists", "Marklists"], ["report_cards", "Report Cards"], ["finance", "Finance & Resources"], ["store", "Store"],
+  ["payroll", "Payroll"], ["transport", "Transport & Fleet"],
   ["timetable", "Timetable"], ["allocations", "Teacher Allocations"], ["administration", "Administration"],
   ["communication", "Communications"], ["alumni", "Alumni"], ["archives", "Academic Archives & Alumni"], ["counselling", "Guidance & Counselling"], ["library", "Library"], ["health", "Health & Medical"], ["boarding", "Boarding Management"], ["ai", "NEXUS AI"], ["reports", "Reports"], ["settings", "Settings"],
 ] as const;
 export const ACTIONS = ["view", "create", "edit", "delete", "approve", "export"] as const;
 export const MANAGE_PERMISSIONS = "administration.manage_permissions";
-export const MATRIX_KEYS: string[] = [...MODULES.flatMap(([module]) => ACTIONS.map(action => `${module}.${action}`)), MANAGE_PERMISSIONS];
+export const WORKFORCE_PERMISSIONS = ["payroll.view", "payroll.edit", "payroll.approve", "payroll.rules", "transport.view", "transport.edit", "transport.manage"] as const;
+export const MATRIX_KEYS: string[] = [...MODULES.flatMap(([module]) => ACTIONS.map(action => `${module}.${action}`)), ...WORKFORCE_PERMISSIONS, MANAGE_PERMISSIONS];
 
 export const ROLE_LABELS: Record<string, string> = {
   super_admin: "Super Administrator", admin: "Administrator", head_teacher: "Head of Department", deputy_head: "Deputy",
@@ -39,6 +41,11 @@ const LEGACY: Record<string, string[]> = {
 };
 export const expand = (key: string) => Array.from(new Set([key, ...(LEGACY[key] ?? [])]));
 
+/** Workforce permissions are intentionally fixed for school administrators. Data access remains school-scoped in each procedure. */
+export function fullWorkforcePermissions(roles: string[]) {
+  return roles.some(role => permissionRole(role) === "admin") ? [...WORKFORCE_PERMISSIONS] : [];
+}
+
 async function requireDb() { const db = await getDb(); if (!db) throw new Error("DATABASE_UNAVAILABLE"); return db; }
 
 /** Accounts without a staff identity never inherit administrative privileges. */
@@ -51,8 +58,12 @@ export async function resolveRole(userId: number, _accountRole: string) {
 /** Only explicit allowed rows from the persistent policy table grant role permissions. */
 export async function roleMatrix(role: string) {
   const db = await requireDb();
-  const rows = await db.select().from(rolePermissions).where(eq(rolePermissions.role, permissionRole(role)));
-  return new Set(rows.filter(row => Number(row.allowed) === 1).map(row => row.permissionKey));
+  const normalizedRole = permissionRole(role);
+  const rows = await db.select().from(rolePermissions).where(eq(rolePermissions.role, normalizedRole));
+  const result = new Set(rows.filter(row => Number(row.allowed) === 1).map(row => row.permissionKey));
+  if (normalizedRole === "super_admin") result.add("*");
+  for (const permission of fullWorkforcePermissions([normalizedRole])) result.add(permission);
+  return result;
 }
 
 /** Persistent role grants plus per-user overrides; absent grants fail closed. */
@@ -79,10 +90,7 @@ export async function computePermissions(userId: number, accountRole: string) {
     result.add("attendance.view");
     result.add("attendance.edit");
   }
-  if (roles.some(role => ["admin", "super_admin"].includes(permissionRole(role)))) {
-    result.add("payroll.view");
-    result.add("transport.view");
-  }
+  for (const permission of fullWorkforcePermissions(roles)) result.add(permission);
   return Array.from(result);
 }
 
@@ -126,7 +134,8 @@ export async function getAccessProfile(userId: number): Promise<AccessProfile> {
   const account = (await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1))[0];
   const role = await resolveRole(userId, account?.role ?? "user");
   const pr = permissionRole(role);
-  const manager = (await roleMatrix(role)).has(MANAGE_PERMISSIONS);
+  const managerMatrix = await roleMatrix(role);
+  const manager = managerMatrix.has(MANAGE_PERMISSIONS) || managerMatrix.has("*");
   const level = manager ? "system" : pr === "admin" || pr === "finance" ? "school" : pr === "teacher" ? "allocated" : pr === "class_teacher" ? "class" : "allocated";
   if (level === "system" || level === "school") return { userId, role, label: ROLE_LABELS[role], level, gradeIds: [], pairs: [] };
   const allocations = await db.select().from(teacherAllocations).where(and(eq(teacherAllocations.teacherUserId, userId), eq(teacherAllocations.status, "active")));

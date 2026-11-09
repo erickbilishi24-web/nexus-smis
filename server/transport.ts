@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { canAssignRouteSeat, isValidOdometerTrip, isValidTransportPeriod, periodMatchesCycle } from "../shared/transport";
 import {
-  auditLogs, expenditures, guardians, learnerGuardians, learners, payments, schoolSettings,
+  auditLogs, expenditures, guardians, learnerGuardians, learners, payments,
   staffProfiles, transportAllocations, transportAttendance, transportChargePayments,
   transportCharges, transportCosts, transportIncidents, transportRoutes, transportSettings, transportTrips,
   transportVehicles, users,
@@ -15,11 +15,12 @@ const dateString = (value: Date | string | null | undefined) => value instanceof
 
 async function schoolScope(userId: number, allowDisabled = false) {
   const db = await requireDb();
-  const row = (await db.select({ id: schoolSettings.id }).from(schoolSettings).where(eq(schoolSettings.schoolId, await actorSchoolId(userId))).limit(1))[0];
-  if (!row?.id) throw new Error("SCHOOL_SETTINGS_NOT_CONFIGURED");
-  const setting = (await db.select({ enabled: transportSettings.enabled }).from(transportSettings).where(eq(transportSettings.schoolId, row.id)).limit(1))[0];
+  // The authenticated account's school is the tenant boundary. A school_settings
+  // row is optional and must never be required just to open this module.
+  const schoolId = await actorSchoolId(userId);
+  const setting = (await db.select({ enabled: transportSettings.enabled }).from(transportSettings).where(eq(transportSettings.schoolId, schoolId)).limit(1))[0];
   if (!allowDisabled && setting?.enabled === 0) throw new Error("TRANSPORT_MODULE_DISABLED");
-  return { db, schoolId: row.id };
+  return { db, schoolId };
 }
 
 async function demand(userId: number, role: string, permission: string) {
@@ -42,9 +43,9 @@ export async function getTransportWorkspace(userId: number, role: string) {
     db.select().from(transportIncidents).where(eq(transportIncidents.schoolId, schoolId)).orderBy(desc(transportIncidents.incidentDate), desc(transportIncidents.id)).limit(100),
   ]);
   const activeLearnerIds = Array.from(new Set(allocationRows.map(row => row.learnerId)));
-  const learnerRows = activeLearnerIds.length ? await db.select({ id: learners.id, fullName: learners.fullName, admissionNumber: learners.admissionNumber, guardianName: learners.guardianName, guardianPhone: learners.guardianPhone, status: learners.status }).from(learners).where(inArray(learners.id, activeLearnerIds)) : [];
+  const learnerRows = activeLearnerIds.length ? await db.select({ id: learners.id, fullName: learners.fullName, admissionNumber: learners.admissionNumber, guardianName: learners.guardianName, guardianPhone: learners.guardianPhone, status: learners.status }).from(learners).where(and(eq(learners.schoolId, schoolId), inArray(learners.id, activeLearnerIds))) : [];
   const staffIds = Array.from(new Set(vehicleRows.map(row => row.driverStaffProfileId).filter((id): id is number => id !== null)));
-  const staffRows = staffIds.length ? await db.select({ id: staffProfiles.id, displayName: staffProfiles.displayName }).from(staffProfiles).where(inArray(staffProfiles.id, staffIds)) : [];
+  const staffRows = staffIds.length ? await db.select({ id: staffProfiles.id, displayName: staffProfiles.displayName }).from(staffProfiles).where(and(eq(staffProfiles.schoolId, schoolId), inArray(staffProfiles.id, staffIds))) : [];
   const learnersById = new Map(learnerRows.map(row => [row.id, row]));
   const staffById = new Map(staffRows.map(row => [row.id, row.displayName]));
   const routeById = new Map(routeRows.map(row => [row.id, row]));
@@ -97,7 +98,7 @@ export async function saveTransportVehicle(input: {
   if (!Number.isFinite(input.odometerKm ?? 0) || (input.odometerKm ?? 0) < 0) throw new Error("ODOMETER_INVALID");
   const { db, schoolId } = await schoolScope(userId);
   if (input.driverStaffProfileId) {
-    const driver = (await db.select({ id: staffProfiles.id }).from(staffProfiles).where(and(eq(staffProfiles.id, input.driverStaffProfileId), eq(staffProfiles.status, "active"))).limit(1))[0];
+    const driver = (await db.select({ id: staffProfiles.id }).from(staffProfiles).where(and(eq(staffProfiles.id, input.driverStaffProfileId), eq(staffProfiles.schoolId, schoolId), eq(staffProfiles.status, "active"))).limit(1))[0];
     if (!driver) throw new Error("ACTIVE_DRIVER_NOT_FOUND");
   }
   const values = {
@@ -168,14 +169,14 @@ export async function saveTransportRoute(input: { routeId?: number; name: string
 export async function assignLearnerTransport(input: { learnerId: number; routeId: number; stopName: string; authorizedGuardianId?: number | null; startsOn: string }, userId: number, role: string) {
   await demand(userId, role, "transport.manage");
   const { db, schoolId } = await schoolScope(userId);
-  const learner = (await db.select({ id: learners.id, status: learners.status }).from(learners).where(eq(learners.id, input.learnerId)).limit(1))[0];
+  const learner = (await db.select({ id: learners.id, status: learners.status }).from(learners).where(and(eq(learners.id, input.learnerId), eq(learners.schoolId, schoolId))).limit(1))[0];
   const route = (await db.select().from(transportRoutes).where(and(eq(transportRoutes.id, input.routeId), eq(transportRoutes.schoolId, schoolId))).limit(1))[0];
   if (!learner || learner.status !== "active") throw new Error("ACTIVE_LEARNER_NOT_FOUND");
   if (!route || route.status !== "active" || !route.vehicleId) throw new Error("ACTIVE_ROUTE_VEHICLE_REQUIRED");
   const vehicle = (await db.select().from(transportVehicles).where(and(eq(transportVehicles.id, route.vehicleId), eq(transportVehicles.schoolId, schoolId))).limit(1))[0];
   if (!vehicle || vehicle.status !== "active") throw new Error("ACTIVE_VEHICLE_REQUIRED");
   if (input.authorizedGuardianId) {
-    const guardian = (await db.select({ id: guardians.id }).from(learnerGuardians).innerJoin(guardians, eq(guardians.id, learnerGuardians.guardianId)).where(and(eq(learnerGuardians.learnerId, input.learnerId), eq(guardians.id, input.authorizedGuardianId))).limit(1))[0];
+    const guardian = (await db.select({ id: guardians.id }).from(learnerGuardians).innerJoin(guardians, eq(guardians.id, learnerGuardians.guardianId)).where(and(eq(learnerGuardians.schoolId, schoolId), eq(guardians.schoolId, schoolId), eq(learnerGuardians.learnerId, input.learnerId), eq(guardians.id, input.authorizedGuardianId))).limit(1))[0];
     if (!guardian) throw new Error("GUARDIAN_NOT_LINKED_TO_LEARNER");
   }
   const values = { schoolId, learnerId: input.learnerId, routeId: input.routeId, stopName: input.stopName.trim(), authorizedGuardianId: input.authorizedGuardianId ?? null, startsOn: asDate(input.startsOn)!, endsOn: null, status: "active" as const };
@@ -245,9 +246,9 @@ export async function recordTransportPayment(input: { chargeId: number; amount: 
     const priorLinks = await tx.select().from(transportChargePayments).where(and(eq(transportChargePayments.chargeId, charge.id), eq(transportChargePayments.schoolId, schoolId)));
     const paid = priorLinks.reduce((sum, row) => sum + safeNumber(row.amount), 0);
     if (amount > safeNumber(charge.amount) - paid + 0.001) throw new Error("PAYMENT_EXCEEDS_CHARGE_BALANCE");
-    const paymentId = (await tx.insert(payments).values({ learnerId: charge.learnerId, amount: String(amount), paymentMethod: input.paymentMethod, reference }).$returningId())[0].id;
+    const paymentId = (await tx.insert(payments).values({ schoolId, learnerId: charge.learnerId, amount: String(amount), paymentMethod: input.paymentMethod, reference }).$returningId())[0].id;
     await tx.insert(transportChargePayments).values({ schoolId, chargeId: charge.id, paymentId: Number(paymentId), reference, amount: String(amount) });
-    await tx.insert(auditLogs).values({ userId, action: "transport.charge.payment", entityType: "transport_charge", entityId: String(charge.id), metadata: JSON.stringify({ paymentId: Number(paymentId), amount, reference }) });
+    await tx.insert(auditLogs).values({ schoolId, userId, action: "transport.charge.payment", entityType: "transport_charge", entityId: String(charge.id), metadata: JSON.stringify({ paymentId: Number(paymentId), amount, reference }) });
     return { ok: true, paymentId: Number(paymentId) };
   });
 }
@@ -263,7 +264,7 @@ export async function saveTransportAttendance(input: { routeId: number; attendan
     for (const entry of input.entries) {
       await tx.insert(transportAttendance).values({ schoolId, learnerId: entry.learnerId, routeId: input.routeId, attendanceDate: asDate(input.attendanceDate)!, shift: input.shift, status: entry.status, capturedByUserId: userId }).onDuplicateKeyUpdate({ set: { routeId: input.routeId, status: entry.status, capturedByUserId: userId } });
     }
-    await tx.insert(auditLogs).values({ userId, action: "transport.attendance.save", entityType: "transport_attendance", entityId: input.attendanceDate, metadata: JSON.stringify({ routeId: input.routeId, shift: input.shift, count: input.entries.length }) });
+    await tx.insert(auditLogs).values({ schoolId, userId, action: "transport.attendance.save", entityType: "transport_attendance", entityId: input.attendanceDate, metadata: JSON.stringify({ routeId: input.routeId, shift: input.shift, count: input.entries.length }) });
   });
   return { ok: true, count: input.entries.length };
 }
@@ -276,7 +277,7 @@ export async function recordTransportTrip(input: { vehicleId: number; routeId?: 
   if (!vehicle || vehicle.status !== "active") throw new Error("ACTIVE_VEHICLE_REQUIRED");
   const driverId = input.driverStaffProfileId ?? vehicle.driverStaffProfileId;
   if (driverId) {
-    const driver = (await db.select({ id: staffProfiles.id }).from(staffProfiles).where(and(eq(staffProfiles.id, driverId), eq(staffProfiles.status, "active"))).limit(1))[0];
+    const driver = (await db.select({ id: staffProfiles.id }).from(staffProfiles).where(and(eq(staffProfiles.id, driverId), eq(staffProfiles.schoolId, schoolId), eq(staffProfiles.status, "active"))).limit(1))[0];
     if (!driver) throw new Error("ACTIVE_DRIVER_NOT_FOUND");
   }
   if (input.routeId && !(await db.select({ id: transportRoutes.id }).from(transportRoutes).where(and(eq(transportRoutes.id, input.routeId), eq(transportRoutes.schoolId, schoolId))).limit(1))[0]) throw new Error("ROUTE_NOT_FOUND");
@@ -300,19 +301,19 @@ export async function recordTransportCost(input: { vehicleId: number; costType: 
   const vehicle = (await db.select().from(transportVehicles).where(and(eq(transportVehicles.id, input.vehicleId), eq(transportVehicles.schoolId, schoolId))).limit(1))[0];
   if (!vehicle) throw new Error("VEHICLE_NOT_FOUND");
   return db.transaction(async tx => {
-    const expenditureId = (await tx.insert(expenditures).values({ expenditureDate: asDate(input.costDate)!, amount: String(amount), category: `Transport — ${input.costType}`, description: `${vehicle.registration}: ${description}`.slice(0, 255), responsiblePerson: "NEXUS Transport Register", createdByUserId: userId }).$returningId())[0].id;
+    const expenditureId = (await tx.insert(expenditures).values({ schoolId, expenditureDate: asDate(input.costDate)!, amount: String(amount), category: `Transport — ${input.costType}`, description: `${vehicle.registration}: ${description}`.slice(0, 255), responsiblePerson: "NEXUS Transport Register", createdByUserId: userId }).$returningId())[0].id;
     const costId = (await tx.insert(transportCosts).values({ schoolId, vehicleId: input.vehicleId, costType: input.costType, costDate: asDate(input.costDate)!, amount: String(amount), idempotencyKey: input.idempotencyKey, description, nextDueOn: asDate(input.nextDueOn), ledgerExpenditureId: Number(expenditureId), createdByUserId: userId }).$returningId())[0].id;
-    await tx.insert(auditLogs).values({ userId, action: "transport.cost.record", entityType: "transport_cost", entityId: String(costId), metadata: JSON.stringify({ expenditureId: Number(expenditureId), vehicleId: input.vehicleId, amount, costType: input.costType }) });
+    await tx.insert(auditLogs).values({ schoolId, userId, action: "transport.cost.record", entityType: "transport_cost", entityId: String(costId), metadata: JSON.stringify({ expenditureId: Number(expenditureId), vehicleId: input.vehicleId, amount, costType: input.costType }) });
     return { ok: true, id: costId, expenditureId: Number(expenditureId) };
   });
 }
 
 export async function getTransportLearnerOptions(userId: number, role: string) {
   await demand(userId, role, "transport.manage");
-  const { db } = await schoolScope(userId);
-  const learnerRows = await db.select({ id: learners.id, fullName: learners.fullName, admissionNumber: learners.admissionNumber, guardianName: learners.guardianName }).from(learners).where(eq(learners.status, "active")).orderBy(learners.fullName);
-  const guardianRows = learnerRows.length ? await db.select({ learnerId: learnerGuardians.learnerId, id: guardians.id, fullName: guardians.fullName, phone: guardians.phone }).from(learnerGuardians).innerJoin(guardians, eq(guardians.id, learnerGuardians.guardianId)).where(inArray(learnerGuardians.learnerId, learnerRows.map(row => row.id))) : [];
-  const activeStaff = await db.select({ id: staffProfiles.id, displayName: staffProfiles.displayName, role: staffProfiles.role }).from(staffProfiles).where(eq(staffProfiles.status, "active")).orderBy(staffProfiles.displayName);
+  const { db, schoolId } = await schoolScope(userId);
+  const learnerRows = await db.select({ id: learners.id, fullName: learners.fullName, admissionNumber: learners.admissionNumber, guardianName: learners.guardianName }).from(learners).where(and(eq(learners.schoolId, schoolId), eq(learners.status, "active"))).orderBy(learners.fullName);
+  const guardianRows = learnerRows.length ? await db.select({ learnerId: learnerGuardians.learnerId, id: guardians.id, fullName: guardians.fullName, phone: guardians.phone }).from(learnerGuardians).innerJoin(guardians, eq(guardians.id, learnerGuardians.guardianId)).where(and(eq(learnerGuardians.schoolId, schoolId), eq(guardians.schoolId, schoolId), inArray(learnerGuardians.learnerId, learnerRows.map(row => row.id)))) : [];
+  const activeStaff = await db.select({ id: staffProfiles.id, displayName: staffProfiles.displayName, role: staffProfiles.role }).from(staffProfiles).where(and(eq(staffProfiles.schoolId, schoolId), eq(staffProfiles.status, "active"))).orderBy(staffProfiles.displayName);
   return {
     learners: learnerRows.map(learner => ({ ...learner, guardians: guardianRows.filter(guardian => guardian.learnerId === learner.id).map(({ learnerId: _learnerId, ...guardian }) => guardian) })),
     staff: activeStaff,
