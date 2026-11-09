@@ -5,6 +5,7 @@ import { Banknote, Download, FileCheck2, LoaderCircle, ShieldCheck, Users } from
 import { toast } from "sonner";
 import { DEFAULT_KENYA_PAYROLL_RULES } from "@shared/payroll";
 import { trpc } from "@/lib/trpc";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 const control = "w-full rounded-lg border border-[#d7ddd5] bg-white px-3 py-2 text-sm text-[#20392f] outline-none transition focus:border-[#557667] focus:ring-2 focus:ring-[#dce8df]";
 const button = "inline-flex items-center justify-center gap-2 rounded-lg bg-[#193d32] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#285647] disabled:cursor-not-allowed disabled:opacity-50";
@@ -74,6 +75,22 @@ export function PayrollWorkspace({ canView, canEdit, canApprove, canEditRules, c
     ].map(([label, amount]) => `<tr><td>${escapeHtml(label)}</td><td class="amount">KSh ${Number(amount ?? 0).toLocaleString("en-KE", { minimumFractionDigits: 2 })}</td></tr>`).join("");
     win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Payslip ${escapeHtml(slip.period)}</title><style>body{font:15px/1.5 Arial,sans-serif;color:#24392e;margin:40px}h1{color:#193d32}.meta{color:#647369}table{width:100%;border-collapse:collapse;margin-top:24px}td{padding:11px;border-bottom:1px solid #dce2da}.amount{text-align:right;font-variant-numeric:tabular-nums}tr:last-child{font-weight:bold;font-size:1.12rem}footer{margin-top:35px;color:#647369;font-size:12px}@media print{body{margin:12mm}}</style></head><body><p class="meta">NEXUS · CONFIDENTIAL PAYROLL</p><h1>Employee payslip</h1><p><strong>${escapeHtml(slip.employeeName)}</strong><br>Pay period: ${escapeHtml(slip.period)}</p><table>${items}</table><footer>Prepared by NEXUS for internal payroll records. This is not a KRA return or proof of bank payment. Verify statutory calculations before live use.</footer><script>window.onload=()=>window.print()</script></body></html>`);
     win.document.close();
+  };
+  const downloadMonthlyPdf = async () => {
+    if (!data) return;
+    try {
+      const reportResult = await recordExport.mutateAsync({ kind: "monthly_summary", period: reportPeriod });
+      const pdf = await PDFDocument.create(); const page = pdf.addPage([842, 595]);
+      const font = await pdf.embedFont(StandardFonts.Helvetica); const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+      page.drawText("NEXUS · MONTHLY PAYROLL SUMMARY", { x: 36, y: 555, size: 16, font: bold, color: rgb(0.1, 0.24, 0.2) });
+      page.drawText(`Pay period: ${reportPeriod}`, { x: 36, y: 535, size: 10, font, color: rgb(0.35, 0.42, 0.38) });
+      const headers = ["Employee", "Gross", "Employer NSSF", "Employer Levy", "Employer Cost", "Net"];
+      const xs = [36, 250, 345, 455, 565, 700]; headers.forEach((h,i)=>page.drawText(h,{x:xs[i],y:505,size:8,font:bold,color:rgb(0.1,0.24,0.2)}));
+      reportResult.rows.slice(0, 30).forEach((row:any, i:number) => { const y=485-i*14; const vals=[row.employeeName,row.gross,row.calculation.nssfEmployer,row.calculation.housingLevyEmployer,row.calculation.totalEmployerCost,row.net]; vals.forEach((v,j)=>page.drawText(String(j?Number(v??0).toLocaleString("en-KE",{minimumFractionDigits:2}):v??""),{x:xs[j],y,size:7,font,color:rgb(0.16,0.22,0.18)})); });
+      if (reportResult.rows.length > 30) page.drawText(`Showing first 30 of ${reportResult.rows.length} payroll records. Use CSV for the complete register.`, { x:36, y:34, size:8, font, color:rgb(0.5,0.3,0.1) });
+      const bytes = await pdf.save(); const url=URL.createObjectURL(new Blob([bytes.buffer as ArrayBuffer],{type:"application/pdf"})); const link=document.createElement("a"); link.href=url; link.download=`payroll-monthly-summary-${reportPeriod}.pdf`; link.click(); URL.revokeObjectURL(url);
+      if (!reportResult.rows.length) toast.message("No payroll run exists for the selected period; an empty PDF was downloaded.");
+    } catch (error) { fail(error); }
   };
   const csvDownload = (filename: string, rows: unknown[][]) => {
     const csv = rows.map(row => row.map(cell => { const raw = String(cell ?? ""); const safe = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw; return `"${safe.replaceAll('"', '""')}"`; }).join(",")).join("\r\n");
@@ -171,7 +188,7 @@ export function PayrollWorkspace({ canView, canEdit, canApprove, canEditRules, c
 
       {panel("Loan and advance register", "Installments are deducted only after approval and are applied once when the associated payroll run is recorded as externally paid.", <div className="space-y-2">{data.loans.map((item: any) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-[#edf0eb] py-2 text-sm"><span className="text-[#294a3c]">{item.staffName} · {item.loanType} · {item.description} · balance {cash(item.outstandingBalance)} / {cash(item.principalAmount)} · {cash(item.installmentAmount)} monthly · from {item.startPeriod} <small className="text-[#77847b]">{item.status}</small></span>{item.status === "pending" && canApprove && <div className="flex gap-2"><button className={secondary} disabled={busy || item.createdByUserId === data.currentUserId} onClick={() => void run(() => reviewLoan.mutateAsync({ loanId: item.id, status: "approved" }), "Loan / advance approved")}>Approve</button><button className={secondary} disabled={busy || item.createdByUserId === data.currentUserId} onClick={() => void run(() => reviewLoan.mutateAsync({ loanId: item.id, status: "rejected" }), "Loan / advance rejected")}>Reject</button></div>}</div>)}{!data.loans.length && <p className="text-sm text-[#7a867d]">No loans or advances recorded.</p>}</div>, <FileCheck2 size={18}/>)}
 
-      {panel("Payroll reports and schedules", "Prepared by NEXUS from saved payroll records. These exports are not statutory returns and are not filed by the application.", <div className="flex flex-wrap items-end gap-3"><div className="min-w-40">{field("Monthly period", <input className={control} type="month" value={reportPeriod} onChange={e => setReportPeriod(e.target.value)}/>)}</div><button className={secondary} disabled={recordExport.isPending} onClick={() => void exportPayrollReport("monthly_summary")}>Monthly summary CSV</button><button className={secondary} disabled={recordExport.isPending} onClick={() => void exportPayrollReport("deduction_schedule")}>Deduction schedule CSV</button><div className="min-w-28">{field("Annual year", <input className={control} type="number" min="2000" max="2100" value={reportYear} onChange={e => setReportYear(Number(e.target.value))}/>)}</div><button className={button} disabled={recordExport.isPending} onClick={() => void exportPayrollReport("annual_summary")}>Annual report CSV</button></div>, <Download size={18}/>)}
+      {panel("Payroll reports and schedules", "Prepared by NEXUS from saved payroll records. These exports are not statutory returns and are not filed by the application.", <div className="flex flex-wrap items-end gap-3"><div className="min-w-40">{field("Monthly period", <input className={control} type="month" value={reportPeriod} onChange={e => setReportPeriod(e.target.value)}/>)}</div><button className={secondary} disabled={recordExport.isPending} onClick={() => void exportPayrollReport("monthly_summary")}>Monthly summary CSV</button><button className={button} disabled={recordExport.isPending} onClick={() => void downloadMonthlyPdf()}>Monthly summary PDF</button><button className={secondary} disabled={recordExport.isPending} onClick={() => void exportPayrollReport("deduction_schedule")}>Deduction schedule CSV</button><div className="min-w-28">{field("Annual year", <input className={control} type="number" min="2000" max="2100" value={reportYear} onChange={e => setReportYear(Number(e.target.value))}/>)}</div><button className={button} disabled={recordExport.isPending} onClick={() => void exportPayrollReport("annual_summary")}>Annual report CSV</button></div>, <Download size={18}/>)}
     </>}
   </div>;
 
