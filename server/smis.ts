@@ -262,8 +262,14 @@ export async function updateLearner(input: { learnerId: number; fullName: string
   if (duplicate) throw new Error("ADMISSION_NUMBER_EXISTS");
   await db.update(learners).set({ fullName: input.fullName.trim(), admissionNumber, guardianName: input.guardianName?.trim() || null, guardianIdNumber: input.guardianIdNumber?.trim() || null, guardianPhone: input.guardianPhone?.trim() || null, gradeId: input.gradeId, status: input.status }).where(and(eq(learners.id, input.learnerId), eq(learners.schoolId, schoolId)));
   if (input.guardianName?.trim()) await syncPrimaryGuardian({ learnerId: input.learnerId, schoolId, fullName: input.guardianName, idNumber: input.guardianIdNumber, phone: input.guardianPhone, userId });
-  await writeAudit(userId, "learner.update", "learner", input.learnerId, { gradeId: input.gradeId, status: input.status });
-  return { ok: true };
+  const transferred = current.gradeId !== input.gradeId;
+  await writeAudit(userId, transferred ? "learner.transfer" : "learner.update", "learner", input.learnerId, {
+    previousGradeId: current.gradeId,
+    gradeId: input.gradeId,
+    status: input.status,
+    historicalRecordsPreserved: true,
+  });
+  return { ok: true, transferred, previousGradeId: current.gradeId, gradeId: input.gradeId };
 }
 
 export async function setLearnerStatus(input: { learnerId: number; status: LearnerStatus }, userId: number) {
@@ -1946,7 +1952,9 @@ export async function assignClassTeacher(input: { teacherUserId: number; gradeId
     if (existing) await tx.update(teacherAllocations).set({ status: "active", replacedByUserId: null, schoolId }).where(eq(teacherAllocations.id, existing.id));
     else await tx.insert(teacherAllocations).values({ schoolId, teacherUserId: input.teacherUserId, gradeId: input.gradeId, subjectId: 0, academicYear: input.academicYear, term: input.term, allocationType: "class_teacher", status: "active" });
     await tx.update(grades).set({ classTeacherUserId: input.teacherUserId }).where(and(eq(grades.id, input.gradeId), schoolId == null ? undefined : eq(grades.schoolId, schoolId)));
-    await tx.update(staffProfiles).set({ role: "class_teacher" }).where(and(eq(staffProfiles.userId, input.teacherUserId), schoolId == null ? undefined : eq(staffProfiles.schoolId, schoolId)));
+    // Keep the teacher's primary role intact. Class teacher, exam council,
+    // learning-area and other responsibilities are represented by their
+    // respective assignments and may coexist for the same staff member.
   });
   await writeAudit(userId, previousHolder ? "class_teacher.replace" : "class_teacher.assign", "grade", input.gradeId, { ...input, previousHolder });
   return { ok: true, gradeId: input.gradeId, teacherUserId: input.teacherUserId, replacedTeacherUserId: previousHolder };

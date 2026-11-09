@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, CheckCircle2, Download, Printer, RotateCcw, Save, Send, ShieldCheck } from "lucide-react";
+import { Activity, CheckCircle2, Download, Printer, RotateCcw, Save, Send, ShieldCheck, Upload } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { rankMarklistRows } from "@shared/marklist";
 import { toast } from "sonner";
@@ -48,6 +48,7 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
   const [draftScores, setDraftScores] = useState<Record<number, string>>({});
   const [analysisOpen, setAnalysisOpen] = useState(false);
   const [analysisTarget, setAnalysisTarget] = useState("50");
+  const [markImporting, setMarkImporting] = useState(false);
   const scopes = trpc.smis.assessments.scopes.useQuery();
   const utils = trpc.useUtils();
   const scope = useMemo(() => scopes.data?.find(row => scopeKey(row) === selectedScopeKey), [scopes.data, selectedScopeKey]);
@@ -154,6 +155,52 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
     if (!scope) return;
     openAssessment.mutate({ academicYear: scope.academicYear, term: scope.term, assessmentType, gradeId: scope.gradeId, subjectId: scope.subjectId, customTitle: customTitle.trim() || undefined });
   };
+  const downloadMarklistTemplate = async () => {
+    const XLSX = await import("xlsx");
+    const rows = (entry.data?.learners ?? []).map(row => ({
+      "Admission No": row.admissionNumber,
+      "Learner Name": row.fullName,
+      "Mark": row.score ?? "",
+      "Teacher Remark": row.teacherRemark ?? "",
+    }));
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), "Marks");
+    XLSX.writeFile(workbook, `NEXUS-marklist-${scope?.gradeName ?? "class"}-${scope?.subjectName ?? "subject"}.xlsx`);
+  };
+  const importMarklist = async (file: File) => {
+    if (!entry.data) return;
+    setMarkImporting(true);
+    try {
+      const XLSX = await import("xlsx");
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+      const normalize = (value: unknown) => String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+      const byAdmission = new Map(entry.data.learners.map(row => [normalize(row.admissionNumber), row]));
+      const next = { ...draftScores };
+      let matched = 0;
+      let invalid = 0;
+      for (const row of rows) {
+        const keys = Object.keys(row);
+        const admissionKey = keys.find(key => ["admissionno", "admissionnumber", "assno", "studentid", "studentno"].includes(normalize(key)));
+        const markKey = keys.find(key => ["mark", "score", "marks", "score100"].includes(normalize(key)));
+        const learner = admissionKey ? byAdmission.get(normalize(row[admissionKey])) : undefined;
+        if (!learner || !markKey) continue;
+        const raw = String(row[markKey] ?? "").trim();
+        if (raw === "") { next[learner.learnerId] = ""; matched++; continue; }
+        const score = Number(raw);
+        if (!Number.isFinite(score) || score < 0 || score > 100) { invalid++; continue; }
+        next[learner.learnerId] = String(score); matched++;
+      }
+      setDraftScores(next);
+      toast.success(`Marklist matched ${matched} learner${matched === 1 ? "" : "s"}`, { description: invalid ? `${invalid} invalid score${invalid === 1 ? "" : "s"} were skipped.` : "Order and alphabetic arrangement do not matter; admission number was used as the reference." });
+    } catch {
+      toast.error("Could not read the Excel marklist. Use the NEXUS template or include Admission No and Mark columns.");
+    } finally {
+      setMarkImporting(false);
+    }
+  };
+
   const persistRows = () => {
     if (!entry.data) return;
     const rows = entry.data.learners.map(row => {
@@ -276,6 +323,8 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
         <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#cfe0d3] bg-[#e7f0e7] p-4 text-sm text-[#315c4c]">
           <div><b>{entry.data.assessment.title}</b><span className="ml-2 rounded-full bg-white/75 px-2 py-1 text-xs font-bold capitalize">{entry.data.assessment.status}</span><p className="mt-1 text-xs">{assessmentLabel(assessmentType)} · {entry.data.assessment.term} {entry.data.assessment.academicYear} · {entry.data.learners.length - missing}/{entry.data.learners.length} marks entered · {missing} missing</p></div>
           <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={downloadMarklistTemplate} className="quiet-button"><Download size={15} />Excel template</button>
+            <label className={`quiet-button cursor-pointer ${markImporting ? "opacity-60" : ""}`}><Upload size={15} />{markImporting ? "Reading…" : "Import Excel"}<input type="file" accept=".xlsx,.xls,.csv" className="hidden" disabled={markImporting || !isEditable} onChange={event => { const file = event.target.files?.[0]; if (file) void importMarklist(file); event.currentTarget.value = ""; }} /></label>
             <button type="button" disabled={!isEditable || saveRows.isPending} onClick={() => { try { persistRows(); } catch (error) { toast.error(toUserError(error)); } }} className="action-button"><Save size={15} />Save marks</button>
             {(entry.data.assessment.status === "draft" || entry.data.assessment.status === "returned") && <button type="button" disabled={missing > 0 || submit.isPending} onClick={() => submit.mutate({ assessmentId: entry.data!.assessment.id })} className="action-button disabled:opacity-50"><Send size={15} />{entry.data.assessment.status === "returned" ? "Resubmit for verification" : "Submit for verification"}</button>}
             {mayReview && entry.data.assessment.status === "submitted" && <button type="button" onClick={() => finalize.mutate({ assessmentId: entry.data!.assessment.id, status: "approved" })} className="action-button"><ShieldCheck size={15} />Approve</button>}
