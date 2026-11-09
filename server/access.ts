@@ -61,7 +61,10 @@ export async function computePermissions(userId: number, accountRole: string) {
   const legacyRole = await resolveRole(userId, accountRole);
   if (legacyRole === "super_admin" || accountRole === "super_admin") return ["*"];
   const assigned = await db.select({ role: userRoles.role }).from(userRoles).where(eq(userRoles.userId, userId));
-  const roles = Array.from(new Set([legacyRole, ...assigned.map(row => row.role)]));
+  // Account-level Admin must be included even when its staff profile still
+  // carries a legacy/default role. Otherwise protected workforce modules can
+  // incorrectly appear unavailable to administrators.
+  const roles = Array.from(new Set([legacyRole, accountRole === "admin" ? "admin" : null, ...assigned.map(row => row.role)].filter((role): role is string => Boolean(role))));
   const matrices = await Promise.all(roles.map(role => roleMatrix(role)));
   if (matrices.some(matrix => matrix.has("*"))) return ["*"];
   const result = new Set<string>();
@@ -75,6 +78,10 @@ export async function computePermissions(userId: number, accountRole: string) {
   if (roles.some(role => ["admin", "class_teacher", "finance"].includes(permissionRole(role)))) {
     result.add("attendance.view");
     result.add("attendance.edit");
+  }
+  if (roles.some(role => ["admin", "super_admin"].includes(permissionRole(role)))) {
+    result.add("payroll.view");
+    result.add("transport.view");
   }
   return Array.from(result);
 }
