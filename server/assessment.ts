@@ -85,6 +85,7 @@ async function assertAssessmentAccess(assessment: AssessmentScope, userId: numbe
     eq(teacherAllocations.term, assessment.term),
     eq(teacherAllocations.gradeId, assessment.gradeId),
     eq(teacherAllocations.subjectId, assessment.subjectId),
+    eq(teacherAllocations.status, "active"),
   )).limit(1))[0];
   if (!allocation) throw new Error("ASSESSMENT_SCOPE_FORBIDDEN");
 }
@@ -107,7 +108,8 @@ export async function listAssessmentScopes(userId: number) {
   const access = await actorAccess(userId);
   const schoolId = await actorSchoolId(userId);
   const filters = [
-    eq(teacherAllocations.schoolId, schoolId),] as ReturnType<typeof eq>[];
+    eq(teacherAllocations.schoolId, schoolId),
+    eq(teacherAllocations.status, "active"),] as ReturnType<typeof eq>[];
   if (!access.isAdmin && !access.isMarklistReviewer) filters.push(eq(teacherAllocations.teacherUserId, userId));
   const rows = await db.select({ allocation: teacherAllocations, grade: grades, subject: subjects, staff: staffProfiles })
     .from(teacherAllocations)
@@ -492,6 +494,7 @@ export async function getClassMarklist(input: { academicYear: number; term: stri
     eq(teacherAllocations.academicYear, input.academicYear),
     eq(teacherAllocations.term, input.term),
     eq(teacherAllocations.gradeId, input.gradeId),
+    eq(teacherAllocations.status, "active"),
   ];
   if (!access.isAdmin && !access.isMarklistReviewer) filters.push(eq(teacherAllocations.teacherUserId, userId));
   const allocationRows = await db.select({ allocation: teacherAllocations, subject: subjects, staff: staffProfiles })

@@ -55,13 +55,25 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
   const scopes = trpc.smis.assessments.scopes.useQuery();
   const utils = trpc.useUtils();
   const scope = useMemo(() => scopes.data?.find(row => scopeKey(row) === selectedScopeKey), [scopes.data, selectedScopeKey]);
+  const classScopes = useMemo(() => {
+    const grouped = new Map<string, { key: string; academicYear: number; term: string; gradeId: number; gradeName: string; gradeStream: string | null; subjectCount: number }>();
+    for (const row of scopes.data ?? []) {
+      const key = `${row.academicYear}:${row.term}:${row.gradeId}`;
+      const current = grouped.get(key);
+      if (current) { current.subjectCount += 1; continue; }
+      grouped.set(key, { key, academicYear: row.academicYear, term: row.term, gradeId: row.gradeId, gradeName: row.gradeName, gradeStream: row.gradeStream, subjectCount: 1 });
+    }
+    return Array.from(grouped.values()).sort((a, b) => b.academicYear - a.academicYear || a.gradeName.localeCompare(b.gradeName) || a.term.localeCompare(b.term));
+  }, [scopes.data]);
+  const [selectedClassScopeKey, setSelectedClassScopeKey] = useState("");
+  const classScope = useMemo(() => classScopes.find(row => row.key === selectedClassScopeKey) ?? classScopes[0], [classScopes, selectedClassScopeKey]);
   const entry = trpc.smis.assessments.entries.useQuery({ assessmentId: assessmentId ?? 0 }, { enabled: assessmentId !== null });
   const marklist = trpc.smis.assessments.classMarklist.useQuery({
-    academicYear: scope?.academicYear ?? 2026,
-    term: scope?.term ?? "Term 1",
+    academicYear: classScope?.academicYear ?? 2026,
+    term: classScope?.term ?? "Term 1",
     assessmentType: marklistType,
-    gradeId: scope?.gradeId ?? 0,
-  }, { enabled: mode === "marklist" && Boolean(scope) });
+    gradeId: classScope?.gradeId ?? 0,
+  }, { enabled: mode === "marklist" && Boolean(classScope) });
   const openAssessment = trpc.smis.assessments.open.useMutation({
     onSuccess: async assessment => {
       setAssessmentId(assessment.id);
@@ -141,6 +153,10 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
       setAssessmentId(null);
     }
   }, [scopes.data, selectedScopeKey]);
+  useEffect(() => {
+    if (!classScopes.length) return;
+    if (!selectedClassScopeKey || !classScopes.some(row => row.key === selectedClassScopeKey)) setSelectedClassScopeKey(classScopes[0].key);
+  }, [classScopes, selectedClassScopeKey]);
   useEffect(() => {
     if (!entry.data) return;
     setDraftScores(Object.fromEntries(entry.data.learners.map(row => [row.learnerId, row.score == null ? "" : String(row.score)])));
@@ -381,10 +397,13 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
     </section>}
     {batchApprovalAccess.data === true && <section className="soft-card overflow-hidden rounded-xl border border-[#d8ded7] bg-[#fffefa]"><div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#e7e2d7] bg-[#fbf5e5] p-4"><div><p className="eyebrow"><RotateCcw size={13} /> Assessment history</p><h2 className="mt-1 text-lg font-bold text-[#28483f]">Return history</h2><p className="mt-1 text-xs text-[#718077]">A permanent record of returned assessments, shared feedback, and the administrator responsible.</p></div><span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-[#76591d]">{returnHistory.data?.length ?? 0} returned</span></div>{returnHistory.isLoading ? <p className="p-4 text-sm text-[#718077]">Loading return history…</p> : returnHistory.data?.length ? <div className="overflow-x-auto"><table className="w-full min-w-[900px] text-left text-xs"><thead className="bg-[#fffaf0] uppercase tracking-wider text-[#76591d]"><tr><th className="p-3">Returned</th><th className="p-3">Class & subject</th><th className="p-3">Teacher</th><th className="p-3">Administrator</th><th className="p-3">Shared feedback</th></tr></thead><tbody>{returnHistory.data.map(row => <tr key={row.id} className="border-t border-[#eee9df] align-top"><td className="whitespace-nowrap p-3 text-[#718077]">{new Date(row.returnedAt).toLocaleString()}</td><td className="p-3 font-semibold text-[#28483f]">{row.grade.name}{row.grade.stream ? ` ${row.grade.stream}` : ""}<span className="block font-normal text-[#718077]">{row.subject.name} · {row.term} {row.academicYear}</span></td><td className="p-3 text-[#53675d]">{row.teacherName}</td><td className="p-3 font-semibold text-[#53675d]">{row.administrator}</td><td className="max-w-[28rem] whitespace-normal p-3 leading-5 text-[#53675d]">{row.feedback}</td></tr>)}</tbody></table></div> : <p className="p-4 text-sm text-[#718077]">No assessment returns have been recorded.</p>}</section>}
     <section className="soft-card grid gap-3 rounded-xl p-4 sm:grid-cols-[1fr_10rem_1.2fr_auto] sm:items-end">
-      <label className="text-xs font-bold text-[#53675d]">Allocated class & subject<select value={selectedScopeKey} onChange={event => selectScope(event.target.value)} className="mt-2 w-full rounded-lg border border-[#d8ded7] bg-[#fffefa] px-3 py-2.5 text-sm">
+      {mode === "marklist" ? <label className="text-xs font-bold text-[#53675d]">Whole-class period<select value={classScope?.key ?? ""} onChange={event => setSelectedClassScopeKey(event.target.value)} className="mt-2 w-full rounded-lg border border-[#d8ded7] bg-[#fffefa] px-3 py-2.5 text-sm">
+        {!classScopes.length && <option value="">No active teacher allocations</option>}
+        {classScopes.map(row => <option key={row.key} value={row.key}>{row.gradeName}{row.gradeStream ? ` ${row.gradeStream}` : ""} · {row.term} {row.academicYear} · {row.subjectCount} learning areas</option>)}
+      </select><span className="mt-1 block text-[.68rem] font-normal text-[#718077]">All learning areas allocated to this class for the selected term will appear together.</span></label> : <label className="text-xs font-bold text-[#53675d]">Allocated class & subject<select value={selectedScopeKey} onChange={event => selectScope(event.target.value)} className="mt-2 w-full rounded-lg border border-[#d8ded7] bg-[#fffefa] px-3 py-2.5 text-sm">
         {!scopes.data?.length && <option value="">No active teacher allocations</option>}
         {scopes.data?.map(row => <option key={scopeKey(row)} value={scopeKey(row)}>{row.gradeName}{row.gradeStream ? ` ${row.gradeStream}` : ""} · {row.subjectName} · {row.term} {row.academicYear} · {row.teacherName}</option>)}
-      </select></label>
+      </select></label>}
       {mode === "entry" ? <label className="text-xs font-bold text-[#53675d]">Assessment type<select value={assessmentType} onChange={event => { setAssessmentType(event.target.value as AssessmentType); setAssessmentId(null); }} className="mt-2 w-full rounded-lg border border-[#d8ded7] bg-[#fffefa] px-3 py-2.5 text-sm"><option value="mid_term">{(settings.data?.assessmentCategories as string[] | undefined)?.[0] ?? "Mid-Term"}</option><option value="end_term">{(settings.data?.assessmentCategories as string[] | undefined)?.[1] ?? "End-Term"}</option></select></label> : <div className="text-xs text-[#718077]">Choose Mid-Term, End-Term, or Average below.</div>}
       {mode === "entry" && creationAccess.data === true && <label className="text-xs font-bold text-[#53675d]">Create New Assessment<input value={customTitle} onChange={event => setCustomTitle(event.target.value)} maxLength={120} placeholder="Optional custom title" className="mt-2 w-full rounded-lg border border-[#d8ded7] bg-[#fffefa] px-3 py-2.5 text-sm" /></label>}
       {mode === "entry" && creationAccess.data === true && <button type="button" onClick={openSelected} disabled={!scope || openAssessment.isPending} className="action-button justify-center disabled:opacity-50">{openAssessment.isPending ? "Loading…" : "Load learner roster"}</button>}
