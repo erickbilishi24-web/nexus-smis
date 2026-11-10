@@ -156,6 +156,7 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
     const XLSX = await import("xlsx");
     const rows = (entry.data?.learners ?? []).map(row => ({
       "Admission No": row.admissionNumber,
+      "Assessment Number": row.admissionNumber,
       "Learner Name": row.fullName,
       "Mark": row.score ?? "",
       "Teacher Remark": row.teacherRemark ?? "",
@@ -389,8 +390,7 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
         <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#cfe0d3] bg-[#e7f0e7] p-4 text-sm text-[#315c4c]">
           <div><b>{entry.data.assessment.title}</b><span className="ml-2 rounded-full bg-white/75 px-2 py-1 text-xs font-bold capitalize">{entry.data.assessment.status}</span><p className="mt-1 text-xs">{assessmentLabel(assessmentType)} · {entry.data.assessment.term} {entry.data.assessment.academicYear} · {entry.data.learners.length - missing}/{entry.data.learners.length} marks entered · {missing} missing</p></div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={downloadMarklistTemplate} className="quiet-button"><Download size={15} />Excel template</button>
-            <label className={`quiet-button cursor-pointer ${markImporting ? "opacity-60" : ""}`}><Upload size={15} />{markImporting ? "Reading…" : "Import Excel"}<input type="file" accept=".xlsx,.xls,.csv" className="hidden" disabled={markImporting || !isEditable} onChange={event => { const file = event.target.files?.[0]; if (file) void importMarklist(file); event.currentTarget.value = ""; }} /></label>
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[#d8ded7] bg-white/70 px-2 py-1.5"><span className="px-1 text-[.68rem] font-bold uppercase tracking-[.08em] text-[#53675d]">Bulk upload this subject</span><button type="button" onClick={downloadMarklistTemplate} className="quiet-button bg-white"><Download size={15} />Download template</button><label className={`action-button cursor-pointer ${markImporting ? "opacity-60" : ""}`}><Upload size={15} />{markImporting ? "Reading…" : "Upload typed marks"}<input type="file" accept=".xlsx,.xls,.csv" className="hidden" disabled={markImporting || !isEditable} onChange={event => { const file = event.target.files?.[0]; if (file) void importMarklist(file); event.currentTarget.value = ""; }} /></label></div>
             <button type="button" disabled={!isEditable || saveRows.isPending} onClick={() => { try { persistRows(); } catch (error) { toast.error(toUserError(error)); } }} className="action-button"><Save size={15} />Save marks</button>
             {(entry.data.assessment.status === "draft" || entry.data.assessment.status === "returned") && <button type="button" disabled={missing > 0 || submit.isPending} onClick={() => submit.mutate({ assessmentId: entry.data!.assessment.id })} className="action-button disabled:opacity-50"><Send size={15} />{entry.data.assessment.status === "returned" ? "Resubmit for verification" : "Submit for verification"}</button>}
             {mayReview && entry.data.assessment.status === "submitted" && <button type="button" onClick={() => finalize.mutate({ assessmentId: entry.data!.assessment.id, status: "approved" })} className="action-button"><ShieldCheck size={15} />Approve</button>}
