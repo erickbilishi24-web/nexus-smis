@@ -282,11 +282,11 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
     saveRows.mutate({ assessmentId: entry.data.assessment.id, rows });
   };
   const exportExcel = async () => {
-    if (!marklist.data || !printRows) return;
+    if (!marklist.data || !tableRows) return;
     const XLSX = await import("xlsx");
     const data = marklist.data;
     const headings = ["S.No.", "ASS NO", "STUDENT NAME", "STREAM", "STREAM POS", "OVERALL POS", "PRV STR POS", "PRV OVR POS", ...data.subjects.map(subject => subjectAbbreviation(subject.name, subject.code)), "SUB. ENTRY", "TOTAL MARKS", "AVG MARKS", "TOTAL POINTS", "AVG POINTS", "LEVEL"];
-    const rows = printRows.map(({ learner, position, totalPoints, averagePoints, level }, index) => [index + 1, learner.admissionNumber, learner.fullName, data.grade.stream || "—", position ?? "", position ?? "", "—", "—", ...learner.marks.map(mark => mark.score === null ? "X" : `${formatNumber(mark.score)} ${levelForScore(mark.score)}`), learner.enteredCount, learner.total ?? "—", learner.average ?? "—", totalPoints, averagePoints ?? "—", level ?? "—"]);
+    const rows = tableRows.map(({ learner, position, totalPoints, averagePoints, level }, index) => [index + 1, learner.admissionNumber, learner.fullName, data.grade.stream || "—", sortKey === "average" ? index + 1 : position ?? "", sortKey === "average" ? index + 1 : position ?? "", "—", "—", ...learner.marks.map(mark => mark.score === null ? "X" : `${formatNumber(mark.score)} ${levelForScore(mark.score)}`), learner.enteredCount, learner.total ?? "—", learner.average ?? "—", totalPoints, averagePoints ?? "—", level ?? "—"]);
     const summaryMarks = Array(14 + data.subjects.length).fill("");
     const summaryPoints = Array(14 + data.subjects.length).fill("");
     summaryMarks[0] = "SUBJECT AVG. MARKS";
