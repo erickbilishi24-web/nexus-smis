@@ -240,6 +240,15 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgb(29 106 87 / 2
   overflow-wrap: anywhere;
 }
 
+.marklist-print .marklist-vertical-heading {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  white-space: nowrap;
+  height: 5.5rem;
+  min-width: 1.6rem;
+  vertical-align: middle;
+}
+
 @media (max-width: 900px) {
   .marklist-print {
     border-radius: .65rem;
