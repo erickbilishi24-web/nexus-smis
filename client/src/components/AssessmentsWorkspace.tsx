@@ -8,6 +8,7 @@ import { toUserError } from "@/lib/errorText";
 type AssessmentType = "mid_term" | "end_term";
 type MarklistType = AssessmentType | "average";
 type ViewMode = "entry" | "marklist";
+type MarklistSortKey = "name" | "admission" | "average";
 const assessmentLabel = (type: AssessmentType) => type === "mid_term" ? "Mid-Term" : "End-Term";
 const marklistLabel = (type: MarklistType) => type === "average" ? "Average" : assessmentLabel(type);
 const scopeKey = (scope: { academicYear: number; term: string; gradeId: number; subjectId: number }) => `${scope.academicYear}:${scope.term}:${scope.gradeId}:${scope.subjectId}`;
@@ -47,7 +48,8 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
   const [assessmentId, setAssessmentId] = useState<number | null>(null);
   const [draftScores, setDraftScores] = useState<Record<number, string>>({});
   const [analysisOpen, setAnalysisOpen] = useState(false);
-  const [sortByAverage, setSortByAverage] = useState(false);
+  const [sortKey, setSortKey] = useState<MarklistSortKey>("name");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [analysisTarget, setAnalysisTarget] = useState("50");
   const [markImporting, setMarkImporting] = useState(false);
   const scopes = trpc.smis.assessments.scopes.useQuery();
@@ -326,9 +328,19 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
   }, [marklist.data]);
   const tableRows = useMemo(() => {
     if (!printRows) return null;
-    if (!sortByAverage) return printRows;
-    return [...printRows].sort((a, b) => (b.learner.average ?? -1) - (a.learner.average ?? -1) || a.learner.fullName.localeCompare(b.learner.fullName));
-  }, [printRows, sortByAverage]);
+    const direction = sortDirection === "asc" ? 1 : -1;
+    return [...printRows].sort((a, b) => {
+      const left = sortKey === "average" ? (a.learner.average ?? -1) : sortKey === "admission" ? a.learner.admissionNumber : a.learner.fullName;
+      const right = sortKey === "average" ? (b.learner.average ?? -1) : sortKey === "admission" ? b.learner.admissionNumber : b.learner.fullName;
+      if (typeof left === "number" && typeof right === "number") return (left - right) * direction || a.learner.fullName.localeCompare(b.learner.fullName);
+      return String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: "base" }) * direction;
+    });
+  }, [printRows, sortDirection, sortKey]);
+  const toggleSort = (key: MarklistSortKey) => {
+    if (sortKey === key) setSortDirection(current => current === "asc" ? "desc" : "asc");
+    else { setSortKey(key); setSortDirection(key === "average" ? "desc" : "asc"); }
+  };
+  const sortArrow = (key: MarklistSortKey) => sortKey === key ? (sortDirection === "asc" ? " ↑" : " ↓") : " ↕";
   const subjectSummary = useMemo(() => marklist.data?.subjects.map((subject, index) => {
     const scores = marklist.data!.learners.map(learner => learner.marks[index]?.score).filter((score): score is number => score !== undefined && score !== null);
     const points = marklist.data!.learners.map(learner => levelPoints(learner.marks[index]?.score == null ? null : levelForScore(learner.marks[index]!.score))).filter((point): point is number => point !== null);
@@ -424,7 +436,8 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
           <div className="flex rounded-lg bg-[#edf2ed] p-1" role="group" aria-label="Choose marklist type">
             {(["mid_term", "end_term", "average"] as const).map(type => <button key={type} type="button" aria-pressed={marklistType === type} onClick={() => setMarklistType(type)} className={`rounded-md px-3 py-2 text-xs font-bold transition ${marklistType === type ? "bg-[#1d6a57] text-white shadow-sm" : "text-[#53675d] hover:bg-white"}`}>{marklistLabel(type)}</button>)}
           </div>
-          <button type="button" onClick={() => { const next = !analysisOpen; setAnalysisOpen(next); setSortByAverage(next); }} className={`quiet-button ${analysisOpen ? "bg-[#e7f0e7] text-[#1d6a57]" : ""}`}><Activity size={15} />{analysisOpen ? "Hide analysis" : "ANALYZE"}</button>
+          <button type="button" onClick={() => { const next = !analysisOpen; setAnalysisOpen(next); if (next) { setSortKey("average"); setSortDirection("desc"); } }} className={`quiet-button ${analysisOpen ? "bg-[#e7f0e7] text-[#1d6a57]" : ""}`}><Activity size={15} />{analysisOpen ? "Hide analysis" : "ANALYZE"}</button>
+          <button type="button" onClick={() => { setSortKey("name"); setSortDirection("asc"); }} className="quiet-button">Reset Order</button>
           <button type="button" onClick={() => window.print()} className="quiet-button"><Printer size={15} />Print / PDF</button>
           {marklistType !== "average" && <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[#d8ded7] bg-[#f7faf6] px-2 py-1.5"><span className="px-1 text-[.68rem] font-bold uppercase tracking-[.08em] text-[#53675d]">Bulk upload marks</span><button type="button" onClick={downloadWholeClassTemplate} disabled={!marklist.data} className="quiet-button bg-white disabled:opacity-50"><Download size={15} />Download template</button><label className="action-button cursor-pointer"><Upload size={15} />{markImporting ? "Uploading…" : "Upload typed marks"}<input type="file" accept=".xlsx,.xls,.csv" className="hidden" disabled={markImporting || !marklist.data} onChange={event => { const file = event.target.files?.[0]; if (file) void importWholeClassMarklist(file); event.target.value = ""; }} /></label></div>}
         </div>
@@ -438,7 +451,7 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
         <section className="print:hidden flex items-center gap-4 rounded-xl border border-[#cfe0d3] bg-gradient-to-r from-[#193d32] to-[#286b57] p-5 text-white shadow-sm">
           {settings.data?.logoPath ? <img src={settings.data.logoPath} alt="School logo" className="h-16 w-16 rounded-xl bg-white object-contain p-1 shadow-sm" /> : <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-white/15 text-2xl font-black">N</div>}
           <div className="min-w-0 flex-1"><p className="text-xs font-bold uppercase tracking-[.2em] text-[#d7ebdc]">Official school assessment record</p><h2 className="mt-1 truncate font-editorial text-2xl font-bold">{settings.data?.schoolName ?? marklist.data.schoolName}</h2><p className="mt-1 text-sm text-[#e2f1e5]">{settings.data?.motto ?? "Learn. Lead. Serve."}{settings.data?.address ? ` · ${settings.data.address}` : ""}</p><p className="mt-1 text-xs text-[#cce4d1]">{marklist.data.grade.name}{marklist.data.grade.stream ? ` · ${marklist.data.grade.stream}` : ""} · {marklist.data.academicYear} · {marklist.data.term} · {marklistLabel(marklistType)} Marklist</p></div>
-          {sortByAverage && <span className="rounded-full bg-white/15 px-3 py-1 text-xs font-bold">Sorted by average ↓</span>}
+          {sortKey === "average" && <span className="rounded-full bg-white/15 px-3 py-1 text-xs font-bold">Sorted by average {sortDirection === "asc" ? "↑" : "↓"}</span>}
         </section>
         <div className="marklist-print max-h-[70vh] overflow-auto rounded-xl border border-[#e7e2d7] bg-white">
         <table className="w-full min-w-0 border-collapse text-[9px] leading-tight">
@@ -450,14 +463,14 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
           </colgroup>
           <thead className="bg-[#e9e8e2] text-[#333]">
             <tr>
-              <th className="border border-[#a9a89f] px-1 py-1.5">S.No</th><th className="border border-[#a9a89f] px-1 py-1.5">ASS NO</th><th className="border border-[#a9a89f] px-1.5 py-1.5 text-left">STUDENT NAME</th><th className="border border-[#a9a89f] px-1 py-1.5">STREAM</th><th className="border border-[#a9a89f] px-1 py-1.5">STREAM POS</th><th className="border border-[#a9a89f] px-1 py-1.5">OVERALL POS</th><th className="marklist-empty-column border border-[#a9a89f] px-1 py-1.5" title="Previous stream position">PRV STR POS</th><th className="marklist-empty-column border border-[#a9a89f] px-1 py-1.5" title="Previous overall position">PRV OVR POS</th>
+              <th className="border border-[#a9a89f] px-1 py-1.5">S.No</th><th className="border border-[#a9a89f] px-1 py-1.5"><button type="button" onClick={() => toggleSort("admission")} className="font-bold hover:text-[#1d6a57]">ASS NO{sortArrow("admission")}</button></th><th className="border border-[#a9a89f] px-1.5 py-1.5 text-left"><button type="button" onClick={() => toggleSort("name")} className="font-bold hover:text-[#1d6a57]">STUDENT NAME{sortArrow("name")}</button></th><th className="border border-[#a9a89f] px-1 py-1.5">STREAM</th><th className="border border-[#a9a89f] px-1 py-1.5">STREAM POS</th><th className="border border-[#a9a89f] px-1 py-1.5">OVERALL POS</th><th className="marklist-empty-column border border-[#a9a89f] px-1 py-1.5" title="Previous stream position">PRV STR POS</th><th className="marklist-empty-column border border-[#a9a89f] px-1 py-1.5" title="Previous overall position">PRV OVR POS</th>
               {marklist.data.subjects.map((subject, index) => <th key={subject.id} title={subject.name} className={`${subjectSummary[index]?.averageMark === null ? "marklist-empty-column" : "marklist-content-column"} marklist-vertical-heading border border-[#a9a89f] px-1 py-1.5`}>{subjectAbbreviation(subject.name, subject.code)}</th>)}
-              <th className="marklist-vertical-heading border border-[#a9a89f] px-1 py-1.5">SUB. ENTRY</th><th className="marklist-vertical-heading border border-[#a9a89f] px-1 py-1.5">TOTAL MARKS</th><th className="marklist-vertical-heading border border-[#a9a89f] px-1 py-1.5">AVG MARKS</th><th className="marklist-vertical-heading border border-[#a9a89f] px-1 py-1.5">TOTAL POINTS</th><th className="marklist-vertical-heading border border-[#a9a89f] px-1 py-1.5">AVG POINTS</th><th className="marklist-vertical-heading border border-[#a9a89f] px-1 py-1.5">LEVEL</th>
+              <th className="marklist-vertical-heading border border-[#a9a89f] px-1 py-1.5">SUB. ENTRY</th><th className="marklist-vertical-heading border border-[#a9a89f] px-1 py-1.5">TOTAL MARKS</th><th className="marklist-vertical-heading border border-[#a9a89f] px-1 py-1.5"><button type="button" onClick={() => toggleSort("average")} className="font-bold hover:text-[#1d6a57]">AVG MARKS{sortArrow("average")}</button></th><th className="marklist-vertical-heading border border-[#a9a89f] px-1 py-1.5">TOTAL POINTS</th><th className="marklist-vertical-heading border border-[#a9a89f] px-1 py-1.5">AVG POINTS</th><th className="marklist-vertical-heading border border-[#a9a89f] px-1 py-1.5">LEVEL</th>
             </tr>
           </thead>
           <tbody>{tableRows?.map(({ learner, position, totalPoints, averagePoints, level }, index) => <tr key={learner.learnerId} className="even:bg-[#f8f7f3]">
             <td className="border border-[#c9c8bf] px-1 py-1 text-center">{index + 1}</td><td className="border border-[#c9c8bf] px-1 py-1 text-center font-mono">{learner.admissionNumber}</td><td className="border border-[#c9c8bf] px-2 py-1 font-semibold">{learner.fullName}</td><td className="border border-[#c9c8bf] px-1 py-1 text-center">{marklist.data!.grade.stream || "—"}</td>
-            <td className="border border-[#c9c8bf] px-1 py-1 text-center">{sortByAverage ? index + 1 : position ?? "—"}</td><td className="border border-[#c9c8bf] px-1 py-1 text-center">{sortByAverage ? index + 1 : position ?? "—"}</td><td className="marklist-empty-column border border-[#c9c8bf] px-1 py-1 text-center">—</td><td className="marklist-empty-column border border-[#c9c8bf] px-1 py-1 text-center">—</td>
+            <td className="border border-[#c9c8bf] px-1 py-1 text-center">{sortKey === "average" ? index + 1 : position ?? "—"}</td><td className="border border-[#c9c8bf] px-1 py-1 text-center">{sortKey === "average" ? index + 1 : position ?? "—"}</td><td className="marklist-empty-column border border-[#c9c8bf] px-1 py-1 text-center">—</td><td className="marklist-empty-column border border-[#c9c8bf] px-1 py-1 text-center">—</td>
             {learner.marks.map((mark, index) => <td key={mark.subjectId} className={`${subjectSummary[index]?.averageMark === null ? "marklist-empty-column" : "marklist-content-column"} border border-[#c9c8bf] px-1 py-1 text-center`}>{mark.score === null ? "X" : `${formatNumber(mark.score)} ${levelForScore(mark.score)}`}</td>)}
             <td className="border border-[#c9c8bf] px-1 py-1 text-center">{learner.enteredCount}</td><td className="border border-[#c9c8bf] px-1 py-1 text-center">{formatNumber(learner.total)}</td><td className="border border-[#c9c8bf] px-1 py-1 text-center">{formatNumber(learner.average)}</td><td className="border border-[#c9c8bf] px-1 py-1 text-center">{totalPoints}</td><td className="border border-[#c9c8bf] px-1 py-1 text-center">{formatNumber(averagePoints)}</td><td className="border border-[#c9c8bf] px-1 py-1 text-center font-bold">{level ?? "—"}</td>
           </tr>)}</tbody>
