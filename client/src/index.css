@@ -240,6 +240,13 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgb(29 106 87 / 2
   overflow-wrap: anywhere;
 }
 
+.marklist-print thead th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: #e9e8e2;
+}
+
 .marklist-print .marklist-vertical-heading {
   writing-mode: vertical-rl;
   transform: rotate(180deg);
@@ -269,6 +276,11 @@ button:focus-visible, input:focus-visible { outline: 3px solid rgb(29 106 87 / 2
 }
 
 @media print {
+  .marklist-print {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
   body * { visibility: hidden !important; }
   .personal-timetable-paper, .personal-timetable-paper * { visibility: visible !important; }
   .personal-timetable-paper { position: absolute; inset: 0; width: 100%; border: 0; box-shadow: none; }
