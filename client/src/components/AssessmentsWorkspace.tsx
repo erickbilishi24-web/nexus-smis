@@ -167,6 +167,75 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), "Marks");
     XLSX.writeFile(workbook, `NEXUS-marklist-${scope?.gradeName ?? "class"}-${scope?.subjectName ?? "subject"}.xlsx`);
   };
+  const downloadWholeClassTemplate = async () => {
+    if (!marklist.data) return;
+    const XLSX = await import("xlsx");
+    const subjects = marklist.data.subjects;
+    const rows = marklist.data.learners.map(learner => Object.fromEntries([
+      ["Admission Number", learner.admissionNumber],
+      ["Assessment Number", learner.admissionNumber],
+      ["Learner Name", learner.fullName],
+      ...subjects.map(subject => [subjectAbbreviation(subject.name, subject.code), ""]),
+    ]));
+    const sheet = XLSX.utils.json_to_sheet(rows);
+    sheet["!cols"] = [{ wch: 18 }, { wch: 18 }, { wch: 28 }, ...subjects.map(() => ({ wch: 12 }))];
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, sheet, "Class Marklist");
+    XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([
+      ["NEXUS marklist upload instructions"],
+      ["Required key", "Use Admission Number or Assessment Number. Values must match the existing learner record."],
+      ["Marks", "Enter a percentage from 0 to 100. Blank cells remain missing and are not treated as zero."],
+      ["Learning areas", `Use the supplied subject columns for ${subjects.map(subject => subjectAbbreviation(subject.name, subject.code)).join(", ")}.`],
+      ["Order", "Learners may be in any order; the key identifies the learner."],
+      ["Scope", `${marklist.data.grade.name}${marklist.data.grade.stream ? ` ${marklist.data.grade.stream}` : ""} · ${marklist.data.academicYear} · ${marklist.data.term} · ${marklistLabel(marklistType)}`],
+    ]), "Instructions");
+    XLSX.writeFile(book, `NEXUS-${marklist.data.grade.name}-multi-subject-marklist-template.xlsx`);
+  };
+  const importWholeClassMarklist = async (file: File) => {
+    if (!marklist.data || marklistType === "average") return;
+    setMarkImporting(true);
+    try {
+      const XLSX = await import("xlsx");
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets[workbook.SheetNames[0]], { defval: "" });
+      const normalize = (value: unknown) => String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+      const learnersByKey = new Map(marklist.data.learners.flatMap(learner => [[normalize(learner.admissionNumber), learner], [normalize(String(learner.learnerId)), learner]]));
+      const subjectsByColumn = new Map<string, typeof marklist.data.subjects[number]>();
+      for (const subject of marklist.data.subjects) for (const label of [subject.name, subject.code, subjectAbbreviation(subject.name, subject.code)]) subjectsByColumn.set(normalize(label), subject);
+      const rowsBySubject = new Map<number, Array<{ learnerId: number; score: number | null; teacherRemark: string | null }>>();
+      let matched = 0; let invalid = 0; let unknown = 0;
+      for (const row of rows) {
+        const keys = Object.keys(row);
+        const keyColumn = keys.find(key => ["admissionnumber", "admissionno", "assessmentnumber", "assessmentno", "assno", "studentid", "studentno"].includes(normalize(key)));
+        const learner = keyColumn ? learnersByKey.get(normalize(row[keyColumn])) : undefined;
+        if (!learner) { unknown++; continue; }
+        matched++;
+        for (const [column, subject] of Array.from(subjectsByColumn.entries())) {
+          const sourceKey = keys.find(key => normalize(key) === column);
+          if (!sourceKey || !subject.assessmentId) continue;
+          const raw = String(row[sourceKey] ?? "").trim();
+          const score = raw === "" ? null : Number(raw);
+          if (score !== null && (!Number.isFinite(score) || score < 0 || score > 100)) { invalid++; continue; }
+          const list = rowsBySubject.get(subject.id) ?? [];
+          list.push({ learnerId: learner.learnerId, score, teacherRemark: null });
+          rowsBySubject.set(subject.id, list);
+        }
+      }
+      let saved = 0;
+      for (const subject of marklist.data.subjects) {
+        const rowsForSubject = rowsBySubject.get(subject.id);
+        if (!rowsForSubject?.length || !subject.assessmentId) continue;
+        const result = await saveRows.mutateAsync({ assessmentId: subject.assessmentId, rows: rowsForSubject });
+        saved += result.rowsUpdated;
+      }
+      await marklist.refetch();
+      toast.success(`Multi-subject marklist uploaded`, { description: `${saved} mark rows saved for ${matched} keyed learner rows${unknown ? ` · ${unknown} unmatched rows skipped` : ""}${invalid ? ` · ${invalid} invalid scores skipped` : ""}.` });
+    } catch {
+      toast.error("Could not read or save the class marklist. Use the supplied NEXUS template and keep Admission Number or Assessment Number unchanged.");
+    } finally {
+      setMarkImporting(false);
+    }
+  };
   const importMarklist = async (file: File) => {
     if (!entry.data) return;
     setMarkImporting(true);
@@ -355,6 +424,7 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
           <button type="button" onClick={() => setAnalysisOpen(value => !value)} className={`quiet-button ${analysisOpen ? "bg-[#e7f0e7] text-[#1d6a57]" : ""}`}><Activity size={15} />{analysisOpen ? "Hide analysis" : "ANALYZE"}</button>
           <button type="button" onClick={() => window.print()} className="quiet-button"><Printer size={15} />Print / PDF</button>
           <button type="button" onClick={exportExcel} className="action-button"><Download size={15} />Excel</button>
+          {marklistType !== "average" && <><button type="button" onClick={downloadWholeClassTemplate} disabled={!marklist.data} className="quiet-button disabled:opacity-50"><Download size={15} />Upload template</button><label className="quiet-button cursor-pointer"><Upload size={15} />{markImporting ? "Uploading…" : "Upload typed marks"}<input type="file" accept=".xlsx,.xls,.csv" className="hidden" disabled={markImporting || !marklist.data} onChange={event => { const file = event.target.files?.[0]; if (file) void importWholeClassMarklist(file); event.target.value = ""; }} /></label></>}
         </div>
       </section>
       {analysisOpen && analysis && <section className="print:hidden soft-card rounded-xl border border-[#cfe0d3] bg-[#fbfdf9] p-4">
