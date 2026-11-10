@@ -139,9 +139,6 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
     }
   }, [scopes.data, selectedScopeKey]);
   useEffect(() => {
-    if (wholeClassAccess.data === true && creationAccess.data === false) setMode("marklist");
-  }, [wholeClassAccess.data, creationAccess.data]);
-  useEffect(() => {
     if (!entry.data) return;
     setDraftScores(Object.fromEntries(entry.data.learners.map(row => [row.learnerId, row.score == null ? "" : String(row.score)])));
   }, [entry.data]);
