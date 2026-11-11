@@ -27,6 +27,7 @@ const formatNumber = (value: number | null, digits = 2) => value === null ? "—
 
 export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolean }) {
   const settings = trpc.smis.settings.get.useQuery();
+  const activeTerm = trpc.smis.assessments.activeTerm.useQuery();
   const [mode, setMode] = useState<ViewMode>("entry");
   const [selectedApprovalIds, setSelectedApprovalIds] = useState<number[]>([]);
   const reviewAccess = trpc.smis.assessments.reviewAccess.useQuery();
@@ -169,7 +170,9 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
   const selectScope = (value: string) => { setSelectedScopeKey(value); setAssessmentId(null); setDraftScores({}); };
   const openSelected = () => {
     if (!scope) return;
-    openAssessment.mutate({ academicYear: scope.academicYear, term: scope.term, assessmentType, gradeId: scope.gradeId, subjectId: scope.subjectId, customTitle: customTitle.trim() || undefined });
+    const inactive = Boolean(activeTerm.data && (scope.academicYear !== activeTerm.data.academicYear || scope.term !== activeTerm.data.term));
+    if (inactive && !window.confirm(`The active term is ${activeTerm.data?.term} ${activeTerm.data?.academicYear}. Are you sure you want to enter marks for ${scope.term} ${scope.academicYear}? Only an Administrator, Super Administrator, or Deputy may continue.`)) return;
+    openAssessment.mutate({ academicYear: scope.academicYear, term: scope.term, assessmentType, gradeId: scope.gradeId, subjectId: scope.subjectId, customTitle: customTitle.trim() || undefined, allowInactiveTerm: inactive });
   };
   const downloadMarklistTemplate = async () => {
     const XLSX = await import("xlsx");
@@ -238,11 +241,13 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
           rowsBySubject.set(subject.id, list);
         }
       }
+      const inactive = Boolean(activeTerm.data && (marklist.data.academicYear !== activeTerm.data.academicYear || marklist.data.term !== activeTerm.data.term));
+      if (inactive && !window.confirm(`The active term is ${activeTerm.data?.term} ${activeTerm.data?.academicYear}. Are you sure you want to enter marks for ${marklist.data.term} ${marklist.data.academicYear}?`)) return;
       let saved = 0;
       for (const subject of marklist.data.subjects) {
         const rowsForSubject = rowsBySubject.get(subject.id);
         if (!rowsForSubject?.length || !subject.assessmentId) continue;
-        const result = await saveRows.mutateAsync({ assessmentId: subject.assessmentId, rows: rowsForSubject });
+        const result = await saveRows.mutateAsync({ assessmentId: subject.assessmentId, rows: rowsForSubject, allowInactiveTerm: inactive });
         saved += result.rowsUpdated;
       }
       await marklist.refetch();
@@ -289,13 +294,15 @@ export function AssessmentsWorkspace({ canReview = false }: { canReview?: boolea
 
   const persistRows = () => {
     if (!entry.data) return;
+    const inactive = Boolean(activeTerm.data && (entry.data.assessment.academicYear !== activeTerm.data.academicYear || entry.data.assessment.term !== activeTerm.data.term));
+    if (inactive && !window.confirm(`The active term is ${activeTerm.data?.term} ${activeTerm.data?.academicYear}. Are you sure you want to enter marks for ${entry.data.assessment.term} ${entry.data.assessment.academicYear}?`)) return;
     const rows = entry.data.learners.map(row => {
       const raw = (draftScores[row.learnerId] ?? (row.score == null ? "" : String(row.score))).trim();
       const score = raw === "" ? null : Number(raw);
       if (score !== null && (!Number.isFinite(score) || score < 0 || score > 100)) throw new Error(`Invalid mark for ${row.fullName}; enter 0–100 or leave blank.`);
       return { learnerId: row.learnerId, score, teacherRemark: row.teacherRemark || null };
     });
-    saveRows.mutate({ assessmentId: entry.data.assessment.id, rows });
+    saveRows.mutate({ assessmentId: entry.data.assessment.id, rows, allowInactiveTerm: inactive });
   };
   const exportExcel = async () => {
     if (!marklist.data || !tableRows) return;

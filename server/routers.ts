@@ -4,9 +4,9 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
-import { MANAGE_PERMISSIONS, canCreateAssessments, canViewWholeClassMarklist } from "./access";
+import { MANAGE_PERMISSIONS, assignedRoles, canCreateAssessments, canViewWholeClassMarklist } from "./access";
 import { AdminError, AUDIT_MODULES, adminCatalog, adminOverview, changeAdminAssignment, changeAdminRole, createAdminUser, createSchool, deleteAdminUser, getAdminUser, getPermissionMatrixView, listAdminUsers, listAuditTrail, listMySchoolMemberships, listSchoolCodeHistory, listSchoolTeachers, listSchools, getPublicSchoolIdentity, resetAdminPassword, setAccountState, setAdminRoles, setRolePermission, setUserPermissionOverride, switchMySchool, updateAdminUser, updateSchool, setSchoolStatus } from "./administration";
-import { batchApproveAssessments, batchReturnAssessments, correctLockedAssessmentMark, ensureAssessment, getAssessmentEntries, getAssessmentReportCard, getClassMarklist, getPerformanceReports, listAssessmentApprovals, listAssessmentReturnHistory, listAssessmentScopes, listReportLearners, reviewAssessment, saveAssessmentMarks, setAssessmentFinalState, submitAssessment } from "./assessment";
+import { batchApproveAssessments, batchReturnAssessments, correctLockedAssessmentMark, ensureAssessment, getActiveAssessmentTerm, getAssessmentEntries, getAssessmentReportCard, getClassMarklist, getPerformanceReports, listAssessmentApprovals, listAssessmentReturnHistory, listAssessmentScopes, listReportLearners, reviewAssessment, saveAssessmentMarks, setAssessmentFinalState, submitAssessment } from "./assessment";
 import { adminResetIamPassword, changeIamPassword, loginWithIam, logoutIam, requestIamPasswordReset, resetIamPassword, safeAuthProfile } from "./iam";
 import { listFeedback, submitFeedback } from "./feedback";
 import { allocateBoardingBed, checkoutBoarder, createBoardingUnit, getHealthProfile, listBoardingRecords, listHealthRecords, recordBoardingAttendance, recordBoardingMeal, recordHealthEvent, returnBoarder, saveBoardingProfile, saveHealthProfile } from "./healthBoarding";
@@ -141,6 +141,13 @@ const adminCall = async <T>(fn: () => Promise<T>) => {
     throw new TRPCError({ code, message: error.message });
   }
 };
+const academicTermManagerProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+  const roles = await assignedRoles(ctx.user.id);
+  if (!roles.some(role => ["admin", "super_admin", "deputy_head"].includes(role))) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Only an Administrator, Super Administrator, or Deputy can change the active term." });
+  }
+  return next();
+});
 const roleEnum = z.enum(["super_admin", "admin", "teacher", "senior_teacher", "class_teacher", "deputy_head", "head_teacher", "exam_council", "finance", "other"]);
 const assignableRoleEnum = z.enum(["super_admin", "admin", "teacher", "senior_teacher", "class_teacher", "deputy_head", "head_teacher", "exam_council", "finance", "other"]);
 const subjectAllocations = z.array(z.object({ gradeId: z.number().int().positive(), subjectId: z.number().int().positive() })).max(40);
@@ -238,6 +245,7 @@ export const appRouter = router({
       setApproval: permissionProcedure("attendance.edit").input(z.object({ attendanceDate: z.string().date(), gradeId: z.number().int().positive(), action: z.enum(["submit", "approve", "reopen"]) })).mutation(({ input, ctx }) => setAttendanceRegisterStatus(input, currentUserId(ctx.user))),
     }),
     assessments: router({
+      activeTerm: protectedProcedure.query(({ ctx }) => getActiveAssessmentTerm(currentUserId(ctx.user))),
       creationAccess: protectedProcedure.query(({ ctx }) => canCreateAssessments(ctx.user.id)),
       wholeClassAccess: protectedProcedure.query(({ ctx }) => canViewWholeClassMarklist(ctx.user.id, ctx.user.role)),
       reviewAccess: protectedProcedure.query(({ ctx }) => userCan(ctx.user.id, ctx.user.role, "settings.edit")),
@@ -249,9 +257,9 @@ export const appRouter = router({
       marks: permissionProcedure("assessments.view").input(z.object({ assessmentId: z.number().int().positive().optional() }).optional()).query(({ input, ctx }) => listMarks(input?.assessmentId, currentUserId(ctx.user))),
       saveMark: permissionProcedure("assessments.edit").input(z.object({ assessmentId: z.number().int().positive(), learnerId: z.number().int().positive(), subjectId: z.number().int().positive(), midTerm: z.number().min(0).max(100), endTerm: z.number().min(0).max(100), teacherRemark: z.string().max(255).nullable().optional() })).mutation(({ input, ctx }) => saveMark(input, currentUserId(ctx.user))),
       scopes: permissionProcedure("assessments.view").query(({ ctx }) => listAssessmentScopes(currentUserId(ctx.user))),
-      open: assessmentCreationProcedure.input(z.object({ academicYear: z.number().int().min(2000).max(2100), term: z.string().min(1).max(40), assessmentType: z.enum(["mid_term", "end_term"]), gradeId: z.number().int().positive(), subjectId: z.number().int().positive(), customTitle: z.string().trim().min(2).max(120).optional() })).mutation(({ input, ctx }) => ensureAssessment(input, currentUserId(ctx.user))),
+      open: assessmentCreationProcedure.input(z.object({ academicYear: z.number().int().min(2000).max(2100), term: z.string().min(1).max(40), assessmentType: z.enum(["mid_term", "end_term"]), gradeId: z.number().int().positive(), subjectId: z.number().int().positive(), customTitle: z.string().trim().min(2).max(120).optional(), allowInactiveTerm: z.boolean().optional() })).mutation(({ input, ctx }) => ensureAssessment(input, currentUserId(ctx.user), input.allowInactiveTerm === true)),
       entries: permissionProcedure("assessments.view").input(z.object({ assessmentId: z.number().int().positive() })).query(({ input, ctx }) => getAssessmentEntries(input.assessmentId, currentUserId(ctx.user))),
-      saveRows: permissionProcedure("assessments.edit").input(z.object({ assessmentId: z.number().int().positive(), rows: z.array(z.object({ learnerId: z.number().int().positive(), score: z.number().min(0).max(100).nullable(), teacherRemark: z.string().max(255).nullable().optional() })).max(500) })).mutation(({ input, ctx }) => saveAssessmentMarks(input, currentUserId(ctx.user))),
+      saveRows: permissionProcedure("assessments.edit").input(z.object({ assessmentId: z.number().int().positive(), rows: z.array(z.object({ learnerId: z.number().int().positive(), score: z.number().min(0).max(100).nullable(), teacherRemark: z.string().max(255).nullable().optional() })).max(500), allowInactiveTerm: z.boolean().optional() })).mutation(({ input, ctx }) => saveAssessmentMarks(input, currentUserId(ctx.user))),
       submit: permissionProcedure("assessments.edit").input(z.object({ assessmentId: z.number().int().positive() })).mutation(({ input, ctx }) => submitAssessment(input.assessmentId, currentUserId(ctx.user))),
       review: permissionProcedure("assessments.view").input(z.object({ assessmentId: z.number().int().positive(), action: z.enum(["approve", "return"]), reason: z.string().max(500).nullable().optional() })).mutation(({ input, ctx }) => reviewAssessment(input, currentUserId(ctx.user))),
       batchApprove: permissionProcedure("settings.edit").input(z.object({ assessmentIds: z.array(z.number().int().positive()).min(1).max(100).refine(ids => new Set(ids).size === ids.length, "Duplicate assessment selected") })).mutation(({ input, ctx }) => batchApproveAssessments(input.assessmentIds, currentUserId(ctx.user))),
@@ -483,10 +491,10 @@ export const appRouter = router({
       update: adminProcedure.input(z.object({ schoolName: z.string().min(1).max(200), motto: z.string().max(255).nullable().optional(), currentTerm: z.string().min(1).max(40), academicYear: z.number().int().min(2000).max(2100), includeFeesOnReportCard: z.boolean(), showPercentagesOnReportCard: z.boolean().optional(), address: z.string().max(255).nullable().optional(), phone: z.string().max(40).nullable().optional(), email: z.string().email().max(320).nullable().optional(), logoPath: z.string().max(255).nullable().optional(), principalSignaturePath: z.string().max(255).nullable().optional(), classTeacherSignaturePath: z.string().max(255).nullable().optional(), subjectShortNames: z.record(z.string().trim().min(1).max(30), z.string().trim().max(24)).optional(), gradingScale: z.array(z.object({ code: z.string().regex(/^(EE|ME|AE|BE)[12]$/), label: z.string().min(1).max(80), min: z.number().int().min(0).max(100), max: z.number().int().min(0).max(100) })).length(8).optional(), assessmentCategories: z.array(z.string().trim().min(1).max(80)).min(1).max(12).optional(), competencyLevels: z.array(z.string().trim().min(1).max(80)).min(1).max(12).optional(), reportCardSettings: z.object({ showLogo: z.boolean().optional(), showAddress: z.boolean().optional(), showPhone: z.boolean().optional(), showEmail: z.boolean().optional(), showMotto: z.boolean().optional(), layoutStyle: z.enum(["classic", "compact", "modern", "executive", "minimal"]).optional(), colorTheme: z.enum(["emerald", "navy", "gold", "magenta"]).optional() }).optional(), themePrimaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(), themeAccentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(), themeSurfaceColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(), themeMode: z.enum(["light", "dark", "system"]).optional() })).mutation(({ input, ctx }) => saveSettings(input, currentUserId(ctx.user))),
     }),
     academic: router({
-      structure: adminProcedure.query(() => listAcademicStructure()),
+      structure: academicTermManagerProcedure.query(() => listAcademicStructure()),
       saveYear: adminProcedure.input(z.object({ id: z.number().int().positive().optional(), year: z.number().int().min(2000).max(2100), startsOn: z.string().date(), endsOn: z.string().date(), rolloverOn: z.string().date().nullable().optional(), isCurrent: z.boolean() })).mutation(({ input }) => saveAcademicYear(input)),
       deleteYear: adminProcedure.input(z.object({ yearId: z.number().int().positive() })).mutation(({ input }) => deleteAcademicYear(input.yearId)),
-      saveTerm: adminProcedure.input(z.object({ id: z.number().int().positive().optional(), academicYearId: z.number().int().positive(), name: z.enum(["Term 1", "Term 2", "Term 3"]), startsOn: z.string().date(), endsOn: z.string().date(), isActive: z.boolean() })).mutation(({ input }) => saveAcademicTerm(input)),
+      saveTerm: academicTermManagerProcedure.input(z.object({ id: z.number().int().positive().optional(), academicYearId: z.number().int().positive(), name: z.enum(["Term 1", "Term 2", "Term 3"]), startsOn: z.string().date(), endsOn: z.string().date(), isActive: z.boolean() })).mutation(({ input, ctx }) => saveAcademicTerm(input, currentUserId(ctx.user))),
       deleteTerm: adminProcedure.input(z.object({ termId: z.number().int().positive() })).mutation(({ input }) => deleteAcademicTerm(input.termId)),
       previewRollover: adminProcedure.input(z.object({ fromYear: z.number().int(), toYear: z.number().int() })).mutation(({ input, ctx }) => previewRollover(input, currentUserId(ctx.user))),
       items: adminProcedure.input(z.object({ runId: z.number().int().positive() })).query(({ input }) => listRollover(input.runId)),

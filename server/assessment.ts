@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
-import { assessments, attendances, auditLogs, grades, learners, marks, notifications, reportCards, schoolSettings, staffProfiles, subjects, teacherAllocations, users } from "../drizzle/schema";
+import { academicTerms, academicYears, assessments, attendances, auditLogs, grades, learners, marks, notifications, reportCards, schoolSettings, staffProfiles, subjects, teacherAllocations, users } from "../drizzle/schema";
 import { getDb } from "./db";
 import { assertScore, actorSchoolId, cbcLevel, getSettings, writeAudit } from "./smis";
 import { assignedRoles } from "./access";
@@ -37,7 +37,7 @@ export function averageAssessmentScores(midTerm: number | null, endTerm: number 
   return midTerm === null || endTerm === null ? null : Math.round(((midTerm + endTerm) / 2) * 100) / 100;
 }
 
-type ActorAccess = { isAdmin: boolean; isMarklistReviewer: boolean; profileRole: string | null };
+type ActorAccess = { isAdmin: boolean; isMarklistReviewer: boolean; canOverrideInactiveTerm: boolean; profileRole: string | null };
 
 async function requireDb() {
   const db = await getDb();
@@ -56,8 +56,34 @@ async function actorAccess(userId: number): Promise<ActorAccess> {
   return {
     isAdmin: row?.userRole === "admin" || ["admin", "super_admin", "head_teacher", "deputy_head"].includes(profileRole ?? ""),
     isMarklistReviewer: roles.some(role => ["admin", "super_admin", "head_teacher", "deputy_head", "exam_council"].includes(role)),
+    canOverrideInactiveTerm: roles.some(role => ["admin", "super_admin", "deputy_head"].includes(role)),
     profileRole,
   };
+}
+
+async function currentActiveTerm(db: Awaited<ReturnType<typeof requireDb>>, schoolId: number) {
+  const settings = (await db.select({ academicYear: schoolSettings.academicYear, term: schoolSettings.currentTerm })
+    .from(schoolSettings).where(eq(schoolSettings.schoolId, schoolId)).limit(1))[0];
+  if (settings) return settings;
+  return (await db.select({ academicYear: academicYears.year, term: academicTerms.name })
+    .from(academicYears)
+    .innerJoin(academicTerms, eq(academicTerms.academicYearId, academicYears.id))
+    .where(and(eq(academicYears.isCurrent, 1), eq(academicTerms.isActive, 1)))
+    .limit(1))[0] ?? null;
+}
+
+async function assertTermEntryAllowed(scope: { academicYear: number; term: string }, schoolId: number, access: ActorAccess, allowInactiveTerm = false) {
+  const db = await requireDb();
+  const active = await currentActiveTerm(db, schoolId);
+  if (!active) throw new Error("ACTIVE_TERM_NOT_CONFIGURED");
+  if (active.academicYear === scope.academicYear && active.term === scope.term) return;
+  if (!access.canOverrideInactiveTerm) throw new Error(`INACTIVE_TERM_TEACHER_FORBIDDEN:${active.term}:${active.academicYear}`);
+  if (!allowInactiveTerm) throw new Error(`INACTIVE_TERM_CONFIRMATION_REQUIRED:${scope.term}:${scope.academicYear}:${active.term}:${active.academicYear}`);
+}
+
+export async function getActiveAssessmentTerm(userId: number) {
+  const db = await requireDb();
+  return currentActiveTerm(db, await actorSchoolId(userId));
 }
 
 async function allocationForScope(scope: AssessmentScope, userId: number, isAdmin: boolean) {
@@ -111,6 +137,11 @@ export async function listAssessmentScopes(userId: number) {
     eq(teacherAllocations.schoolId, schoolId),
     eq(teacherAllocations.status, "active"),] as ReturnType<typeof eq>[];
   if (!access.isAdmin && !access.isMarklistReviewer) filters.push(eq(teacherAllocations.teacherUserId, userId));
+  if (!access.canOverrideInactiveTerm) {
+    const active = await currentActiveTerm(db, schoolId);
+    if (!active) return [];
+    filters.push(eq(teacherAllocations.academicYear, active.academicYear), eq(teacherAllocations.term, active.term));
+  }
   const rows = await db.select({ allocation: teacherAllocations, grade: grades, subject: subjects, staff: staffProfiles })
     .from(teacherAllocations)
     .innerJoin(grades, eq(grades.id, teacherAllocations.gradeId))
@@ -151,10 +182,11 @@ export async function listReportLearners(userId: number) {
   }));
 }
 
-export async function ensureAssessment(scope: AssessmentScope, userId: number) {
+export async function ensureAssessment(scope: AssessmentScope, userId: number, allowInactiveTerm = false) {
   const db = await requireDb();
   const access = await actorAccess(userId);
   const schoolId = await actorSchoolId(userId);
+  await assertTermEntryAllowed(scope, schoolId, access, allowInactiveTerm);
   const existing = await assessmentForScope(scope, schoolId);
   if (existing) {
     await assertAssessmentAccess(existing, userId, access.isAdmin);
@@ -217,13 +249,14 @@ export async function getAssessmentEntries(assessmentId: number, userId: number)
   };
 }
 
-export async function saveAssessmentMarks(input: { assessmentId: number; rows: Array<{ learnerId: number; score: number | null; teacherRemark?: string | null }> }, userId: number) {
+export async function saveAssessmentMarks(input: { assessmentId: number; rows: Array<{ learnerId: number; score: number | null; teacherRemark?: string | null }>; allowInactiveTerm?: boolean }, userId: number) {
   const db = await requireDb();
   const schoolId = await actorSchoolId(userId);
   if (new Set(input.rows.map(row => row.learnerId)).size !== input.rows.length) throw new Error("DUPLICATE_LEARNER_MARK");
   const assessment = (await db.select().from(assessments).where(and(eq(assessments.id, input.assessmentId), eq(assessments.schoolId, schoolId))).limit(1))[0];
   if (!assessment) throw new Error("ASSESSMENT_NOT_FOUND");
   const access = await actorAccess(userId);
+  await assertTermEntryAllowed(assessment, schoolId, access, input.allowInactiveTerm === true);
   await assertAssessmentAccess(assessment, userId, access.isAdmin);
   if (assessment.status === "locked") throw new Error("ASSESSMENT_LOCKED_USE_CORRECTION");
   if (assessment.status === "approved") throw new Error("ASSESSMENT_APPROVED_USE_CORRECTION");

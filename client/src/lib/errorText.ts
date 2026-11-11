@@ -27,6 +27,7 @@ const DOMAIN_MESSAGES: Record<string, string> = {
   CANNOT_DELETE_CURRENT_ACADEMIC_YEAR: "The current academic year cannot be deleted. Set another year as current first.",
   ACADEMIC_YEAR_HAS_TERMS: "Delete or move the terms under this year before deleting the academic year.",
   ACADEMIC_YEAR_HAS_ROLLOVER_HISTORY: "This academic year has rollover history and cannot be deleted.",
+  ACTIVE_TERM_NOT_CONFIGURED: "No active term is configured. Ask an Administrator or Deputy to select the active term first.",
   CANNOT_DELETE_CURRENT_ACCOUNT: "You cannot delete the account currently in use.",
   CANNOT_DELETE_PLATFORM_SUPER_ADMIN: "The protected Super Admin account cannot be deleted.",
 };
@@ -55,6 +56,11 @@ export function toUserError(error: unknown): string {
   const domainKey = normalized.toUpperCase().replace(/[ -]+/g, "_");
   if (DOMAIN_MESSAGES[domainKey]) return DOMAIN_MESSAGES[domainKey];
   if (domainKey.startsWith("BATCH_APPROVAL_INCOMPLETE")) return "One or more selected assessments have missing marks and cannot be approved yet.";
+  if (domainKey.startsWith("INACTIVE_TERM_TEACHER_FORBIDDEN")) {
+    const [, term, year] = normalized.split(":");
+    return `Marks can only be entered for the active term (${term ?? "active term"} ${year ?? ""}). Ask an Administrator or Deputy to change the active term.`;
+  }
+  if (domainKey.startsWith("INACTIVE_TERM_CONFIRMATION_REQUIRED")) return "Confirm that you want to enter marks for this inactive term before continuing.";
   if (/expected .*number|received\s+nan|invalid input/i.test(normalized)) {
     return "Check the information entered and try again.";
   }

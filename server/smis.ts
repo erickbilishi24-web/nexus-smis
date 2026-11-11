@@ -6,6 +6,8 @@ import { computePermissions, MANAGE_PERMISSIONS } from "./access";
 import { curriculumCatalogue } from "./curriculum";
 import { attendanceGradeLevel, validateAttendanceBatch, type AttendanceBatchEntry } from "../shared/attendance";
 import {
+  academicTerms,
+  academicYears,
   alumni,
   assessments,
   attendanceRegisterApprovals,
@@ -567,6 +569,10 @@ export async function saveMark(input: { assessmentId: number; learnerId: number;
   if (!assessment || !learner || assessment.gradeId !== learner.gradeId) throw new Error("MARK_CONTEXT_INVALID");
   const actor = (await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1))[0];
   if (actor?.role === "user") {
+    const active = (await db.select({ academicYear: schoolSettings.academicYear, term: schoolSettings.currentTerm }).from(schoolSettings).where(eq(schoolSettings.schoolId, schoolId)).limit(1))[0]
+      ?? (await db.select({ academicYear: academicYears.year, term: academicTerms.name }).from(academicYears).innerJoin(academicTerms, eq(academicTerms.academicYearId, academicYears.id)).where(and(eq(academicYears.isCurrent, 1), eq(academicTerms.isActive, 1))).limit(1))[0];
+    if (!active) throw new Error("ACTIVE_TERM_NOT_CONFIGURED");
+    if (assessment.academicYear !== active.academicYear || assessment.term !== active.term) throw new Error(`INACTIVE_TERM_TEACHER_FORBIDDEN:${active.term}:${active.academicYear}`);
     const allocation = (await db.select().from(teacherAllocations).where(and(eq(teacherAllocations.schoolId, schoolId), eq(teacherAllocations.teacherUserId, userId), eq(teacherAllocations.gradeId, learner.gradeId), eq(teacherAllocations.subjectId, input.subjectId), eq(teacherAllocations.status, "active"))).limit(1))[0];
     if (!allocation) throw new Error("MARK_SCOPE_FORBIDDEN");
   }
