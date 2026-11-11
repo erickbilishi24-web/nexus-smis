@@ -76,14 +76,33 @@ async function assertTermEntryAllowed(scope: { academicYear: number; term: strin
   const db = await requireDb();
   const active = await currentActiveTerm(db, schoolId);
   if (!active) throw new Error("ACTIVE_TERM_NOT_CONFIGURED");
-  if (active.academicYear === scope.academicYear && active.term === scope.term) return;
+  if (active.academicYear === scope.academicYear && active.term === scope.term) return active;
   if (!access.canOverrideInactiveTerm) throw new Error(`INACTIVE_TERM_TEACHER_FORBIDDEN:${active.term}:${active.academicYear}`);
   if (!allowInactiveTerm) throw new Error(`INACTIVE_TERM_CONFIRMATION_REQUIRED:${scope.term}:${scope.academicYear}:${active.term}:${active.academicYear}`);
+  return active;
 }
 
 export async function getActiveAssessmentTerm(userId: number) {
   const db = await requireDb();
   return currentActiveTerm(db, await actorSchoolId(userId));
+}
+
+export async function listInactiveTermOverrides(userId: number) {
+  const db = await requireDb();
+  const access = await actorAccess(userId);
+  if (!access.canOverrideInactiveTerm) throw new Error("FORBIDDEN");
+  const schoolId = await actorSchoolId(userId);
+  const rows = await db.select({ audit: auditLogs, user: users, staff: staffProfiles })
+    .from(auditLogs)
+    .leftJoin(users, eq(users.id, auditLogs.userId))
+    .leftJoin(staffProfiles, eq(staffProfiles.userId, auditLogs.userId))
+    .where(and(eq(auditLogs.schoolId, schoolId), eq(auditLogs.action, "assessment.inactive_term_override")))
+    .orderBy(desc(auditLogs.createdAt));
+  return rows.map(row => {
+    let metadata: Record<string, unknown> = {};
+    try { metadata = row.audit.metadata ? JSON.parse(row.audit.metadata) as Record<string, unknown> : {}; } catch { /* safe empty display */ }
+    return { id: row.audit.id, changedAt: row.audit.createdAt, administrator: row.staff?.displayName ?? row.user?.name ?? row.user?.username ?? "Administrator", role: row.staff?.role ?? row.user?.role ?? "admin", assessmentId: row.audit.entityId, enteredTerm: String(metadata.enteredTerm ?? ""), enteredAcademicYear: Number(metadata.enteredAcademicYear ?? 0), activeTerm: String(metadata.activeTerm ?? ""), activeAcademicYear: Number(metadata.activeAcademicYear ?? 0), rowsUpdated: Number(metadata.rowsUpdated ?? 0) };
+  });
 }
 
 async function allocationForScope(scope: AssessmentScope, userId: number, isAdmin: boolean) {
@@ -256,7 +275,7 @@ export async function saveAssessmentMarks(input: { assessmentId: number; rows: A
   const assessment = (await db.select().from(assessments).where(and(eq(assessments.id, input.assessmentId), eq(assessments.schoolId, schoolId))).limit(1))[0];
   if (!assessment) throw new Error("ASSESSMENT_NOT_FOUND");
   const access = await actorAccess(userId);
-  await assertTermEntryAllowed(assessment, schoolId, access, input.allowInactiveTerm === true);
+  const active = await assertTermEntryAllowed(assessment, schoolId, access, input.allowInactiveTerm === true);
   await assertAssessmentAccess(assessment, userId, access.isAdmin);
   if (assessment.status === "locked") throw new Error("ASSESSMENT_LOCKED_USE_CORRECTION");
   if (assessment.status === "approved") throw new Error("ASSESSMENT_APPROVED_USE_CORRECTION");
@@ -286,6 +305,9 @@ export async function saveAssessmentMarks(input: { assessmentId: number; rows: A
     await db.insert(marks).values(values).onDuplicateKeyUpdate({ set: values });
   }
   await writeAudit(userId, "assessment.marks.save", "assessment", assessment.id, { rowsUpdated: input.rows.length, assessmentType: assessment.assessmentType, gradeId: assessment.gradeId, subjectId: assessment.subjectId });
+  if (active.academicYear !== assessment.academicYear || active.term !== assessment.term) {
+    await writeAudit(userId, "assessment.inactive_term_override", "assessment", assessment.id, { enteredTerm: assessment.term, enteredAcademicYear: assessment.academicYear, activeTerm: active.term, activeAcademicYear: active.academicYear, rowsUpdated: input.rows.length });
+  }
   return { ok: true, rowsUpdated: input.rows.length };
 }
 

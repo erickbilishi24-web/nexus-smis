@@ -6,7 +6,7 @@ import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_
 import { TRPCError } from "@trpc/server";
 import { MANAGE_PERMISSIONS, assignedRoles, canCreateAssessments, canViewWholeClassMarklist } from "./access";
 import { AdminError, AUDIT_MODULES, adminCatalog, adminOverview, changeAdminAssignment, changeAdminRole, createAdminUser, createSchool, deleteAdminUser, getAdminUser, getPermissionMatrixView, listAdminUsers, listAuditTrail, listMySchoolMemberships, listSchoolCodeHistory, listSchoolTeachers, listSchools, getPublicSchoolIdentity, resetAdminPassword, setAccountState, setAdminRoles, setRolePermission, setUserPermissionOverride, switchMySchool, updateAdminUser, updateSchool, setSchoolStatus } from "./administration";
-import { batchApproveAssessments, batchReturnAssessments, correctLockedAssessmentMark, ensureAssessment, getActiveAssessmentTerm, getAssessmentEntries, getAssessmentReportCard, getClassMarklist, getPerformanceReports, listAssessmentApprovals, listAssessmentReturnHistory, listAssessmentScopes, listReportLearners, reviewAssessment, saveAssessmentMarks, setAssessmentFinalState, submitAssessment } from "./assessment";
+import { batchApproveAssessments, batchReturnAssessments, correctLockedAssessmentMark, ensureAssessment, getActiveAssessmentTerm, getAssessmentEntries, getAssessmentReportCard, getClassMarklist, getPerformanceReports, listAssessmentApprovals, listAssessmentReturnHistory, listAssessmentScopes, listInactiveTermOverrides, listReportLearners, reviewAssessment, saveAssessmentMarks, setAssessmentFinalState, submitAssessment } from "./assessment";
 import { adminResetIamPassword, changeIamPassword, loginWithIam, logoutIam, requestIamPasswordReset, resetIamPassword, safeAuthProfile } from "./iam";
 import { listFeedback, submitFeedback } from "./feedback";
 import { allocateBoardingBed, checkoutBoarder, createBoardingUnit, getHealthProfile, listBoardingRecords, listHealthRecords, recordBoardingAttendance, recordBoardingMeal, recordHealthEvent, returnBoarder, saveBoardingProfile, saveHealthProfile } from "./healthBoarding";
@@ -246,6 +246,8 @@ export const appRouter = router({
     }),
     assessments: router({
       activeTerm: protectedProcedure.query(({ ctx }) => getActiveAssessmentTerm(currentUserId(ctx.user))),
+      inactiveTermOverrideAccess: protectedProcedure.query(async ({ ctx }) => (await assignedRoles(ctx.user.id)).some(role => ["admin", "super_admin", "deputy_head"].includes(role))),
+      inactiveTermOverrides: protectedProcedure.query(({ ctx }) => listInactiveTermOverrides(currentUserId(ctx.user))),
       creationAccess: protectedProcedure.query(({ ctx }) => canCreateAssessments(ctx.user.id)),
       wholeClassAccess: protectedProcedure.query(({ ctx }) => canViewWholeClassMarklist(ctx.user.id, ctx.user.role)),
       reviewAccess: protectedProcedure.query(({ ctx }) => userCan(ctx.user.id, ctx.user.role, "settings.edit")),
