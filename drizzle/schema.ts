@@ -92,6 +92,7 @@ export const schoolSettings = mysqlTable("school_settings", {
   logoPath: varchar("logoPath", { length: 255 }),
   principalSignaturePath: varchar("principalSignaturePath", { length: 255 }),
   classTeacherSignaturePath: varchar("classTeacherSignaturePath", { length: 255 }),
+  financeOfficerSignaturePath: varchar("financeOfficerSignaturePath", { length: 255 }),
   address: varchar("address", { length: 255 }),
   phone: varchar("phone", { length: 40 }),
   email: varchar("email", { length: 320 }),
@@ -102,6 +103,7 @@ export const schoolSettings = mysqlTable("school_settings", {
   subjectShortNames: text("subjectShortNames"),
   gradingScale: text("gradingScale"),
   assessmentCategories: text("assessmentCategories"),
+  receiptPaymentCategories: text("receiptPaymentCategories"),
   competencyLevels: text("competencyLevels"),
   reportCardSettings: text("reportCardSettings"),
   themePrimaryColor: varchar("themePrimaryColor", { length: 9 }).notNull().default("#1d6a57"),
@@ -479,6 +481,7 @@ export const payments = mysqlTable("payments", {
   learnerId: int("learnerId").notNull(),
   amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
   paymentMethod: mysqlEnum("paymentMethod", ["mpesa", "bank", "cash"]).notNull(),
+  paymentCategory: varchar("paymentCategory", { length: 100 }).notNull().default("Tuition"),
   reference: varchar("reference", { length: 80 }).notNull().unique(),
   paidAt: timestamp("paidAt").defaultNow().notNull(),
 });

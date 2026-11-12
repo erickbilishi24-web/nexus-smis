@@ -400,6 +400,20 @@
       "when": 1794489420234,
       "tag": "0056_overconfident_morlun",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "5",
+      "when": 1794490953662,
+      "tag": "0057_colossal_deadpool",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "5",
+      "when": 1794491372436,
+      "tag": "0058_regular_loners",
+      "breakpoints": true
     }
   ]
 }

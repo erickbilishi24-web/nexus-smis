@@ -1,0 +1,1 @@
+ALTER TABLE `payments` ADD `paymentCategory` varchar(100) DEFAULT 'Tuition' NOT NULL;
