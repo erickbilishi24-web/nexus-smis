@@ -722,6 +722,21 @@ export const expenditures = mysqlTable("expenditures", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+export const financeDocuments = mysqlTable("finance_documents", {
+  id: int("id").autoincrement().primaryKey(),
+  schoolId: int("schoolId").notNull(),
+  documentType: mysqlEnum("documentType", ["voucher", "receipt"]).notNull(),
+  documentNumber: varchar("documentNumber", { length: 80 }).notNull(),
+  documentDate: date("documentDate").notNull(),
+  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+  partyName: varchar("partyName", { length: 160 }).notNull(),
+  description: varchar("description", { length: 500 }).notNull(),
+  paymentMethod: varchar("paymentMethod", { length: 40 }),
+  reference: varchar("reference", { length: 160 }),
+  createdByUserId: int("createdByUserId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => ({ financeDocumentNumberUnique: uniqueIndex("finance_document_school_number_unique").on(table.schoolId, table.documentNumber) }));
+
 export const notifications = mysqlTable("notifications", {
   id: int("id").autoincrement().primaryKey(),
   schoolId: int("schoolId"),

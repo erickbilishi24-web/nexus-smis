@@ -4,6 +4,8 @@ import { and, eq, or } from "drizzle-orm";
 import type { Request } from "express";
 import { getDb } from "./db";
 import { auditLogs, schoolMemberships, schoolRegistrations, schoolSettings, schoolSubscriptions, schools, staffProfiles, users } from "../drizzle/schema";
+import { sendTransactionalEmail } from "./email";
+import { resolvePublicAppUrl } from "./_core/env";
 
 export class RegistrationError extends Error {}
 const fail = (code: string): never => { throw new RegistrationError(code); };
@@ -51,7 +53,9 @@ export async function registerSchool(input: { schoolName: string; schoolType: st
   const registration = (await db.insert(schoolRegistrations).values({ schoolId: school.id, schoolType: input.schoolType.trim(), registrationIdentifier, contactPhone, officialEmail, headInstitutionName: input.headInstitutionName.trim(), adminFullName: input.adminFullName.trim(), adminEmail, adminPhone: input.adminPhone?.trim() || null, preferredUsername, activationTokenHash: hash(activationToken), activationExpiresAt: addDays(now, 2), status: "pending" }).$returningId())[0];
   await db.insert(schoolSubscriptions).values({ schoolId: school.id, status: "trialing", trialStartedAt: now, trialEndsAt, createdAt: now, updatedAt: now });
   await db.insert(auditLogs).values({ schoolId: school.id, userId: null, action: "platform.school.registration", entityType: "school_registration", entityId: String(registration.id), metadata: JSON.stringify({ schoolCode, schoolName, contactPhone, adminUsername: preferredUsername, requestIp: req?.ip ?? null }) });
-  return { registrationId: registration.id, schoolCode, schoolName, trialStartedAt: now, trialEndsAt, activationToken, activationExpiresAt: addDays(now, 2) };
+  const activationUrl = `${resolvePublicAppUrl()}/activate?token=${encodeURIComponent(activationToken)}`;
+  const emailSent = adminEmail ? await sendTransactionalEmail({ to: adminEmail, subject: `Activate your NEXUS-smis administrator account · ${schoolName}`, text: `Your school registration is ready. School code: ${schoolCode}\nUsername: ${preferredUsername}\nActivate securely before ${addDays(now, 2).toISOString()}: ${activationUrl}` }) : false;
+  return { registrationId: registration.id, schoolCode, schoolName, trialStartedAt: now, trialEndsAt, activationToken, activationUrl, emailSent, activationExpiresAt: addDays(now, 2) };
 }
 
 export async function activateRegisteredAdmin(input: { token: string; password: string }, req?: Request) {

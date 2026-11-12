@@ -4,6 +4,7 @@ import { getDb } from "./db";
 import { getAccessProfile } from "./access";
 import { auditLogs, platformPaymentMethods, platformSubscriptionPayments, schoolSubscriptions, schools, subscriptionPlans, users } from "../drizzle/schema";
 import { writeAudit } from "./smis";
+import { sendTransactionalEmail } from "./email";
 
 export class PlatformError extends Error {}
 const fail = (code: string): never => { throw new PlatformError(code); };
@@ -111,6 +112,37 @@ export async function listPlatformPayments(userId: number) {
   const db = await requireDb();
   return db.select({ payment: platformSubscriptionPayments, schoolName: schools.schoolName, schoolCode: schools.schoolCode, planName: subscriptionPlans.name })
     .from(platformSubscriptionPayments).innerJoin(schools, eq(schools.id, platformSubscriptionPayments.schoolId)).leftJoin(subscriptionPlans, eq(subscriptionPlans.id, platformSubscriptionPayments.planId)).orderBy(desc(platformSubscriptionPayments.createdAt));
+}
+
+export async function submitSubscriptionPayment(input: { amount: number; planId?: number | null; paymentMethodId?: number | null; externalReference: string; provider?: string | null }, userId: number) {
+  const db = await requireDb();
+  const account = (await db.select({ schoolId: users.schoolId }).from(users).where(eq(users.id, userId)).limit(1))[0];
+  const schoolId = Number(account?.schoolId ?? 0);
+  if (schoolId <= 0) fail("SCHOOL_CONTEXT_REQUIRED");
+  const subscription = (await db.select().from(schoolSubscriptions).where(eq(schoolSubscriptions.schoolId, schoolId)).orderBy(desc(schoolSubscriptions.id)).limit(1))[0];
+  if (!subscription) fail("SUBSCRIPTION_NOT_FOUND");
+  if (!Number.isFinite(input.amount) || input.amount <= 0 || !input.externalReference.trim()) fail("PAYMENT_DETAILS_REQUIRED");
+  const inserted = (await db.insert(platformSubscriptionPayments).values({ schoolId, subscriptionId: subscription.id, planId: input.planId ?? subscription.planId ?? undefined, paymentMethodId: input.paymentMethodId ?? undefined, amount: input.amount.toFixed(2), externalReference: input.externalReference.trim(), provider: input.provider?.trim() || "manual", status: "submitted" }).$returningId())[0];
+  await db.update(schoolSubscriptions).set({ status: "pending_payment" }).where(eq(schoolSubscriptions.id, subscription.id));
+  return { ok: true, id: inserted.id };
+}
+
+export async function verifySubscriptionPayment(input: { id: number; status: "verified" | "rejected"; reason?: string | null }, userId: number, req?: Request) {
+  await assertPlatformAdmin(userId);
+  const db = await requireDb();
+  const payment = (await db.select({ payment: platformSubscriptionPayments, school: schools, subscription: schoolSubscriptions, plan: subscriptionPlans }).from(platformSubscriptionPayments).innerJoin(schools, eq(schools.id, platformSubscriptionPayments.schoolId)).innerJoin(schoolSubscriptions, eq(schoolSubscriptions.id, platformSubscriptionPayments.subscriptionId)).leftJoin(subscriptionPlans, eq(subscriptionPlans.id, platformSubscriptionPayments.planId)).where(eq(platformSubscriptionPayments.id, input.id)).limit(1))[0];
+  if (!payment) fail("PAYMENT_NOT_FOUND");
+  const now = new Date();
+  const ends = payment.plan?.durationDays ? new Date(now.getTime() + payment.plan.durationDays * 86400000) : null;
+  await db.update(platformSubscriptionPayments).set({ status: input.status, verifiedByUserId: userId, verifiedAt: now, providerPayload: input.reason?.trim() ? JSON.stringify({ reason: input.reason.trim() }) : null }).where(eq(platformSubscriptionPayments.id, input.id));
+  await db.update(schoolSubscriptions).set({ status: input.status === "verified" ? "active" : "pending_payment", planId: payment.payment.planId, startsAt: input.status === "verified" ? now : null, endsAt: input.status === "verified" ? ends : null, agreedPrice: payment.payment.amount, planSnapshot: payment.plan ? JSON.stringify(payment.plan) : null }).where(eq(schoolSubscriptions.id, payment.payment.subscriptionId));
+  await writeAudit(userId, `platform.payment.${input.status}`, "platform_payment", input.id, { schoolId: payment.payment.schoolId, reference: payment.payment.externalReference, reason: input.reason ?? null });
+  if (input.status === "verified") {
+    const recipient = process.env.SUPER_ADMIN_EMAIL?.trim() || process.env.OWNER_EMAIL?.trim();
+    const message = `Payment verified for ${payment.school.schoolName} (${payment.school.schoolCode}). Amount: KES ${payment.payment.amount}. Reference: ${payment.payment.externalReference}. Verified at: ${now.toISOString()}.`;
+    if (recipient) await sendTransactionalEmail({ to: recipient, subject: `NEXUS payment verified · ${payment.school.schoolName}`, text: message });
+  }
+  return { ok: true, status: input.status, endsAt: ends };
 }
 
 export async function extendSchoolTrial(input: { schoolId: number; days: number; reason: string }, userId: number, req?: Request) {
