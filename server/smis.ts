@@ -1346,7 +1346,7 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
 export async function getIntegratedReportCard(input: { learnerId: number; academicYear?: number; term?: string }, userId: number) {
   const db = await requireDb();
   const schoolId = await actorSchoolId(userId);
-  const settings = await getSettings(); const academicYear = input.academicYear ?? settings.academicYear; const term = input.term ?? settings.currentTerm;
+  const settings = await getSettings(schoolId); const academicYear = input.academicYear ?? settings.academicYear; const term = input.term ?? settings.currentTerm;
   const learnerRow = (await db.select({ learner: learners, grade: grades }).from(learners).leftJoin(grades, eq(grades.id, learners.gradeId)).where(and(eq(learners.id, input.learnerId), eq(learners.schoolId, schoolId))).limit(1))[0];
   if (!learnerRow) throw new Error("LEARNER_NOT_FOUND");
   const actor = (await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).limit(1))[0];
@@ -1358,10 +1358,10 @@ export async function getIntegratedReportCard(input: { learnerId: number; academ
   const valid = markRows.filter(row => row.assessment.academicYear === academicYear && row.assessment.term === term && row.assessment.gradeId === learnerRow.learner.gradeId).sort((a,b) => b.assessment.id - a.assessment.id);
   const approved = valid.filter(row => row.assessment.status === "approved"); const source = approved.length ? approved : valid;
   const seen = new Set<number>(); const marksheet = source.filter(row => { const entered = row.mark.score != null || row.mark.midTerm != null || row.mark.endTerm != null || row.mark.average != null || row.mark.cbcLevel != null || row.mark.teacherRemark != null; if (!entered || seen.has(row.mark.subjectId)) return false; seen.add(row.mark.subjectId); return true; }).map(row => ({ subject: row.subject, midTerm: row.mark.midTerm == null ? null : Number(row.mark.midTerm), endTerm: row.mark.endTerm == null ? null : Number(row.mark.endTerm), average: row.mark.average == null ? (row.mark.score == null ? null : Number(row.mark.score)) : Number(row.mark.average), cbcLevel: row.mark.cbcLevel, teacherRemark: row.mark.teacherRemark, assessmentStatus: row.assessment.status }));
-  const attendanceRows = await db.select().from(attendances).where(eq(attendances.learnerId, input.learnerId));
+  const attendanceRows = await db.select().from(attendances).where(and(eq(attendances.learnerId, input.learnerId), eq(attendances.schoolId, schoolId)));
   const present = attendanceRows.filter(row => row.status === "present" || row.status === "late").length; const absent = attendanceRows.filter(row => row.status === "absent").length;
   const allocationRows = await db.select({ allocation: teacherAllocations, staff: staffProfiles }).from(teacherAllocations).leftJoin(staffProfiles, eq(staffProfiles.userId, teacherAllocations.teacherUserId)).where(and(eq(teacherAllocations.schoolId, schoolId), eq(teacherAllocations.gradeId, learnerRow.learner.gradeId), eq(teacherAllocations.status, "active")));
-  const classTeacher = learnerRow.grade?.classTeacherUserId ? (await db.select().from(staffProfiles).where(eq(staffProfiles.userId, learnerRow.grade.classTeacherUserId)).limit(1))[0]?.displayName : null;
+  const classTeacher = learnerRow.grade?.classTeacherUserId ? (await db.select().from(staffProfiles).where(and(eq(staffProfiles.userId, learnerRow.grade.classTeacherUserId), eq(staffProfiles.schoolId, schoolId))).limit(1))[0]?.displayName : null;
   const fees = settings.includeFeesOnReportCard ? await getFinanceOverview(input.learnerId) : null;
   const existing = (await db.select().from(reportCards).where(and(eq(reportCards.schoolId, schoolId), eq(reportCards.learnerId, input.learnerId), eq(reportCards.academicYear, academicYear), eq(reportCards.term, term))).limit(1))[0];
   if (!existing) await db.insert(reportCards).values({ schoolId, learnerId: input.learnerId, academicYear, term, status: "draft", generatedByUserId: userId }).onDuplicateKeyUpdate({ set: { updatedAt: new Date() } });
@@ -1391,21 +1391,25 @@ export async function createCommunication(input: { audience: "parents" | "staff"
   return { ok: true, status: "draft" };
 }
 
-export async function listAlumni(userId = 0) {
+export async function listAlumni(userId: number) {
   const db = await requireDb();
-  const finalRows = await db.select({ learner: learners, grade: grades }).from(learners).innerJoin(grades, eq(grades.id, learners.gradeId)).where(eq(learners.status, "active"));
+  const schoolId = await actorSchoolId(userId);
+  const finalRows = await db.select({ learner: learners, grade: grades }).from(learners).innerJoin(grades, eq(grades.id, learners.gradeId)).where(and(eq(learners.schoolId, schoolId), eq(grades.schoolId, schoolId), eq(learners.status, "active")));
   const finalGrades = new Set(["PP2", "Grade 6", "Grade 9", "Grade 12"]);
   for (const row of finalRows.filter(item => finalGrades.has(item.grade.name))) {
-    const existing = (await db.select({ id: alumni.id }).from(alumni).where(eq(alumni.learnerId, row.learner.id)).limit(1))[0];
-    if (!existing) { await db.insert(alumni).values({ learnerId: row.learner.id, completionYear: new Date().getFullYear(), destination: null, archivedByUserId: userId }); await db.update(learners).set({ status: "archived" }).where(eq(learners.id, row.learner.id)); }
+    const existing = (await db.select({ id: alumni.id }).from(alumni).where(and(eq(alumni.learnerId, row.learner.id), eq(alumni.schoolId, schoolId))).limit(1))[0];
+    if (!existing) { await db.insert(alumni).values({ schoolId, learnerId: row.learner.id, completionYear: new Date().getFullYear(), destination: null, archivedByUserId: userId }); await db.update(learners).set({ status: "archived" }).where(and(eq(learners.id, row.learner.id), eq(learners.schoolId, schoolId))); }
   }
-  return db.select({ alumni: alumni, learner: learners }).from(alumni).innerJoin(learners, eq(learners.id, alumni.learnerId)).orderBy(desc(alumni.completionYear));
+  return db.select({ alumni: alumni, learner: learners }).from(alumni).innerJoin(learners, eq(learners.id, alumni.learnerId)).where(and(eq(alumni.schoolId, schoolId), eq(learners.schoolId, schoolId))).orderBy(desc(alumni.completionYear));
 }
 
 export async function archiveLearner(input: { learnerId: number; completionYear: number; destination?: string | null }, userId: number) {
   const db = await requireDb();
-  await db.insert(alumni).values({ ...input, archivedByUserId: userId });
-  await db.update(learners).set({ status: "archived" }).where(eq(learners.id, input.learnerId));
+  const schoolId = await actorSchoolId(userId);
+  const learner = (await db.select({ id: learners.id }).from(learners).where(and(eq(learners.id, input.learnerId), eq(learners.schoolId, schoolId))).limit(1))[0];
+  if (!learner) throw new Error("LEARNER_NOT_FOUND");
+  await db.insert(alumni).values({ ...input, schoolId, archivedByUserId: userId });
+  await db.update(learners).set({ status: "archived" }).where(and(eq(learners.id, input.learnerId), eq(learners.schoolId, schoolId)));
   await writeAudit(userId, "alumni.archive", "learner", input.learnerId, input);
   return { ok: true };
 }
@@ -1645,34 +1649,36 @@ function deriveMissingClassParts(gradeRows: Array<{ name: string; stream: string
 }
 async function ensureImportedGrade(gradeName: string, stream: string, userId: number) {
   const db = await requireDb();
-  const gradeRows = await db.select().from(grades);
+  const schoolId = await actorSchoolId(userId);
+  const gradeRows = await db.select().from(grades).where(eq(grades.schoolId, schoolId));
   const parts = deriveMissingClassParts(gradeRows, gradeName, stream);
   const existing = (await db.select().from(grades).where(parts.stream
-    ? and(eq(grades.name, parts.name), eq(grades.stream, parts.stream))
-    : and(eq(grades.name, parts.name), sql`${grades.stream} IS NULL`)).limit(1))[0];
+    ? and(eq(grades.schoolId, schoolId), eq(grades.name, parts.name), eq(grades.stream, parts.stream))
+    : and(eq(grades.schoolId, schoolId), eq(grades.name, parts.name), sql`${grades.stream} IS NULL`)).limit(1))[0];
   if (existing) return existing;
   try {
-    const inserted = (await db.insert(grades).values({ name: parts.name, stream: parts.stream }).$returningId())[0];
+    const inserted = (await db.insert(grades).values({ schoolId, name: parts.name, stream: parts.stream }).$returningId())[0];
     await writeAudit(userId, "grade.create.import", "grade", inserted.id, { name: parts.name, stream: parts.stream, source: "learner_bulk_import" });
   } catch {
     // A concurrent import may have created the same class; use that canonical row.
   }
   return (await db.select().from(grades).where(parts.stream
-    ? and(eq(grades.name, parts.name), eq(grades.stream, parts.stream))
-    : and(eq(grades.name, parts.name), sql`${grades.stream} IS NULL`)).limit(1))[0];
+    ? and(eq(grades.schoolId, schoolId), eq(grades.name, parts.name), eq(grades.stream, parts.stream))
+    : and(eq(grades.schoolId, schoolId), eq(grades.name, parts.name), sql`${grades.stream} IS NULL`)).limit(1))[0];
 }
-export async function previewPeopleImport(input: { kind: PeopleImportKind; rows: PeopleImportRow[]; rowOffset?: number } & PeopleImportOptions) {
+export async function previewPeopleImport(input: { kind: PeopleImportKind; rows: PeopleImportRow[]; rowOffset?: number } & PeopleImportOptions, userId: number) {
   const db = await requireDb();
+  const schoolId = await actorSchoolId(userId);
   const errors: Array<{ row: number; message: string }> = [];
   const preview: Array<Record<string, unknown>> = [];
   if (!input.rows.length) return { kind: input.kind, total: 0, valid: 0, errors: [{ row: 0, message: "The workbook contains no data rows." }], preview };
   if (input.rows.length > 500) return { kind: input.kind, total: input.rows.length, valid: 0, errors: [{ row: 0, message: "Import limit is 500 rows per confirmation." }], preview };
-  const gradeRows = await db.select().from(grades);
+  const gradeRows = await db.select().from(grades).where(eq(grades.schoolId, schoolId));
   const existingAdmissions = new Set<string>();
   if (input.kind === "learners") {
     const admissionNumbers = input.rows.map(row => importTextValue(row, "admissionNumber", "admissionNo", "admission").toUpperCase()).filter(Boolean);
     if (admissionNumbers.length) {
-      const existing = await db.select({ admissionNumber: learners.admissionNumber }).from(learners).where(inArray(learners.admissionNumber, admissionNumbers));
+      const existing = await db.select({ admissionNumber: learners.admissionNumber }).from(learners).where(and(eq(learners.schoolId, schoolId), inArray(learners.admissionNumber, admissionNumbers)));
       existing.forEach(row => existingAdmissions.add(row.admissionNumber.toUpperCase()));
     }
   }
@@ -1716,7 +1722,7 @@ export async function previewPeopleImport(input: { kind: PeopleImportKind; rows:
 }
 
 export async function importPeopleRows(input: { kind: PeopleImportKind; rows: PeopleImportRow[] } & PeopleImportOptions, userId: number) {
-  const checked = await previewPeopleImport(input);
+  const checked = await previewPeopleImport(input, userId);
   if (checked.errors.length) throw new Error(`IMPORT_VALIDATION_FAILED:${JSON.stringify(checked.errors.slice(0, 10))}`);
   let created = 0;
   const learnerIds: number[] = [];
@@ -1809,10 +1815,10 @@ export async function updateStaffRole(input: { staffProfileId: number; role: Sta
   return { ok: true, role: input.role };
 }
 
-export async function listAcademicCatalog(userId?: number) {
+export async function listAcademicCatalog(userId: number) {
   const db = await requireDb();
-  const schoolId = userId == null ? null : await actorSchoolId(userId);
-  const [allGradeRows, existingSubjects, settings] = await Promise.all([db.select().from(grades).where(schoolId == null ? undefined : eq(grades.schoolId, schoolId)).orderBy(grades.name, grades.stream), db.select().from(subjects).orderBy(subjects.name), db.select({ enabledSchoolLevels: schoolSettings.enabledSchoolLevels }).from(schoolSettings).where(schoolId == null ? undefined : eq(schoolSettings.schoolId, schoolId)).limit(1)]);
+  const schoolId = await actorSchoolId(userId);
+  const [allGradeRows, existingSubjects, settings] = await Promise.all([db.select().from(grades).where(eq(grades.schoolId, schoolId)).orderBy(grades.name, grades.stream), db.select().from(subjects).where(or(eq(subjects.schoolId, schoolId), isNull(subjects.schoolId))).orderBy(subjects.name), db.select({ enabledSchoolLevels: schoolSettings.enabledSchoolLevels }).from(schoolSettings).where(eq(schoolSettings.schoolId, schoolId)).limit(1)]);
   const enabledLevels = new Set((settings[0]?.enabledSchoolLevels || "ECDE,Lower Primary,Upper Primary,Junior School,Senior School").split(",").flatMap(level => level === "Primary" ? ["Lower Primary", "Upper Primary"] : level));
   const existingNames = new Set(existingSubjects.map(subject => subject.name.toLowerCase()));
   const existingCodes = new Set(existingSubjects.map(subject => subject.code.toLowerCase()));
@@ -1821,7 +1827,7 @@ export async function listAcademicCatalog(userId?: number) {
     let code = stem; let suffix = 2;
     while (existingCodes.has(code.toLowerCase())) code = `${stem.slice(0, 27 - String(suffix).length)}-${suffix++}`;
     existingCodes.add(code.toLowerCase()); existingNames.add(name.toLowerCase());
-    return { name, code };
+    return { schoolId, name, code };
   });
   if (missing.length) await db.insert(subjects).values(missing);
   const subjectRows = missing.length ? await db.select().from(subjects).orderBy(subjects.name) : existingSubjects;
