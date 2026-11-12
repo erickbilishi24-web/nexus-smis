@@ -180,6 +180,7 @@ export const appRouter = router({
     paymentMethods: publicProcedure.query(() => listPaymentMethods(false)),
     summary: protectedProcedure.query(({ ctx }) => getSubscriptionSummary(ctx.user.id)),
     subscriptions: protectedProcedure.query(({ ctx }) => listSchoolSubscriptions(ctx.user.id)),
+    allSubscriptions: superProcedure.query(({ ctx }) => listSchoolSubscriptions(ctx.user.id, true)),
     managePlans: superProcedure.query(({ ctx }) => listSubscriptionPlans(true)),
     savePlan: superProcedure.input(z.object({ id: z.number().int().positive().optional(), name: z.string().trim().min(2).max(120), description: z.string().max(5000).nullable().optional(), price: z.number().min(0), billingPeriod: z.string().trim().min(2).max(30), durationDays: z.number().int().min(1).max(3650), includedFeatures: z.array(z.string().trim().min(1).max(120)).max(100).optional(), eligibility: z.string().trim().max(80).optional(), active: z.boolean().optional() })).mutation(({ input, ctx }) => saveSubscriptionPlan(input, ctx.user.id, ctx.req)),
     setPlanStatus: superProcedure.input(z.object({ id: z.number().int().positive(), active: z.boolean() })).mutation(({ input, ctx }) => setSubscriptionPlanStatus(input, ctx.user.id, ctx.req)),

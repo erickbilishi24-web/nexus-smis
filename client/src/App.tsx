@@ -6,12 +6,15 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
+import { ActivationPage, RegistrationPage } from "./pages/Registration";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
       <Route path="/leave-out/verify/:passNumber" component={LeaveOutVerification} />
+      <Route path="/register" component={RegistrationPage} />
+      <Route path="/activate" component={ActivationPage} />
       <Route path={"/"} component={Home} />
       <Route path={"/school/:schoolCode/login"} component={Home} />
       <Route path={"/404"} component={NotFound} />
