@@ -4,15 +4,21 @@ import { expenditures, guardians, learnerGuardians, notifications, permissions, 
 import { actorSchoolId, effectivePermissions, peoplePageWindow, permissionCatalog, requireDb, writeAudit } from "./smis";
 import { attendances, learners, marks, feeStructures, payments, storeItems, storeMovements, subjects, grades } from "../drizzle/schema";
 
-export async function listGuardians(search?: string) {
+export async function listGuardians(search: string | undefined, userId: number) {
   const db = await requireDb();
-  return db.select().from(guardians).where(search ? like(guardians.fullName, `%${search}%`) : undefined).orderBy(guardians.fullName);
+  const schoolId = await actorSchoolId(userId);
+  return db.select().from(guardians).where(and(eq(guardians.schoolId, schoolId), search ? like(guardians.fullName, `%${search}%`) : undefined)).orderBy(guardians.fullName);
 }
 
 export async function saveGuardian(input: { fullName: string; phone?: string | null; email?: string | null; communicationPreference: "sms" | "email" | "phone"; learnerId?: number; relationship?: string }, userId: number) {
   const db = await requireDb();
-  const guardianId = (await db.insert(guardians).values(input).$returningId())[0].id;
-  if (input.learnerId) await db.insert(learnerGuardians).values({ learnerId: input.learnerId, guardianId, relationship: input.relationship || "Guardian", isPrimary: 1 });
+  const schoolId = await actorSchoolId(userId);
+  if (input.learnerId) {
+    const learner = (await db.select({ id: learners.id }).from(learners).where(and(eq(learners.id, input.learnerId), eq(learners.schoolId, schoolId))).limit(1))[0];
+    if (!learner) throw new Error("LEARNER_NOT_FOUND");
+  }
+  const guardianId = (await db.insert(guardians).values({ ...input, schoolId }).$returningId())[0].id;
+  if (input.learnerId) await db.insert(learnerGuardians).values({ schoolId, learnerId: input.learnerId, guardianId, relationship: input.relationship || "Guardian", isPrimary: 1 });
   await writeAudit(userId, "guardian.create", "guardian", guardianId, input);
   return { id: guardianId };
 }
@@ -86,22 +92,23 @@ export async function aiFacts(question: string, userId: number, role: string) {
   const canAttendance = permissions.includes("*") || permissions.includes("attendance.view");
   const canStore = permissions.includes("*") || permissions.includes("store.view");
   const db = await requireDb();
+  const schoolId = await actorSchoolId(userId);
   const q = question.toLowerCase();
   const facts: Array<{ type: "database fact" | "calculation" | "recommendation"; text: string }> = [];
   if (q.includes("attendance") && canAttendance) {
-    const rows = await db.select({ attendance: attendances, learner: learners }).from(attendances).innerJoin(learners, eq(learners.id, attendances.learnerId));
+    const rows = await db.select({ attendance: attendances, learner: learners }).from(attendances).innerJoin(learners, eq(learners.id, attendances.learnerId)).where(and(eq(attendances.schoolId, schoolId), eq(learners.schoolId, schoolId)));
     const absent = rows.filter(row => row.attendance.status === "absent" || row.attendance.status === "late");
     facts.push({ type: "database fact", text: `${absent.length} attendance records are absent or late in the available register.` });
     facts.push({ type: "recommendation", text: "Review learners with repeated absences and record guardian follow-up as a communication item." });
   } else if ((q.includes("fee") || q.includes("finance")) && canFinance) {
-    const [feeRows, paymentRows] = await Promise.all([db.select().from(feeStructures), db.select().from(payments)]);
+    const [feeRows, paymentRows] = await Promise.all([db.select().from(feeStructures).where(eq(feeStructures.schoolId, schoolId)), db.select().from(payments).where(eq(payments.schoolId, schoolId))]);
     facts.push({ type: "calculation", text: `KES ${feeRows.reduce((s, row) => s + Number(row.amount), 0).toLocaleString()} is configured in fee structures and KES ${paymentRows.reduce((s, row) => s + Number(row.amount), 0).toLocaleString()} is recorded in payments.` });
   } else if ((q.includes("performance") || q.includes("mark") || q.includes("learning area")) && canAcademic) {
-    const rows = await db.select({ mark: marks, subject: subjects }).from(marks).innerJoin(subjects, eq(subjects.id, marks.subjectId));
+    const rows = await db.select({ mark: marks, subject: subjects }).from(marks).innerJoin(subjects, eq(subjects.id, marks.subjectId)).where(and(eq(marks.schoolId, schoolId), eq(subjects.schoolId, schoolId)));
     const average = rows.length ? rows.reduce((s, row) => s + Number(row.mark.average), 0) / rows.length : 0;
     facts.push({ type: "calculation", text: `The current stored mark average across ${rows.length} mark rows is ${average.toFixed(1)}%.` });
   } else if (q.includes("stock") && canStore) {
-    const rows = await db.select({ item: storeItems, movement: storeMovements }).from(storeItems).leftJoin(storeMovements, eq(storeItems.id, storeMovements.itemId));
+    const rows = await db.select({ item: storeItems, movement: storeMovements }).from(storeItems).leftJoin(storeMovements, eq(storeItems.id, storeMovements.itemId)).where(eq(storeItems.schoolId, schoolId));
     const low = rows.filter(row => row.item && Number(row.item.reorderLevel) > 0);
     facts.push({ type: "database fact", text: `${low.length} inventory item records are configured for stock monitoring.` });
   } else if ((q.includes("fee") || q.includes("finance")) && !canFinance) {

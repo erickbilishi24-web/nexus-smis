@@ -1,0 +1,11 @@
+{
+  "task_kind": "markdown-to-pdf",
+  "output": "pdf",
+  "signals": [],
+  "hard_constraints": ["professional structured testing guide", "Mwangaza Academy 2027", "academics and learner report cards only"],
+  "content_features": {
+    "code_blocks": 0,
+    "defined_terms": 20,
+    "portrait_images": 0
+  }
+}

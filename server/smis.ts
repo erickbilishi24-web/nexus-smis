@@ -474,19 +474,20 @@ export async function saveAttendance(input: { learnerId: number; status: "presen
 
 export async function evaluateGuardianAbsenceAlerts(learnerIds: number[], userId: number) {
   const db = await requireDb();
+  const schoolId = await actorSchoolId(userId);
   const uniqueIds = Array.from(new Set(learnerIds));
   if (!uniqueIds.length) return { created: 0 };
-  const learnerRows = await db.select().from(learners).where(inArray(learners.id, uniqueIds));
+  const learnerRows = await db.select().from(learners).where(and(inArray(learners.id, uniqueIds), eq(learners.schoolId, schoolId)));
   let created = 0;
   for (const learner of learnerRows) {
-    const rows = await db.select().from(attendances).where(eq(attendances.learnerId, learner.id));
+    const rows = await db.select().from(attendances).where(and(eq(attendances.learnerId, learner.id), eq(attendances.schoolId, schoolId)));
     const unexcused = rows.filter(row => row.status === "absent" || row.status === "late").length;
     if (unexcused < 3) continue;
     const title = `Guardian follow-up: ${learner.fullName}`;
     const body = `${learner.fullName} (${learner.admissionNumber}) has ${unexcused} recorded absent/late sessions. Contact ${learner.guardianName ?? "the guardian"}${learner.guardianPhone ? ` on ${learner.guardianPhone}` : ""} and record the follow-up.`;
-    const existing = (await db.select({ id: notifications.id }).from(notifications).where(and(eq(notifications.title, title), eq(notifications.body, body), eq(notifications.status, "published"))).limit(1))[0];
+    const existing = (await db.select({ id: notifications.id }).from(notifications).where(and(eq(notifications.schoolId, schoolId), eq(notifications.title, title), eq(notifications.body, body), eq(notifications.status, "published"))).limit(1))[0];
     if (!existing) {
-      const row = (await db.insert(notifications).values({ audience: "parents", title, body, status: "published", createdByUserId: userId }).$returningId())[0];
+      const row = (await db.insert(notifications).values({ schoolId, audience: "parents", title, body, status: "published", createdByUserId: userId }).$returningId())[0];
       await writeAudit(userId, "attendance.guardian_alert", "notification", row.id, { learnerId: learner.id, unexcused });
       created += 1;
     }
@@ -1750,45 +1751,47 @@ function parseImportBatch(row: typeof auditLogs.$inferSelect): ImportBatch | nul
   } catch { return null; }
 }
 
-export async function getLastPeopleImport() {
+export async function getLastPeopleImport(userId: number) {
   const db = await requireDb();
-  const rows = await db.select().from(auditLogs).where(eq(auditLogs.action, "people.bulk_import")).orderBy(desc(auditLogs.createdAt)).limit(20);
+  const schoolId = await actorSchoolId(userId);
+  const rows = await db.select().from(auditLogs).where(and(eq(auditLogs.schoolId, schoolId), eq(auditLogs.action, "people.bulk_import"))).orderBy(desc(auditLogs.createdAt)).limit(20);
   const batch = rows.map(parseImportBatch).find((item): item is ImportBatch => item !== null && isPeopleImportUndoable(item.createdAt));
   return batch ? { ...batch, createdAt: batch.createdAt.toISOString() } : null;
 }
 
 export async function undoLastPeopleImport(userId: number) {
   const db = await requireDb();
-  const rows = await db.select().from(auditLogs).where(eq(auditLogs.action, "people.bulk_import")).orderBy(desc(auditLogs.createdAt)).limit(20);
+  const schoolId = await actorSchoolId(userId);
+  const rows = await db.select().from(auditLogs).where(and(eq(auditLogs.schoolId, schoolId), eq(auditLogs.action, "people.bulk_import"))).orderBy(desc(auditLogs.createdAt)).limit(20);
   const batch = rows.map(parseImportBatch).find((item): item is ImportBatch => item !== null && isPeopleImportUndoable(item.createdAt));
   if (!batch) throw new Error("NO_UNDOABLE_IMPORT");
   const blockedLearners: number[] = [];
   const blockedStaff: number[] = [];
   for (const learnerId of batch.learnerIds) {
     const [markRows, attendanceRows, paymentRows] = await Promise.all([
-      db.select({ id: marks.id }).from(marks).where(eq(marks.learnerId, learnerId)).limit(1),
-      db.select({ id: attendances.id }).from(attendances).where(eq(attendances.learnerId, learnerId)).limit(1),
-      db.select({ id: payments.id }).from(payments).where(eq(payments.learnerId, learnerId)).limit(1),
+      db.select({ id: marks.id }).from(marks).where(and(eq(marks.learnerId, learnerId), eq(marks.schoolId, schoolId))).limit(1),
+      db.select({ id: attendances.id }).from(attendances).where(and(eq(attendances.learnerId, learnerId), eq(attendances.schoolId, schoolId))).limit(1),
+      db.select({ id: payments.id }).from(payments).where(and(eq(payments.learnerId, learnerId), eq(payments.schoolId, schoolId))).limit(1),
     ]);
     if (markRows.length || attendanceRows.length || paymentRows.length) blockedLearners.push(learnerId);
   }
   for (const staffProfileId of batch.staffProfileIds) {
-    const profile = (await db.select({ userId: staffProfiles.userId }).from(staffProfiles).where(eq(staffProfiles.id, staffProfileId)).limit(1))[0];
+    const profile = (await db.select({ userId: staffProfiles.userId }).from(staffProfiles).where(and(eq(staffProfiles.id, staffProfileId), eq(staffProfiles.schoolId, schoolId))).limit(1))[0];
     if (!profile) continue;
     const [timetableRows, allocationRows, assessmentRows, markRows] = await Promise.all([
-      db.select({ id: timetableEntries.id }).from(timetableEntries).where(eq(timetableEntries.teacherUserId, profile.userId)).limit(1),
-      db.select({ id: teacherAllocations.id }).from(teacherAllocations).where(eq(teacherAllocations.teacherUserId, profile.userId)).limit(1),
-      db.select({ id: assessments.id }).from(assessments).where(eq(assessments.teacherUserId, profile.userId)).limit(1),
-      db.select({ id: marks.id }).from(marks).where(eq(marks.teacherUserId, profile.userId)).limit(1),
+      db.select({ id: timetableEntries.id }).from(timetableEntries).where(and(eq(timetableEntries.teacherUserId, profile.userId), eq(timetableEntries.schoolId, schoolId))).limit(1),
+      db.select({ id: teacherAllocations.id }).from(teacherAllocations).where(and(eq(teacherAllocations.teacherUserId, profile.userId), eq(teacherAllocations.schoolId, schoolId))).limit(1),
+      db.select({ id: assessments.id }).from(assessments).where(and(eq(assessments.teacherUserId, profile.userId), eq(assessments.schoolId, schoolId))).limit(1),
+      db.select({ id: marks.id }).from(marks).where(and(eq(marks.teacherUserId, profile.userId), eq(marks.schoolId, schoolId))).limit(1),
     ]);
     if (timetableRows.length || allocationRows.length || assessmentRows.length || markRows.length) blockedStaff.push(staffProfileId);
   }
   if (blockedLearners.length || blockedStaff.length) throw new Error(`IMPORT_UNDO_BLOCKED:${JSON.stringify({ learners: blockedLearners.length, staff: blockedStaff.length })}`);
   await db.transaction(async tx => {
-    if (batch.learnerIds.length) { await tx.delete(learnerGuardians).where(inArray(learnerGuardians.learnerId, batch.learnerIds)); await tx.delete(learners).where(inArray(learners.id, batch.learnerIds)); }
-    if (batch.staffProfileIds.length) await tx.delete(staffProfiles).where(inArray(staffProfiles.id, batch.staffProfileIds));
+    if (batch.learnerIds.length) { await tx.delete(learnerGuardians).where(and(eq(learnerGuardians.schoolId, schoolId), inArray(learnerGuardians.learnerId, batch.learnerIds))); await tx.delete(learners).where(and(eq(learners.schoolId, schoolId), inArray(learners.id, batch.learnerIds))); }
+    if (batch.staffProfileIds.length) await tx.delete(staffProfiles).where(and(eq(staffProfiles.schoolId, schoolId), inArray(staffProfiles.id, batch.staffProfileIds)));
     if (batch.userIds.length) await tx.delete(userPermissions).where(inArray(userPermissions.userId, batch.userIds));
-    if (batch.userIds.length) await tx.delete(users).where(inArray(users.id, batch.userIds));
+    if (batch.userIds.length) await tx.delete(users).where(and(eq(users.schoolId, schoolId), inArray(users.id, batch.userIds)));
   });
   await db.update(auditLogs).set({ metadata: JSON.stringify({ rows: batch.rows, learnerIds: batch.learnerIds, staffProfileIds: batch.staffProfileIds, userIds: batch.userIds, undoable: false, undoneAt: new Date().toISOString() }) }).where(eq(auditLogs.id, batch.auditId));
   await writeAudit(userId, "people.bulk_import.undo", batch.kind, String(batch.auditId), { rows: batch.rows, learnerIds: batch.learnerIds, staffProfileIds: batch.staffProfileIds, userIds: batch.userIds });
@@ -1923,20 +1926,21 @@ export function allocationContextConflict(input: { gradeId: number; subjectId: n
 
 export async function saveTeacherAllocation(input: { teacherUserId: number; gradeId: number; subjectId: number; academicYear: number; term: string; allocationType: AllocationType; startsOn?: string | null; endsOn?: string | null }, userId: number) {
   const db = await requireDb();
+  const schoolId = await actorSchoolId(userId);
   if (input.term.trim().length < 2) throw new Error("TERM_REQUIRED");
   if (input.allocationType !== "class_teacher" && input.subjectId <= 0) throw new Error("LEARNING_AREA_REQUIRED");
   if (input.startsOn && input.endsOn && input.startsOn > input.endsOn) throw new Error("INVALID_DATE_RANGE");
-  const teacher = (await db.select().from(users).where(eq(users.id, input.teacherUserId)).limit(1))[0];
-  const grade = (await db.select().from(grades).where(eq(grades.id, input.gradeId)).limit(1))[0];
+  const teacher = (await db.select({ id: users.id }).from(users).innerJoin(staffProfiles, eq(staffProfiles.userId, users.id)).where(and(eq(users.id, input.teacherUserId), eq(users.schoolId, schoolId), eq(staffProfiles.schoolId, schoolId), eq(staffProfiles.status, "active"))).limit(1))[0];
+  const grade = (await db.select().from(grades).where(and(eq(grades.id, input.gradeId), eq(grades.schoolId, schoolId))).limit(1))[0];
   if (!teacher || !grade) throw new Error("ALLOCATION_CONTEXT_NOT_FOUND");
-  const active = await db.select().from(teacherAllocations).where(and(eq(teacherAllocations.gradeId, input.gradeId), eq(teacherAllocations.academicYear, input.academicYear), eq(teacherAllocations.term, input.term), eq(teacherAllocations.status, "active")));
+  const active = await db.select().from(teacherAllocations).where(and(eq(teacherAllocations.schoolId, schoolId), eq(teacherAllocations.gradeId, input.gradeId), eq(teacherAllocations.academicYear, input.academicYear), eq(teacherAllocations.term, input.term), eq(teacherAllocations.status, "active")));
   const conflict = active.find(row => allocationContextConflict(input, row));
   if (conflict && conflict.teacherUserId !== input.teacherUserId) {
     if (input.allocationType === "class_teacher") throw new Error("CLASS_TEACHER_CONFLICT");
     throw new Error(`subject already allocated. Delete existing allocation first. [allocationId:${conflict.id}]`);
   }
-  const existing = (await db.select().from(teacherAllocations).where(and(eq(teacherAllocations.teacherUserId, input.teacherUserId), eq(teacherAllocations.gradeId, input.gradeId), eq(teacherAllocations.subjectId, input.subjectId), eq(teacherAllocations.academicYear, input.academicYear), eq(teacherAllocations.term, input.term), eq(teacherAllocations.allocationType, input.allocationType))).limit(1))[0];
-  const values = { ...input, startsOn: input.startsOn ? new Date(input.startsOn) : null, endsOn: input.endsOn ? new Date(input.endsOn) : null, status: "active" as const };
+  const existing = (await db.select().from(teacherAllocations).where(and(eq(teacherAllocations.schoolId, schoolId), eq(teacherAllocations.teacherUserId, input.teacherUserId), eq(teacherAllocations.gradeId, input.gradeId), eq(teacherAllocations.subjectId, input.subjectId), eq(teacherAllocations.academicYear, input.academicYear), eq(teacherAllocations.term, input.term), eq(teacherAllocations.allocationType, input.allocationType))).limit(1))[0];
+  const values = { ...input, schoolId, startsOn: input.startsOn ? new Date(input.startsOn) : null, endsOn: input.endsOn ? new Date(input.endsOn) : null, status: "active" as const };
   if (existing) await db.update(teacherAllocations).set(values).where(eq(teacherAllocations.id, existing.id));
   else await db.insert(teacherAllocations).values(values);
   await writeAudit(userId, existing ? "allocation.update" : "allocation.create", "teacher_allocation", existing?.id ?? null, input);
@@ -2024,11 +2028,12 @@ export async function listAuditLogs() {
   return db.select().from(auditLogs).orderBy(desc(auditLogs.createdAt)).limit(100);
 }
 
-export async function getReportCard(learnerId: number) {
+export async function getReportCard(learnerId: number, userId: number) {
   const db = await requireDb();
-  const learnerRow = (await db.select({ learner: learners, grade: grades }).from(learners).leftJoin(grades, eq(grades.id, learners.gradeId)).where(eq(learners.id, learnerId)).limit(1))[0];
+  const schoolId = await actorSchoolId(userId);
+  const learnerRow = (await db.select({ learner: learners, grade: grades }).from(learners).leftJoin(grades, eq(grades.id, learners.gradeId)).where(and(eq(learners.id, learnerId), eq(learners.schoolId, schoolId))).limit(1))[0];
   if (!learnerRow) throw new Error("LEARNER_NOT_FOUND");
-  const markRows = await db.select({ mark: marks, subject: subjects, assessment: assessments }).from(marks).innerJoin(subjects, eq(subjects.id, marks.subjectId)).innerJoin(assessments, eq(assessments.id, marks.assessmentId)).where(eq(marks.learnerId, learnerId));
-  const finance = await getFinanceOverview(learnerId);
-  return { learner: learnerRow.learner, grade: learnerRow.grade, marks: markRows, finance: finance.balances[0] ?? null, settings: await getSettings() };
+  const markRows = await db.select({ mark: marks, subject: subjects, assessment: assessments }).from(marks).innerJoin(subjects, eq(subjects.id, marks.subjectId)).innerJoin(assessments, eq(assessments.id, marks.assessmentId)).where(and(eq(marks.learnerId, learnerId), eq(marks.schoolId, schoolId), eq(assessments.schoolId, schoolId)));
+  const finance = await getFinanceOverview(learnerId, userId);
+  return { learner: learnerRow.learner, grade: learnerRow.grade, marks: markRows, finance: finance.balances[0] ?? null, settings: await getSettings(schoolId) };
 }

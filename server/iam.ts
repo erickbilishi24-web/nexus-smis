@@ -10,6 +10,7 @@ const MAX_FAILED_LOGINS = 5;
 const SESSION_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 30;
 export function shouldLockIamAccount(isSuperAdmin: boolean, failedAttempts: number) { return !isSuperAdmin && failedAttempts >= MAX_FAILED_LOGINS; }
 export function isIamSessionExpired(expiresAt: Date, now = new Date()) { return expiresAt.getTime() <= now.getTime(); }
+export function isIamSchoolUsable(isSuperAdmin: boolean, schoolStatus: string | null | undefined) { return isSuperAdmin || schoolStatus === "active"; }
 
 export function safeAuthProfile(user: User | null) {
   return user ? {
@@ -52,13 +53,17 @@ export async function authenticateIamRequest(req: Request) {
   if (!token) return null;
   const db = await getDb();
   if (!db) return null;
-  const rows = await db.select({ session: iamSessions, user: users }).from(iamSessions).innerJoin(users, eq(users.id, iamSessions.userId)).where(and(eq(iamSessions.sessionHash, tokenHash(token)), eq(iamSessions.status, "active"))).limit(1);
+  const rows = await db.select({ session: iamSessions, user: users, school: schools, staffRole: staffProfiles.role }).from(iamSessions).innerJoin(users, eq(users.id, iamSessions.userId)).leftJoin(schools, eq(schools.id, users.schoolId)).leftJoin(staffProfiles, eq(staffProfiles.userId, users.id)).where(and(eq(iamSessions.sessionHash, tokenHash(token)), eq(iamSessions.status, "active"))).limit(1);
   const row = rows[0];
   if (row && isIamSessionExpired(row.session.expiresAt)) {
     await db.update(iamSessions).set({ status: "expired", logoutAt: new Date() }).where(eq(iamSessions.id, row.session.id));
     return null;
   }
-  if (!row || row.user.accountStatus !== "active" || row.user.accountLocked) return null;
+  const isSuperAdmin = row?.staffRole === "super_admin";
+  if (!row || row.user.accountStatus !== "active" || row.user.accountLocked || !isIamSchoolUsable(isSuperAdmin, row.school?.status)) {
+    if (row) await db.update(iamSessions).set({ status: "revoked", logoutAt: new Date() }).where(eq(iamSessions.id, row.session.id));
+    return null;
+  }
   return row.user;
 }
 
@@ -75,12 +80,15 @@ export async function loginWithIam(input: LoginInput, req: Request, res: Respons
   const staff = (await db.select({ role: staffProfiles.role }).from(staffProfiles).where(eq(staffProfiles.userId, row.id)).limit(1))[0];
   const isSuperAdmin = staff?.role === "super_admin";
   if (row.accountLocked && !isSuperAdmin) throw new Error("ACCOUNT_LOCKED");
+  const boundSchool = row.schoolId ? (await db.select({ id: schools.id, status: schools.status }).from(schools).where(eq(schools.id, row.schoolId)).limit(1))[0] : null;
+  let requestedSchool = boundSchool;
   if (input.schoolCode) {
     const requestedCode = input.schoolCode.trim().toUpperCase();
-    const requestedSchool = (await db.select({ id: schools.id, status: schools.status }).from(schools).where(eq(schools.schoolCode, requestedCode)).limit(1))[0];
+    requestedSchool = (await db.select({ id: schools.id, status: schools.status }).from(schools).where(eq(schools.schoolCode, requestedCode)).limit(1))[0] ?? null;
     if (!requestedSchool || requestedSchool.status !== "active") throw new Error("SCHOOL_NOT_AVAILABLE");
     if (!isSuperAdmin && row.schoolId !== requestedSchool.id) throw new Error("SCHOOL_MEMBERSHIP_REQUIRED");
   }
+  if (!isIamSchoolUsable(isSuperAdmin, requestedSchool?.status)) throw new Error("SCHOOL_NOT_AVAILABLE");
   const valid = await bcrypt.compare(input.password, row.passwordHash);
   if (!valid) {
     const failed = row.failedLoginAttempts + 1;

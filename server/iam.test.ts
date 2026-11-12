@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isIamSessionExpired, shouldLockIamAccount } from "./iam";
+import { isIamSchoolUsable, isIamSessionExpired, shouldLockIamAccount } from "./iam";
 
 describe("IAM account lockout policy", () => {
   it("protects super-admin accounts from automatic lockout", () => {
@@ -16,5 +16,12 @@ describe("IAM account lockout policy", () => {
     const expiry = new Date("2026-01-01T00:00:00.000Z");
     expect(isIamSessionExpired(expiry, new Date("2025-12-31T23:59:59.999Z"))).toBe(false);
     expect(isIamSessionExpired(expiry, expiry)).toBe(true);
+  });
+
+  it("requires ordinary accounts to have an active school", () => {
+    expect(isIamSchoolUsable(false, "active")).toBe(true);
+    expect(isIamSchoolUsable(false, "suspended")).toBe(false);
+    expect(isIamSchoolUsable(false, null)).toBe(false);
+    expect(isIamSchoolUsable(true, "suspended")).toBe(true);
   });
 });
