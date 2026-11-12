@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { ClipboardCopy, History, KeyRound, Lock, LockOpen, MoreHorizontal, Pencil, Plus, RefreshCw, Search, ShieldCheck, ReceiptText, ShieldOff, UserCheck, UserCog, UserPlus, Users, Trash2, Eye, School } from "lucide-react";
+import { ClipboardCopy, History, KeyRound, Lock, LockOpen, MoreHorizontal, Pencil, Plus, RefreshCw, Search, ShieldCheck, ReceiptText, ShieldOff, UserCheck, UserCog, UserPlus, Users, Trash2, Eye, School, Settings } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { WorkspaceBreadcrumbs } from "@/components/WorkspaceBreadcrumbs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { ResourceHubWorkspace } from "@/components/ResourceHubWorkspace";
 import { CommentBankAdminPanel } from "@/components/CommentBankAdminPanel";
 import { TeacherAttendanceRegister } from "@/components/TeacherAttendanceRegister";
+import { PlatformControlsPanel } from "@/components/PlatformControlsPanel";
 import { KENYA_COUNTIES, KENYA_LOCATIONS } from "@/data/kenyaLocations";
 
 import type { inferRouterOutputs } from "@trpc/server";
@@ -279,13 +280,13 @@ function FeeStructuresPanel({ catalog }: { catalog: Catalog }) {
 type Confirm = { row: Row; action: "activate" | "suspend" | "deactivate" | "lock" | "unlock" } | null;
 const CONFIRM_TEXT = { activate: ["Activate account", "The user will be able to sign in again."], suspend: ["Suspend account", "The user is signed out immediately and cannot sign in until reactivated."], deactivate: ["Deactivate account", "The account will be disabled and can be restored later with Activate account. Existing school history is retained."], lock: ["Lock account", "The user is signed out immediately and cannot sign in until unlocked."], unlock: ["Unlock account", "Failed-login counters are cleared and the user can sign in."] } as const;
 
-type AdministrationTab = "users" | "matrix" | "classes" | "comments" | "schools" | "feeStructures" | "audit" | "deletions" | "teacherAttendance";
+type AdministrationTab = "users" | "matrix" | "classes" | "comments" | "schools" | "feeStructures" | "audit" | "deletions" | "teacherAttendance" | "platform";
 export function AdministrationWorkspace({ initialTab = "users" }: { initialTab?: AdministrationTab } = {}) {
   const utils = trpc.useUtils();
   const authMe = trpc.auth.me.useQuery();
   const perms = trpc.smis.users.effectivePermissions.useQuery(); const catalogQ = trpc.smis.administration.catalog.useQuery();
   const [tab, setTab] = useState<AdministrationTab>(initialTab);
-  const tabLabel = ({ users: "Users & Credentials", matrix: "Permission Matrix", classes: "Classes & Streams", comments: "Report Comments", schools: "School Registry", audit: "Audit Trail", deletions: "Account Deletions", teacherAttendance: "Teacher Attendance", feeStructures: "Fee Structures" } as const)[tab];
+  const tabLabel = ({ users: "Users & Credentials", matrix: "Permission Matrix", classes: "Classes & Streams", comments: "Report Comments", schools: "School Registry", audit: "Audit Trail", deletions: "Account Deletions", teacherAttendance: "Teacher Attendance", feeStructures: "Fee Structures", platform: "Platform Controls" } as const)[tab];
   const [f, setF] = useState({ search: "", role: "", status: "" });
   const [userPage, setUserPage] = useState(0);
   const [sortKey, setSortKey] = useState("fullName");
@@ -324,7 +325,7 @@ export function AdministrationWorkspace({ initialTab = "users" }: { initialTab?:
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-5">{[["Accounts", stats?.total, ""], ["Active", stats?.active, "active"], ["Pending setup", stats?.pending, "pending"], ["Suspended", stats?.suspended, "suspended"], ["Locked", stats?.locked, "locked"]].map(([k, v, status]) => <button type="button" key={String(k)} onClick={() => { setTab("users"); setF(current => ({ ...current, status: String(status) })); setUserPage(0); }} className="rounded-xl border border-white/20 bg-white/10 px-4 py-3 text-left transition hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e7bd6d]"><p className="text-[0.66rem] font-bold uppercase tracking-wider text-[#d2e2d9]">{k}</p><p className="mt-1 text-2xl font-bold">{v ?? "—"}</p><span className="text-[0.65rem] text-[#d2e2d9]">Open list</span></button>)}</div>
     </section>
 
-    <div className="flex flex-wrap gap-2 border-b border-[#d8ddd4]" role="tablist">{([["users", "Users & Credentials", Users], ["matrix", "Permission Matrix", ShieldCheck], ["teacherAttendance", "Teacher Attendance", History], ...(has("settings.edit") ? [["classes", "Classes & Streams", Plus] as const, ["comments", "Report Comments", Pencil] as const, ["feeStructures", "Fee Structures", ReceiptText] as const] : []), ["audit", "Audit Trail", History], ["deletions", "Account Deletions", Trash2]] as const).map(([k, t, Icon]) =>
+    <div className="flex flex-wrap gap-2 border-b border-[#d8ddd4]" role="tablist">{([["users", "Users & Credentials", Users], ["matrix", "Permission Matrix", ShieldCheck], ["teacherAttendance", "Teacher Attendance", History], ...(has("settings.edit") ? [["classes", "Classes & Streams", Plus] as const, ["comments", "Report Comments", Pencil] as const, ["feeStructures", "Fee Structures", ReceiptText] as const] : []), ...(isSuper ? [["platform", "Platform Controls", Settings] as const] : []), ["audit", "Audit Trail", History], ["deletions", "Account Deletions", Trash2]] as const).map(([k, t, Icon]) =>
       <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className={`-mb-px inline-flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-bold ${tab === k ? "border-[#1d6a57] text-[#1d6a57]" : "border-transparent text-[#718077] hover:text-[#28483f]"}`}><Icon size={15} />{t}</button>)}</div>
 
     <section className="soft-card paper-noise rounded-[1.1rem]">
@@ -354,6 +355,7 @@ export function AdministrationWorkspace({ initialTab = "users" }: { initialTab?:
       {tab === "classes" && catalog && <ClassesStreamsPanel catalog={catalog} />}
       {tab === "comments" && has("settings.edit") && <CommentBankAdminPanel />}
       {tab === "feeStructures" && has("settings.edit") && catalog && <FeeStructuresPanel catalog={catalog} />}
+      {tab === "platform" && isSuper && <PlatformControlsPanel />}
       {tab === "schools" && <SchoolRegistryPanel isSuper={isSuper} />}
       {tab === "audit" && <><AuditFilters withUser value={auditF} onChange={v => { setAuditF(v); setAuditPage(0); }} /><AuditTable filters={toQuery(auditF)} page={auditPage} onPage={setAuditPage} /></>}
       {tab === "deletions" && <><div className="border-b border-[#e2e6dc] px-4 py-4"><h2 className="font-bold text-[#28483f]">Account-deletion audit log</h2><p className="mt-1 text-xs text-[#718077]">Permanent account deletions only. Each entry records the administrator, affected account and timestamp; staff history remains retained.</p></div><AuditTable filters={{ action: "admin.user.delete" }} page={auditPage} onPage={setAuditPage} /></>}

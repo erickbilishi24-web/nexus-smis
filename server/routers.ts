@@ -19,6 +19,8 @@ import { listNexusAiTransactions } from "./ai-payments";
 import { createNexusAiDocument, listNexusAiDocuments } from "./ai-documents";
 import { getPayrollWorkspace, getMyPayrollSlips, savePayrollRules, savePayrollCompensation, createPayrollAdjustment, reviewPayrollAdjustment, createPayrollLoan, reviewPayrollLoan, recordPayrollExport, createPayrollDraft, transitionPayrollRun } from "./payroll";
 import { getTransportWorkspace, getTransportLearnerOptions, setTransportEnabled, saveTransportVehicle, setTransportVehicleStatus, listTransportVehicleHistory, saveTransportRoute, assignLearnerTransport, setLearnerTransportStatus, billTransportPeriod, recordTransportPayment, saveTransportAttendance, recordTransportTrip, recordTransportCost, recordTransportIncident, resolveTransportIncident } from "./transport";
+import { deletePaymentMethod, deleteSubscriptionPlan, extendSchoolTrial, getSubscriptionSummary, listPaymentMethods, listPlatformPaymentMethods, listPlatformPayments, listSchoolSubscriptions, listSubscriptionPlans, savePaymentMethod, saveSubscriptionPlan, setSubscriptionPlanStatus } from "./platform";
+import { activateRegisteredAdmin, listRegistrations, registerSchool } from "./registration";
 import { addCounsellingNote, completeLearner, createBehaviourRecord, createCounsellingCase, createFollowUp, getArchiveFinance, listAlumniRecords, listArchiveLearners, listCounsellingCases, listApprovedBehaviour } from "./archives";
 import { approveRollover, deleteAcademicTerm, deleteAcademicYear, excludeRolloverItem, listAcademicStructure, listRollover, previewRollover, reverseRollover, saveAcademicTerm, saveAcademicYear } from "./academic";
 import { addLibraryBook, batchCheckoutLibraryBooks, checkoutLibraryBook, libraryLookups, libraryOverview, listLibraryBooks, listLibraryBooksPage, listLibraryLoans, listLibraryLoansPage, renewLibraryLoan, returnLibraryBook } from "./library";
@@ -173,7 +175,25 @@ const schoolLevelProcedure = protectedProcedure.use(async ({ ctx, next }) => {
 });
 export const appRouter = router({
   system: systemRouter,
+  platform: router({
+    plans: publicProcedure.query(() => listSubscriptionPlans(false)),
+    paymentMethods: publicProcedure.query(() => listPaymentMethods(false)),
+    summary: protectedProcedure.query(({ ctx }) => getSubscriptionSummary(ctx.user.id)),
+    subscriptions: protectedProcedure.query(({ ctx }) => listSchoolSubscriptions(ctx.user.id)),
+    managePlans: superProcedure.query(({ ctx }) => listSubscriptionPlans(true)),
+    savePlan: superProcedure.input(z.object({ id: z.number().int().positive().optional(), name: z.string().trim().min(2).max(120), description: z.string().max(5000).nullable().optional(), price: z.number().min(0), billingPeriod: z.string().trim().min(2).max(30), durationDays: z.number().int().min(1).max(3650), includedFeatures: z.array(z.string().trim().min(1).max(120)).max(100).optional(), eligibility: z.string().trim().max(80).optional(), active: z.boolean().optional() })).mutation(({ input, ctx }) => saveSubscriptionPlan(input, ctx.user.id, ctx.req)),
+    setPlanStatus: superProcedure.input(z.object({ id: z.number().int().positive(), active: z.boolean() })).mutation(({ input, ctx }) => setSubscriptionPlanStatus(input, ctx.user.id, ctx.req)),
+    deletePlan: superProcedure.input(z.object({ id: z.number().int().positive() })).mutation(({ input, ctx }) => deleteSubscriptionPlan(input.id, ctx.user.id, ctx.req)),
+    managePaymentMethods: superProcedure.query(({ ctx }) => listPlatformPaymentMethods(ctx.user.id)),
+    savePaymentMethod: superProcedure.input(z.object({ id: z.number().int().positive().optional(), name: z.string().trim().min(2).max(120), category: z.string().trim().min(2).max(40), identifier: z.string().max(120).nullable().optional(), accountReference: z.string().max(120).nullable().optional(), description: z.string().max(500).nullable().optional(), instructions: z.string().max(10000).nullable().optional(), visibleToSchools: z.boolean().optional(), enabled: z.boolean().optional(), displayOrder: z.number().int().min(0).max(999).optional() })).mutation(({ input, ctx }) => savePaymentMethod(input, ctx.user.id, ctx.req)),
+    deletePaymentMethod: superProcedure.input(z.object({ id: z.number().int().positive() })).mutation(({ input, ctx }) => deletePaymentMethod(input.id, ctx.user.id, ctx.req)),
+    payments: superProcedure.query(({ ctx }) => listPlatformPayments(ctx.user.id)),
+    extendTrial: superProcedure.input(z.object({ schoolId: z.number().int().positive(), days: z.number().int().min(1).max(365), reason: z.string().trim().min(5).max(500) })).mutation(({ input, ctx }) => extendSchoolTrial(input, ctx.user.id, ctx.req)),
+    registrations: superProcedure.query(({ ctx }) => listRegistrations(ctx.user.id)),
+  }),
   auth: router({
+    registerSchool: publicProcedure.input(z.object({ schoolName: z.string().trim().min(2).max(200), schoolType: z.string().trim().min(2).max(80), county: z.string().trim().min(2).max(100), subcounty: z.string().trim().max(100).nullable().optional(), contactPhone: z.string().trim().min(7).max(40), officialEmail: z.string().email().max(320).nullable().optional(), registrationIdentifier: z.string().trim().max(120).nullable().optional(), headInstitutionName: z.string().trim().min(2).max(160), adminFullName: z.string().trim().min(2).max(160), adminEmail: z.string().email().max(320).nullable().optional(), adminPhone: z.string().trim().max(40).nullable().optional(), preferredUsername: z.string().trim().min(3).max(60) })).mutation(({ input, ctx }) => registerSchool(input, ctx.req)),
+    activateSchool: publicProcedure.input(z.object({ token: z.string().min(20).max(200), password: z.string().min(10).max(200) })).mutation(({ input, ctx }) => activateRegisteredAdmin(input, ctx.req)),
     me: publicProcedure.query(({ ctx }) => safeAuthProfile(ctx.user)),
     schoolIdentity: publicProcedure.input(z.object({ schoolCode: z.string().min(3).max(40) })).query(({ input }) => getPublicSchoolIdentity(input.schoolCode)),
     login: publicProcedure.input(z.object({ identifier: z.string().min(1).max(320), password: z.string().min(1).max(200), schoolCode: z.string().min(3).max(40).optional() })).mutation(async ({ input, ctx }) => {

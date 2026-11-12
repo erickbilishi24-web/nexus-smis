@@ -1,0 +1,22 @@
+CREATE TABLE `school_registrations` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`schoolId` int NOT NULL,
+	`schoolType` varchar(80) NOT NULL,
+	`registrationIdentifier` varchar(120),
+	`contactPhone` varchar(40) NOT NULL,
+	`officialEmail` varchar(320),
+	`headInstitutionName` varchar(160) NOT NULL,
+	`adminFullName` varchar(160) NOT NULL,
+	`adminEmail` varchar(320),
+	`adminPhone` varchar(40),
+	`preferredUsername` varchar(120) NOT NULL,
+	`activationTokenHash` varchar(128) NOT NULL,
+	`activationExpiresAt` timestamp NOT NULL,
+	`status` enum('pending','approved','rejected','completed') NOT NULL DEFAULT 'pending',
+	`reviewedByUserId` int,
+	`reviewedAt` timestamp,
+	`completedAt` timestamp,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	CONSTRAINT `school_registrations_id` PRIMARY KEY(`id`),
+	CONSTRAINT `school_registrations_activationTokenHash_unique` UNIQUE(`activationTokenHash`)
+);
