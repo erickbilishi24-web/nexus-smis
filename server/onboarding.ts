@@ -173,3 +173,23 @@ export async function provisionSchoolFromApplication(applicationId: number, user
   try { emailSent = await sendTransactionalEmail({ to: application.applicantEmail, subject: `NEXUS SMIS administrator activation · ${result.schoolName}`, text: emailText }); } catch (error) { console.warn("[Onboarding] activation email failed", error); }
   return { ok: true, alreadyOnboarded: false, applicationId, schoolId: result.schoolId, schoolCode: result.schoolCode, schoolName: result.schoolName, adminUsername: result.adminUsername, activationUrl, loginUrl, trialStartedAt: result.trialStartedAt, trialEndsAt: result.trialEndsAt, emailSent };
 }
+
+
+export async function resendApplicationActivationEmail(applicationId: number, userId: number) {
+  await assertPlatformAdmin(userId);
+  const db = await requireDb();
+  const row = (await db.select({ application: schoolApplications, school: schools, registration: schoolRegistrations, admin: users }).from(schoolApplications).leftJoin(schools, eq(schools.id, schoolApplications.schoolId)).leftJoin(schoolRegistrations, eq(schoolRegistrations.schoolId, schoolApplications.schoolId)).leftJoin(users, and(eq(users.schoolId, schoolApplications.schoolId), eq(users.role, "admin"))).where(eq(schoolApplications.id, applicationId)).limit(1))[0];
+  if (!row?.application) fail("APPLICATION_NOT_FOUND");
+  if (!row.school?.id || !row.registration || !row.admin) fail("APPLICATION_NOT_ONBOARDED");
+  const school = row.school!;
+  const registration = row.registration!;
+  const admin = row.admin!;
+  const activationToken = crypto.randomBytes(32).toString("base64url");
+  const now = new Date();
+  await db.update(schoolRegistrations).set({ activationTokenHash: hash(activationToken), activationExpiresAt: addDays(now, 2), status: "pending" }).where(eq(schoolRegistrations.id, registration.id));
+  const activationUrl = `${resolvePublicAppUrl()}/activate?token=${encodeURIComponent(activationToken)}`;
+  const loginUrl = `${resolvePublicAppUrl()}/school/${school.schoolCode}/login`;
+  const emailSent = await sendTransactionalEmail({ to: row.application.applicantEmail, subject: `NEXUS SMIS administrator activation · ${school.schoolName}`, text: `Your NEXUS SMIS administrator activation link has been reissued.\nSchool: ${school.schoolName}\nSchool code: ${school.schoolCode}\nUsername: ${admin.username}\nLogin: ${loginUrl}\nSet the administrator password securely here (expires in 48 hours): ${activationUrl}` });
+  await db.insert(auditLogs).values({ schoolId: school.id, userId, action: "platform.school_application.activation_email_resend", entityType: "school_application", entityId: String(applicationId), metadata: JSON.stringify({ referenceNumber: row.application.referenceNumber, email: row.application.applicantEmail, emailSent }) });
+  return { ok: true, emailSent, activationUrl };
+}
