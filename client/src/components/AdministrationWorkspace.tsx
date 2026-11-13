@@ -287,7 +287,7 @@ export function AdministrationWorkspace({ initialTab = "users" }: { initialTab?:
   const timetableAccess = trpc.smis.timetable.access.useQuery();
   const perms = trpc.smis.users.effectivePermissions.useQuery(); const catalogQ = trpc.smis.administration.catalog.useQuery();
   const [tab, setTab] = useState<AdministrationTab>(initialTab);
-  const tabLabel = ({ users: "Users & Credentials", matrix: "Permission Matrix", classes: "Classes & Streams", comments: "Report Comments", schools: "School Registry", audit: "Audit Trail", deletions: "Account Deletions", teacherAttendance: "Teacher Attendance", feeStructures: "Fee Structures", platform: "Platform Controls" } as const)[tab];
+  const tabLabel = ({ users: "Users & Credentials", matrix: "Permission Matrix", classes: "Classes & Streams", comments: "Report Comments", schools: "School Registry", audit: "Audit Trail", deletions: "Account Deletions", teacherAttendance: "Teacher Attendance", feeStructures: "Fee Structures", platform: "School Onboarding" } as const)[tab];
   const [f, setF] = useState({ search: "", role: "", status: "" });
   const [userPage, setUserPage] = useState(0);
   const [sortKey, setSortKey] = useState("fullName");
@@ -305,6 +305,8 @@ export function AdministrationWorkspace({ initialTab = "users" }: { initialTab?:
   const deleteUser = trpc.smis.administration.deleteUser.useMutation({ onSuccess: () => { toast.success("Account permanently deleted; school history retained"); void utils.smis.administration.invalidate(); setDeleteRow(null); setDeletePhrase(""); setDeleteError(""); }, onError: e => { const message = errText(e.message); setDeleteError(message); toast.error(message); } });
   const has = (k: string) => !!perms.data && (perms.data.includes("*") || perms.data.includes(k));
   const isSuper = timetableAccess.data?.canManageMaster === true || has("administration.manage_permissions");
+  const onboardingApplications = trpc.platform.applications.useQuery(undefined, { enabled: isSuper });
+  const pendingOnboardingCount = onboardingApplications.data?.filter(row => row.status === "new" || row.status === "under_review").length ?? 0;
   const forbidden = list.error?.data?.code === "FORBIDDEN";
   const catalog = catalogQ.data;
   const stats = overview.data;
@@ -326,8 +328,8 @@ export function AdministrationWorkspace({ initialTab = "users" }: { initialTab?:
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-5">{[["Accounts", stats?.total, ""], ["Active", stats?.active, "active"], ["Pending setup", stats?.pending, "pending"], ["Suspended", stats?.suspended, "suspended"], ["Locked", stats?.locked, "locked"]].map(([k, v, status]) => <button type="button" key={String(k)} onClick={() => { setTab("users"); setF(current => ({ ...current, status: String(status) })); setUserPage(0); }} className="rounded-xl border border-white/20 bg-white/10 px-4 py-3 text-left transition hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e7bd6d]"><p className="text-[0.66rem] font-bold uppercase tracking-wider text-[#d2e2d9]">{k}</p><p className="mt-1 text-2xl font-bold">{v ?? "—"}</p><span className="text-[0.65rem] text-[#d2e2d9]">Open list</span></button>)}</div>
     </section>
 
-    <div className="flex flex-wrap gap-2 border-b border-[#d8ddd4]" role="tablist">{([["users", "Users & Credentials", Users], ["matrix", "Permission Matrix", ShieldCheck], ["teacherAttendance", "Teacher Attendance", History], ...(has("settings.edit") ? [["classes", "Classes & Streams", Plus] as const, ["comments", "Report Comments", Pencil] as const, ["feeStructures", "Fee Structures", ReceiptText] as const] : []), ...(isSuper ? [["platform", "Platform Controls", Settings] as const] : []), ["audit", "Audit Trail", History], ["deletions", "Account Deletions", Trash2]] as const).map(([k, t, Icon]) =>
-      <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className={`-mb-px inline-flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-bold ${tab === k ? "border-[#1d6a57] text-[#1d6a57]" : "border-transparent text-[#718077] hover:text-[#28483f]"}`}><Icon size={15} />{t}</button>)}</div>
+    <div className="flex flex-wrap gap-2 border-b border-[#d8ddd4]" role="tablist">{([["users", "Users & Credentials", Users], ["matrix", "Permission Matrix", ShieldCheck], ["teacherAttendance", "Teacher Attendance", History], ...(has("settings.edit") ? [["classes", "Classes & Streams", Plus] as const, ["comments", "Report Comments", Pencil] as const, ["feeStructures", "Fee Structures", ReceiptText] as const] : []), ...(isSuper ? [["platform", "School Onboarding", Settings] as const] : []), ["audit", "Audit Trail", History], ["deletions", "Account Deletions", Trash2]] as const).map(([k, t, Icon]) =>
+      <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className={`-mb-px inline-flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-bold ${tab === k ? "border-[#1d6a57] text-[#1d6a57]" : "border-transparent text-[#718077] hover:text-[#28483f]"}`}><Icon size={15} />{t}{k === "platform" && pendingOnboardingCount > 0 && <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-[#c7473d] px-1.5 py-0.5 text-[.65rem] font-extrabold text-white" aria-label={`${pendingOnboardingCount} pending school applications`}>{pendingOnboardingCount}</span>}</button>)}</div>
 
     <section className="soft-card paper-noise rounded-[1.1rem]">
       {tab === "users" && <>
