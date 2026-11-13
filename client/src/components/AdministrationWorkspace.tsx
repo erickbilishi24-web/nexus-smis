@@ -284,6 +284,7 @@ type AdministrationTab = "users" | "matrix" | "classes" | "comments" | "schools"
 export function AdministrationWorkspace({ initialTab = "users" }: { initialTab?: AdministrationTab } = {}) {
   const utils = trpc.useUtils();
   const authMe = trpc.auth.me.useQuery();
+  const timetableAccess = trpc.smis.timetable.access.useQuery();
   const perms = trpc.smis.users.effectivePermissions.useQuery(); const catalogQ = trpc.smis.administration.catalog.useQuery();
   const [tab, setTab] = useState<AdministrationTab>(initialTab);
   const tabLabel = ({ users: "Users & Credentials", matrix: "Permission Matrix", classes: "Classes & Streams", comments: "Report Comments", schools: "School Registry", audit: "Audit Trail", deletions: "Account Deletions", teacherAttendance: "Teacher Attendance", feeStructures: "Fee Structures", platform: "Platform Controls" } as const)[tab];
@@ -303,7 +304,7 @@ export function AdministrationWorkspace({ initialTab = "users" }: { initialTab?:
   const reset = trpc.smis.administration.resetPassword.useMutation({ onSuccess: (r, v) => { setLink({ link: r, name: rows.find(u => u.userId === v.userId)?.fullName ?? "user" }); toast.success("Temporary password issued; password change required at next login"); }, onError: e => toast.error(errText(e.message)) });
   const deleteUser = trpc.smis.administration.deleteUser.useMutation({ onSuccess: () => { toast.success("Account permanently deleted; school history retained"); void utils.smis.administration.invalidate(); setDeleteRow(null); setDeletePhrase(""); setDeleteError(""); }, onError: e => { const message = errText(e.message); setDeleteError(message); toast.error(message); } });
   const has = (k: string) => !!perms.data && (perms.data.includes("*") || perms.data.includes(k));
-  const isSuper = has("administration.manage_permissions");
+  const isSuper = timetableAccess.data?.canManageMaster === true || has("administration.manage_permissions");
   const forbidden = list.error?.data?.code === "FORBIDDEN";
   const catalog = catalogQ.data;
   const stats = overview.data;
