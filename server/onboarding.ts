@@ -74,6 +74,8 @@ export async function submitSchoolApplication(input: {
   town?: string | null;
   schoolPhone: string;
   schoolEmail?: string | null;
+  registrationIdentifier?: string | null;
+  headInstitutionName: string;
   applicantName: string;
   applicantPosition: string;
   applicantPhone: string;
@@ -87,16 +89,17 @@ export async function submitSchoolApplication(input: {
   const schoolPhone = input.schoolPhone.trim();
   const applicantName = input.applicantName.trim();
   const applicantPosition = input.applicantPosition.trim();
+  const headInstitutionName = input.headInstitutionName.trim();
   const applicantPhone = input.applicantPhone.trim();
   const applicantEmail = input.applicantEmail.trim().toLowerCase();
-  if (schoolName.length < 2 || schoolType.length < 2 || county.length < 2 || schoolPhone.length < 7 || applicantName.length < 2 || applicantPosition.length < 2 || applicantPhone.length < 7 || !applicantEmail.includes("@")) fail("APPLICATION_REQUIRED_FIELDS");
+  if (schoolName.length < 2 || schoolType.length < 2 || county.length < 2 || schoolPhone.length < 7 || headInstitutionName.length < 2 || applicantName.length < 2 || applicantPosition.length < 2 || applicantPhone.length < 7 || !applicantEmail.includes("@")) fail("APPLICATION_REQUIRED_FIELDS");
   const duplicate = (await db.select({ id: schoolApplications.id, status: schoolApplications.status }).from(schoolApplications).where(and(eq(schoolApplications.schoolName, schoolName), or(eq(schoolApplications.applicantEmail, applicantEmail), eq(schoolApplications.schoolPhone, schoolPhone)))).limit(1))[0];
   if (duplicate && ["new", "under_review", "approved"].includes(duplicate.status)) fail("APPLICATION_ALREADY_EXISTS");
   const referenceNumber = await uniqueReference(db);
   const createdAt = new Date();
-  const inserted = (await db.insert(schoolApplications).values({ referenceNumber, schoolName, schoolType, county, subcounty: clean(input.subcounty), town: clean(input.town), schoolPhone, schoolEmail: clean(input.schoolEmail)?.toLowerCase() ?? null, applicantName, applicantPosition, applicantPhone, applicantEmail, message: clean(input.message), status: "new", createdAt, updatedAt: createdAt }).$returningId())[0];
+  const inserted = (await db.insert(schoolApplications).values({ referenceNumber, schoolName, schoolType, county, subcounty: clean(input.subcounty), town: clean(input.town), schoolPhone, schoolEmail: clean(input.schoolEmail)?.toLowerCase() ?? null, registrationIdentifier: clean(input.registrationIdentifier), headInstitutionName, applicantName, applicantPosition, applicantPhone, applicantEmail, message: clean(input.message), status: "new", createdAt, updatedAt: createdAt }).$returningId())[0];
   await db.insert(auditLogs).values({ schoolId: null, userId: null, action: "platform.school_application.submit", entityType: "school_application", entityId: String(inserted.id), metadata: JSON.stringify({ referenceNumber, schoolName, applicantEmail, requestIp: req?.ip ?? null }) });
-  const reviewText = `New NEXUS SMIS school application\nReference: ${referenceNumber}\nSchool: ${schoolName}\nType: ${schoolType}\nLocation: ${county}${input.subcounty ? `, ${input.subcounty}` : ""}${input.town ? `, ${input.town}` : ""}\nApplicant: ${applicantName} (${applicantPosition})\nEmail: ${applicantEmail}\nPhone: ${applicantPhone}`;
+  const reviewText = `New NEXUS SMIS school application\nReference: ${referenceNumber}\nSchool: ${schoolName}\nType: ${schoolType}\nLocation: ${county}${input.subcounty ? `, ${input.subcounty}` : ""}${input.town ? `, ${input.town}` : ""}\nRegistration identifier: ${input.registrationIdentifier || "Not provided"}\nHead of institution: ${headInstitutionName}\nApplicant: ${applicantName} (${applicantPosition})\nEmail: ${applicantEmail}\nPhone: ${applicantPhone}`;
   const platformNotified = await notifyPlatformAdmins(`NEXUS school application · ${referenceNumber}`, reviewText);
   let applicantNotified = false;
   try {
@@ -121,17 +124,19 @@ export async function updateSchoolApplication(input: { id: number; status?: "new
   const nextStatus = input.status ?? current.status;
   if (nextStatus === "onboarded") fail("USE_CREATE_SCHOOL_FROM_APPLICATION");
   const now = new Date();
+  const shouldProvision = current.status !== "approved" && nextStatus === "approved" && !current.schoolId;
   await db.update(schoolApplications).set({ status: nextStatus, privateNotes: input.privateNotes === undefined ? current.privateNotes : clean(input.privateNotes), reviewedByUserId: userId, reviewedAt: now, updatedAt: now }).where(eq(schoolApplications.id, input.id));
   await db.insert(auditLogs).values({ schoolId: current.schoolId ?? null, userId, action: "platform.school_application.review", entityType: "school_application", entityId: String(input.id), metadata: JSON.stringify({ referenceNumber: current.referenceNumber, from: current.status, to: nextStatus, hasPrivateNotes: Boolean(input.privateNotes), requestIp: req?.ip ?? null }) });
   let applicantNotified = false;
   if (current.status !== nextStatus && (nextStatus === "approved" || nextStatus === "rejected")) {
     const subject = `NEXUS SMIS application ${nextStatus} · ${current.referenceNumber}`;
     const text = nextStatus === "approved"
-      ? `Your NEXUS SMIS school application has been approved.\nSchool: ${current.schoolName}\nReference: ${current.referenceNumber}\n\nA Platform Super Admin will now provision your school workspace. You will receive a separate activation email when the administrator account is ready.`
+      ? `Your NEXUS SMIS school application has been approved.\nSchool: ${current.schoolName}\nReference: ${current.referenceNumber}\n\nYour School Registry workspace is now being created. You will receive a separate activation email when the administrator account is ready.`
       : `Your NEXUS SMIS school application was not approved at this time.\nSchool: ${current.schoolName}\nReference: ${current.referenceNumber}\n\nPlease contact the platform administrator if you need clarification.`;
     try { applicantNotified = await sendTransactionalEmail({ to: current.applicantEmail, subject, text }); } catch (error) { console.warn("[Onboarding] application decision email failed", error); }
   }
-  return { ok: true, status: nextStatus, applicantNotified };
+  const provisioned = shouldProvision ? await provisionSchoolFromApplication(input.id, userId, req) : null;
+  return { ok: true, status: provisioned ? "onboarded" as const : nextStatus, applicantNotified, provisioned };
 }
 
 export async function provisionSchoolFromApplication(applicationId: number, userId: number, req?: Request) {
@@ -150,12 +155,12 @@ export async function provisionSchoolFromApplication(applicationId: number, user
     const schoolCode = await uniqueSchoolCode(tx, application.schoolName);
     const adminUsername = await uniqueAdminUsername(tx, application.applicantName);
     const activationToken = crypto.randomBytes(32).toString("base64url");
-    const school = (await tx.insert(schools).values({ schoolCode, schoolName: application.schoolName, county: application.county, subcounty: application.subcounty, headInstitutionName: application.applicantName, status: "pending_activation", createdByUserId: userId, trialStartedAt: now, trialEndsAt, createdAt: now, updatedAt: now }).$returningId())[0];
+    const school = (await tx.insert(schools).values({ schoolCode, schoolName: application.schoolName, county: application.county, subcounty: application.subcounty, headInstitutionName: application.headInstitutionName || application.applicantName, status: "pending_activation", createdByUserId: userId, trialStartedAt: now, trialEndsAt, createdAt: now, updatedAt: now }).$returningId())[0];
     await tx.insert(schoolSettings).values({ schoolId: school.id, schoolName: application.schoolName, currentTerm: "Term 1", academicYear: now.getFullYear(), phone: application.schoolPhone, email: application.schoolEmail });
     const user = (await tx.insert(users).values({ openId: `onboarding:${crypto.randomBytes(16).toString("hex")}`, schoolId: school.id, username: adminUsername, name: application.applicantName, email: application.applicantEmail, passwordHash: null, accountStatus: "pending_activation", loginMethod: "password", role: "admin", mustChangePassword: 0, createdAt: now, updatedAt: now, lastSignedIn: now }).$returningId())[0];
     await tx.insert(staffProfiles).values({ schoolId: school.id, userId: user.id, staffId: `ADMIN-${schoolCode}`, displayName: application.applicantName, designation: application.applicantPosition, email: application.applicantEmail, phone: application.applicantPhone, role: "admin", status: "active", createdAt: now });
     await tx.insert(schoolMemberships).values({ userId: user.id, schoolId: school.id, status: "active", createdAt: now, updatedAt: now });
-    await tx.insert(schoolRegistrations).values({ schoolId: school.id, schoolType: application.schoolType, contactPhone: application.schoolPhone, officialEmail: application.schoolEmail, headInstitutionName: application.applicantName, adminFullName: application.applicantName, adminEmail: application.applicantEmail, adminPhone: application.applicantPhone, preferredUsername: adminUsername, activationTokenHash: hash(activationToken), activationExpiresAt: addDays(now, 2), status: "pending", createdAt: now });
+    await tx.insert(schoolRegistrations).values({ schoolId: school.id, schoolType: application.schoolType, contactPhone: application.schoolPhone, officialEmail: application.schoolEmail, registrationIdentifier: application.registrationIdentifier, headInstitutionName: application.headInstitutionName || application.applicantName, adminFullName: application.applicantName, adminEmail: application.applicantEmail, adminPhone: application.applicantPhone, preferredUsername: adminUsername, activationTokenHash: hash(activationToken), activationExpiresAt: addDays(now, 2), status: "pending", createdAt: now });
     await tx.insert(schoolSubscriptions).values({ schoolId: school.id, status: "trialing", trialStartedAt: now, trialEndsAt, createdByUserId: userId, createdAt: now, updatedAt: now });
     await tx.update(schoolApplications).set({ status: "onboarded", schoolId: school.id, onboardedAt: now, reviewedByUserId: userId, reviewedAt: now, updatedAt: now }).where(eq(schoolApplications.id, application.id));
     await tx.insert(auditLogs).values({ schoolId: school.id, userId, action: "platform.school_application.provision", entityType: "school_application", entityId: String(application.id), metadata: JSON.stringify({ referenceNumber: application.referenceNumber, schoolCode, adminUsername, requestIp: req?.ip ?? null }) });

@@ -421,6 +421,13 @@
       "when": 1794495349966,
       "tag": "0059_last_mentallo",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "5",
+      "when": 1794561569384,
+      "tag": "0060_gorgeous_pretty_boy",
+      "breakpoints": true
     }
   ]
 }

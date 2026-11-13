@@ -90,6 +90,8 @@ export const schoolApplications = mysqlTable("school_applications", {
   town: varchar("town", { length: 100 }),
   schoolPhone: varchar("schoolPhone", { length: 40 }).notNull(),
   schoolEmail: varchar("schoolEmail", { length: 320 }),
+  registrationIdentifier: varchar("registrationIdentifier", { length: 120 }),
+  headInstitutionName: varchar("headInstitutionName", { length: 160 }),
   applicantName: varchar("applicantName", { length: 160 }).notNull(),
   applicantPosition: varchar("applicantPosition", { length: 120 }).notNull(),
   applicantPhone: varchar("applicantPhone", { length: 40 }).notNull(),
