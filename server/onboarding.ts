@@ -123,7 +123,15 @@ export async function updateSchoolApplication(input: { id: number; status?: "new
   const now = new Date();
   await db.update(schoolApplications).set({ status: nextStatus, privateNotes: input.privateNotes === undefined ? current.privateNotes : clean(input.privateNotes), reviewedByUserId: userId, reviewedAt: now, updatedAt: now }).where(eq(schoolApplications.id, input.id));
   await db.insert(auditLogs).values({ schoolId: current.schoolId ?? null, userId, action: "platform.school_application.review", entityType: "school_application", entityId: String(input.id), metadata: JSON.stringify({ referenceNumber: current.referenceNumber, from: current.status, to: nextStatus, hasPrivateNotes: Boolean(input.privateNotes), requestIp: req?.ip ?? null }) });
-  return { ok: true, status: nextStatus };
+  let applicantNotified = false;
+  if (current.status !== nextStatus && (nextStatus === "approved" || nextStatus === "rejected")) {
+    const subject = `NEXUS SMIS application ${nextStatus} · ${current.referenceNumber}`;
+    const text = nextStatus === "approved"
+      ? `Your NEXUS SMIS school application has been approved.\nSchool: ${current.schoolName}\nReference: ${current.referenceNumber}\n\nA Platform Super Admin will now provision your school workspace. You will receive a separate activation email when the administrator account is ready.`
+      : `Your NEXUS SMIS school application was not approved at this time.\nSchool: ${current.schoolName}\nReference: ${current.referenceNumber}\n\nPlease contact the platform administrator if you need clarification.`;
+    try { applicantNotified = await sendTransactionalEmail({ to: current.applicantEmail, subject, text }); } catch (error) { console.warn("[Onboarding] application decision email failed", error); }
+  }
+  return { ok: true, status: nextStatus, applicantNotified };
 }
 
 export async function provisionSchoolFromApplication(applicationId: number, userId: number, req?: Request) {
