@@ -1,8 +1,8 @@
 import { Link } from "wouter";
 import { ArrowRight, CheckCircle2, ExternalLink, Mail, MessageCircle, PlayCircle } from "lucide-react";
 
-const videoSrc = "/manus-storage/NEXUS_SMIS_ADVERTISEMENT_eea4900a.mp4";
-const logoSrc = "/manus-storage/nexus-smis-logo_37d2287e.png";
+const videoSrc = "/manus-storage/NEXUS_SMIS_ADVERTISEMENT_OFFICIAL_0218b1af.mp4";
+const logoSrc = "/manus-storage/NEXUS-official-logo_e914a58f.png";
 
 const highlights = [
   "Admissions, learner profiles and CBC academics",
