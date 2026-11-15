@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { ArrowRight, CheckCircle2, ExternalLink, PlayCircle } from "lucide-react";
+import { ArrowRight, CheckCircle2, ExternalLink, Mail, MessageCircle, PlayCircle } from "lucide-react";
 
 const videoSrc = "/manus-storage/NEXUS_SMIS_ADVERTISEMENT_eea4900a.mp4";
 const logoSrc = "/manus-storage/nexus-smis-logo_37d2287e.png";
@@ -10,6 +10,11 @@ const highlights = [
   "Transport, boarding, clinic and leave-out workflows",
   "Reports, analytics, communication and school settings",
 ];
+
+const shareMessage = "Watch the NEXUS SMIS story — one platform for every school operation.";
+const shareUrl = typeof window === "undefined" ? "/advertise" : `${window.location.origin}/advertise`;
+const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(`${shareMessage} ${shareUrl}`)}`;
+const emailUrl = `mailto:?subject=${encodeURIComponent("Discover NEXUS SMIS")}&body=${encodeURIComponent(`${shareMessage}\n\n${shareUrl}`)}`;
 
 export default function Advertisement() {
   return (
@@ -43,6 +48,11 @@ export default function Advertisement() {
               Your browser does not support embedded video.
             </video>
             <div className="flex items-center gap-2 px-2 pb-1 pt-3 text-xs font-bold text-[#5f7068]"><PlayCircle size={15} className="text-[#1d6a57]" /> NEXUS product advertisement · 52 seconds</div>
+            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[#edf1eb] px-2 pt-3">
+              <span className="mr-1 text-xs font-bold text-[#718077]">Share this story:</span>
+              <a href={whatsappUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-lg bg-[#25D366] px-3 py-2 text-xs font-extrabold text-white transition hover:-translate-y-0.5 hover:bg-[#1fad54]"><MessageCircle size={14} /> WhatsApp</a>
+              <a href={emailUrl} className="inline-flex items-center gap-1.5 rounded-lg border border-[#bfd0c1] bg-white px-3 py-2 text-xs font-extrabold text-[#28483f] transition hover:-translate-y-0.5 hover:border-[#1d6a57]"><Mail size={14} /> Email</a>
+            </div>
           </div>
         </div>
       </section>
