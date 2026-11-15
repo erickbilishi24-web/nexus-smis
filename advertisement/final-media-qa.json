@@ -1,0 +1,24 @@
+{
+    "programs": [
+
+    ],
+    "streams": [
+        {
+            "codec_name": "h264",
+            "width": 1280,
+            "height": 720,
+            "avg_frame_rate": "24/1"
+        },
+        {
+            "codec_name": "aac",
+            "sample_rate": "96000",
+            "channels": 1,
+            "avg_frame_rate": "0/0"
+        }
+    ],
+    "format": {
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+        "duration": "52.208333",
+        "size": "16932788"
+    }
+}

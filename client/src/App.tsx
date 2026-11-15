@@ -7,6 +7,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
 import { ActivationPage, ApplicationPage, RegistrationPage } from "./pages/Registration";
+import Advertisement from "./pages/Advertisement";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -16,6 +17,7 @@ function Router() {
       <Route path="/register" component={RegistrationPage} />
       <Route path="/apply" component={ApplicationPage} />
       <Route path="/activate" component={ActivationPage} />
+      <Route path="/advertise" component={Advertisement} />
       <Route path={"/"} component={Home} />
       <Route path={"/school/:schoolCode/login"} component={Home} />
       <Route path={"/404"} component={NotFound} />

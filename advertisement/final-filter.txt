@@ -1,0 +1,15 @@
+[1:v]format=rgba,scale=86:83,eq=brightness=0.04:saturation=0.9,fade=t=in:st=0:d=0.6:alpha=1[logo];
+[2:v]format=rgba,scale=410:353,pad=430:373:10:10:color=white@0.96,drawbox=x=0:y=0:w=429:h=372:color=#d6e5da@1:t=4[screen];
+[0:v]drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='RUNNING A SCHOOL IS COMPLEX. MANAGING IT SHOULD BE SIMPLE.':fontcolor=white:fontsize=30:box=1:boxcolor=#173f35@0.78:boxborderw=18:x=54:y=610:enable='between(t,0,5.5)',
+drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='ONE PLATFORM. EVERY SCHOOL OPERATION.':fontcolor=white:fontsize=30:box=1:boxcolor=#173f35@0.76:boxborderw=14:x=54:y=620:enable='between(t,6,12.8)',
+drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='LEARNERS | CBC ACADEMICS | REPORT CARDS | TIMETABLES':fontcolor=white:fontsize=25:box=1:boxcolor=#173f35@0.78:boxborderw=12:x=42:y=625:enable='between(t,13,25.8)',
+drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='ATTENDANCE | HR | PAYROLL | FINANCE | RESOURCES':fontcolor=white:fontsize=25:box=1:boxcolor=#173f35@0.78:boxborderw=12:x=42:y=625:enable='between(t,26,38.8)',
+drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='TRANSPORT | BOARDING | HEALTH | COMMUNICATION':fontcolor=white:fontsize=25:box=1:boxcolor=#173f35@0.78:boxborderw=12:x=42:y=625:enable='between(t,39,47.5)',
+drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='NEXUS':fontcolor=#e7bd6d:fontsize=38:x=53:y=48:enable='between(t,0,52)',
+drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='READY TO TRANSFORM YOUR SCHOOL?':fontcolor=white:fontsize=31:box=1:boxcolor=#173f35@0.86:boxborderw=16:x=46:y=520:enable='between(t,47.5,52.2)',
+drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='APPLY NOW | JOIN THE NEXUS FAMILY':fontcolor=#173f35:fontsize=28:box=1:boxcolor=#f3cc78@0.97:boxborderw=15:x=48:y=602:enable='between(t,48.2,52.2)'[v0];
+[v0][logo]overlay=x=46:y=45:enable='between(t,0,52)'[v1];
+[v1][screen]overlay=x=830:y=148:enable='between(t,41.5,47.5)'[v2];
+[3:a]aresample=48000,volume=1.0,apad=pad_dur=52[vo];
+[4:a]aresample=48000,volume=0.16,afade=t=in:st=0:d=2,afade=t=out:st=49:d=3,apad=pad_dur=52[music];
+[vo][music]amix=inputs=2:duration=first:dropout_transition=2,loudnorm=I=-16:TP=-1.5:LRA=11[a]
