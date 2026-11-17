@@ -23,6 +23,7 @@ import { deletePaymentMethod, deleteSubscriptionPlan, extendSchoolTrial, getSubs
 import { activateRegisteredAdmin, listRegistrations, registerSchool } from "./registration";
 import { listSchoolApplications, provisionSchoolFromApplication, resendApplicationActivationEmail, submitSchoolApplication, updateSchoolApplication } from "./onboarding";
 import { createFinanceDocument, listFinanceDocuments } from "./financeDocuments";
+import { OFFICIAL_SENDER_EMAIL, sendTransactionalEmail } from "./email";
 import { addCounsellingNote, completeLearner, createBehaviourRecord, createCounsellingCase, createFollowUp, getArchiveFinance, listAlumniRecords, listArchiveLearners, listCounsellingCases, listApprovedBehaviour } from "./archives";
 import { approveRollover, deleteAcademicTerm, deleteAcademicYear, excludeRolloverItem, listAcademicStructure, listRollover, previewRollover, reverseRollover, saveAcademicTerm, saveAcademicYear } from "./academic";
 import { addLibraryBook, batchCheckoutLibraryBooks, checkoutLibraryBook, libraryLookups, libraryOverview, listLibraryBooks, listLibraryBooksPage, listLibraryLoans, listLibraryLoansPage, renewLibraryLoan, returnLibraryBook } from "./library";
@@ -201,6 +202,12 @@ export const appRouter = router({
     resendActivationEmail: superProcedure.input(z.object({ applicationId: z.number().int().positive() })).mutation(({ input, ctx }) => resendApplicationActivationEmail(input.applicationId, ctx.user.id)),
   }),
   auth: router({
+    contactUs: publicProcedure.input(z.object({ name: z.string().trim().min(2).max(160), email: z.string().email().max(320), phone: z.string().trim().max(40).optional(), message: z.string().trim().min(10).max(5000) })).mutation(async ({ input }) => {
+      const text = `New website inquiry\n\nName: ${input.name}\nEmail: ${input.email}\nPhone: ${input.phone?.trim() || "Not provided"}\n\nMessage:\n${input.message}`;
+      const sent = await sendTransactionalEmail({ to: OFFICIAL_SENDER_EMAIL, subject: `Website inquiry from ${input.name}`, text, html: undefined });
+      if (!sent) throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: "We could not send your inquiry right now. Please call 0781170437." });
+      return { success: true } as const;
+    }),
     registerSchool: publicProcedure.input(z.object({ schoolName: z.string().trim().min(2).max(200), schoolType: z.string().trim().min(2).max(80), county: z.string().trim().min(2).max(100), subcounty: z.string().trim().max(100).nullable().optional(), contactPhone: z.string().trim().min(7).max(40), officialEmail: z.string().email().max(320).nullable().optional(), registrationIdentifier: z.string().trim().max(120).nullable().optional(), headInstitutionName: z.string().trim().min(2).max(160), adminFullName: z.string().trim().min(2).max(160), adminEmail: z.string().email().max(320).nullable().optional(), adminPhone: z.string().trim().max(40).nullable().optional(), preferredUsername: z.string().trim().min(3).max(60) })).mutation(({ input, ctx }) => registerSchool(input, ctx.req)),
     submitSchoolApplication: publicProcedure.input(z.object({ schoolName: z.string().trim().min(2).max(200), schoolType: z.string().trim().min(2).max(80), county: z.string().trim().min(2).max(100), subcounty: z.string().trim().max(100).nullable().optional(), town: z.string().trim().max(100).nullable().optional(), schoolPhone: z.string().trim().min(7).max(40), schoolEmail: z.string().email().max(320).nullable().optional(), registrationIdentifier: z.string().trim().max(120).nullable().optional(), headInstitutionName: z.string().trim().min(2).max(160), applicantName: z.string().trim().min(2).max(160), applicantPosition: z.string().trim().min(2).max(120), applicantPhone: z.string().trim().min(7).max(40), applicantEmail: z.string().email().max(320), message: z.string().trim().max(5000).nullable().optional() })).mutation(({ input, ctx }) => submitSchoolApplication(input, ctx.req)),
     activateSchool: publicProcedure.input(z.object({ token: z.string().min(20).max(200), password: z.string().min(10).max(200) })).mutation(({ input, ctx }) => activateRegisteredAdmin(input, ctx.req)),
