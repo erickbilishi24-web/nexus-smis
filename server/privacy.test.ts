@@ -24,7 +24,7 @@ describe("SMIS privacy boundaries", () => {
   it("keeps the non-sensitive health probe public", async () => {
     await expect(anonymousCaller().smis.health()).resolves.toMatchObject({
       ok: true,
-      service: "kenyan-smis",
+      service: "nexus-smis",
     });
   });
 });

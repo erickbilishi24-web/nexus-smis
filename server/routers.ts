@@ -259,7 +259,7 @@ export const appRouter = router({
     list: protectedProcedure.query(({ ctx }) => listFeedback(ctx.user)),
   }),
   smis: router({
-    health: publicProcedure.query(() => ({ ok: true, service: "kenyan-smis", persistence: "mysql-drizzle", modules: ["learners", "attendance", "assessments", "reports", "finance", "store", "timetable", "communication", "alumni", "users", "settings", "audit"] })),
+    health: publicProcedure.query(() => ({ ok: true, service: "nexus-smis", persistence: "mysql-drizzle", modules: ["learners", "attendance", "assessments", "reports", "finance", "store", "timetable", "communication", "alumni", "users", "settings", "audit"] })),
     snapshot: permissionProcedure("dashboard.view").query(({ ctx }) => getDashboardSnapshot(ctx.user.id, ctx.user.role)),
     learners: router({
       list: permissionProcedure("learners.view").input(z.object({ search: z.string().optional() }).optional()).query(({ input, ctx }) => listLearners(input?.search, currentUserId(ctx.user))),

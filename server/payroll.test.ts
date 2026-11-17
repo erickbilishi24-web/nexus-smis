@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { allocatePayrollLoanRepayments, calculateKenyaPayroll, calculateNssf, calculateProgressivePaye, DEFAULT_KENYA_PAYROLL_RULES } from "../shared/payroll";
 
-describe("Kenyan payroll statutory calculation", () => {
+describe("NEXUS payroll statutory calculation", () => {
   it("applies the monthly PAYE band edges progressively", () => {
     expect(calculateProgressivePaye(24_000, DEFAULT_KENYA_PAYROLL_RULES.payeBands)).toBe(2_400);
     expect(calculateProgressivePaye(32_333, DEFAULT_KENYA_PAYROLL_RULES.payeBands)).toBe(4_483.25);

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { areLanguageSubjectsAdjacent, allocationContextConflict, assertScore, buildTimetableAuditRows, buildTimetableValidationReport, hasAdjacentTeacherLesson, timetableEntriesAlignedWithAllocations, unallocatedTimetableEntries, canAccessAttendanceGrade, canCaptureAttendance, cbcLevel, isAttendanceAdmin, isPreNoonTimetableSubject, resolveImportGrade, timetableConflicts } from "./smis";
 import { swapTimetableDraftEntries, type TimetableDraftEntry } from "../shared/timetable";
 
-describe("Kenyan SMIS backend rules", () => {
+describe("NEXUS SMIS backend rules", () => {
   it("maps the CBC eight-level scale correctly", () => {
     expect(cbcLevel(95)).toBe("EE1");
     expect(cbcLevel(80)).toBe("EE2");
