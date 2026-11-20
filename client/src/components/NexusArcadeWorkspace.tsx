@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Download, Gamepad2, Loader2, Play, ShieldCheck } from "lucide-react";
 
-const GAME_BUNDLE = "/manus-storage/prince-of-persia-nexus-arcade_77baa9c5.jsdos";
+const GAME_BUNDLE = "/manus-storage/prince-of-persia-nexus-arcade-v3_80e4bda6.jsdos";
 
 declare global {
   interface Window {

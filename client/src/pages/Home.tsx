@@ -54,7 +54,6 @@ const compactSubject = (code?: string | null, name?: string | null) => { const r
 
 const navigation: { label: View; icon: typeof LayoutDashboard; group: string }[] = [
   { label: "Dashboard", icon: LayoutDashboard, group: "Workspace" },
-  { label: "NEXUS Arcade", icon: Gamepad2, group: "Workspace" },
   { label: "People", icon: Users, group: "Workspace" },
   { label: "Health & Medical", icon: HeartHandshake, group: "People & Welfare" },
   { label: "Boarding Management", icon: ClipboardList, group: "People & Welfare" },
