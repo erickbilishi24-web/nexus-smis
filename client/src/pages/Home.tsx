@@ -75,6 +75,7 @@ const navigation: { label: View; icon: typeof LayoutDashboard; group: string }[]
   { label: "Resource Links", icon: Globe2, group: "Administration" },
   { label: "Timetable Generator", icon: CalendarDays, group: "School Operations" },
   { label: "NEXUS AI", icon: Activity, group: "Workspace" },
+  { label: "NEXUS Arcade", icon: Gamepad2, group: "Workspace" },
   { label: "Feedback", icon: MessageSquareText, group: "Super Admin" },
 ];
 
