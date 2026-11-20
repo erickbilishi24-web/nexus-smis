@@ -3,7 +3,7 @@ import { Link } from "wouter";
 import { ArrowRight, CheckCircle2, Copy, ExternalLink, Mail, MessageCircle, PlayCircle, Volume2, VolumeX } from "lucide-react";
 import { toast } from "sonner";
 
-const videoSrc = "/manus-storage/NEXUS_SMIS_ADVERTISEMENT_AUDIO_MOTION_POLISHED_67899a8a.mp4";
+const videoSrc = "/manus-storage/NEXUS_SMIS_ADVERTISEMENT_FINAL_CORRECTED_V2_d64180f6.mp4";
 const posterSrc = "/manus-storage/NEXUS_SMIS_ADVERTISEMENT_POSTER_1b6de013.jpg";
 const logoSrc = "/manus-storage/NEXUS-official-logo_e914a58f.png";
 const shareMessage = "Watch the NEXUS SMIS story — one platform for every school operation.";
