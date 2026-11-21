@@ -91,6 +91,13 @@ describe("NEXUS SMIS backend rules", () => {
     expect(rows[1]).toMatchObject({ expectedLessons: 5, scheduledLessons: 0, unplacedLessons: 5, missingTeacherAllocation: true, status: "missing_teacher" });
   });
 
+  it("recognizes an allocation when equivalent subject records use different IDs", () => {
+    const requirements = [{ gradeId: 9, gradeName: "Grade 9", gradeStream: "A", subjectId: 901, subjectName: "CBC-KISWAHILI", subjectCode: "CBC-KISWAHILI-2", periodsPerWeek: 4 }];
+    const allocations = [{ schoolId: 1, gradeId: 9, subjectId: 1901, subjectName: "Kiswahili", subjectCode: "KISWAHILI-2", teacherUserId: 44, displayName: "Amina Teacher", teacherCode: 7, status: "active", allocationType: "learning_area" }];
+    const rows = buildTimetableAuditRows(requirements, allocations, []);
+    expect(rows[0]).toMatchObject({ missingTeacherAllocation: false, status: "under_scheduled", allocatedTeachers: [{ userId: 44 }] });
+  });
+
   it("builds a distinct hard-conflict and soft-warning timetable validation report", () => {
     const requirements = [
       { gradeId: 7, gradeName: "Grade 7", gradeStream: "Blue", subjectId: 2, subjectName: "CBC-KISWAHILI", subjectCode: "KISW", periodsPerWeek: 2 },
