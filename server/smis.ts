@@ -1954,9 +1954,9 @@ export async function saveTeacherAllocation(input: { allocationId?: number; teac
   }
   const active = await db.select().from(teacherAllocations).where(and(eq(teacherAllocations.schoolId, schoolId), eq(teacherAllocations.gradeId, input.gradeId), eq(teacherAllocations.academicYear, input.academicYear), eq(teacherAllocations.term, input.term), eq(teacherAllocations.status, "active")));
   const conflict = active.find(row => row.id !== input.allocationId && allocationContextConflict(input, row));
-  if (conflict && conflict.teacherUserId !== input.teacherUserId) {
+  if (conflict) {
     if (input.allocationType === "class_teacher") throw new Error("CLASS_TEACHER_CONFLICT");
-    throw new Error(`subject already allocated. Delete existing allocation first. [allocationId:${conflict.id}]`);
+    throw new Error(`Already Allocated [allocationId:${conflict.id}]`);
   }
   const existing = (await db.select().from(teacherAllocations).where(input.allocationId
     ? and(eq(teacherAllocations.id, input.allocationId), eq(teacherAllocations.schoolId, schoolId))
