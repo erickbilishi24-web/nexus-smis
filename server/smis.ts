@@ -1091,7 +1091,10 @@ export function hasAdjacentTeacherLesson(teacherAtClassSlot: Map<string, number>
   return teacherAtClassSlot.get(`${gradeId}:${day}:${period - 1}`) === teacherId || teacherAtClassSlot.get(`${gradeId}:${day}:${period + 1}`) === teacherId;
 }
 export function selectAvailableTeacher(teacherIds: number[], teacherBusy: Set<string>, day: number, period: number) {
-  return teacherIds.find(teacherId => !teacherBusy.has(`${teacherId}:${day}:${period}`));
+  return teacherIds.find(teacherId => !teacherSlotBlocked(teacherBusy, teacherId, day, period));
+}
+export function teacherSlotBlocked(teacherBusy: Set<string>, teacherId: number, day: number, period: number) {
+  return teacherBusy.has(`${teacherId}:${day}:${period}`) || teacherBusy.has(`${teacherId}:${day}:${period - 1}`) || teacherBusy.has(`${teacherId}:${day}:${period + 1}`);
 }
 export function areLanguageSubjectsAdjacent(subjectAtClassSlot: Map<string, string>, subjectNameById: Map<number, string>, gradeId: number, subjectId: number, day: number, period: number) {
   const normalize = (value: string) => value.replace(/^CBC[-\s]*/i, "").replace(/[^a-z]/gi, "").toLowerCase();
@@ -1224,7 +1227,7 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
     const latestAllowedPeriod = mustBeBeforeLunch ? Math.min(5, periodsPerDay) : periodsPerDay;
     for (let lesson = 0; lesson < needed; lesson += 1) {
       let best: { teacherId: number; day: number; period: number; load: number } | null = null;
-      for (let day = 1; day <= days; day += 1) for (let period = 1; period <= latestAllowedPeriod; period += 1) { if (occupied.has(`${row.requirement.gradeId}:${day}:${period}`)) continue; for (const teacherId of teachers) { if (teacherBusy.has(`${teacherId}:${day}:${period}`) || subjectDays.has(`${row.requirement.gradeId}:${row.requirement.subjectId}:${day}`) || areLanguageSubjectsAdjacent(subjectAtClassSlot, subjectNameById, row.requirement.gradeId, row.requirement.subjectId, day, period) || hasAdjacentTeacherLesson(teacherAtClassSlot, row.requirement.gradeId, teacherId, day, period)) continue; const load = teacherLoad.get(teacherId) ?? 0; if (!best || load < best.load) best = { teacherId, day, period, load }; } }
+      for (let day = 1; day <= days; day += 1) for (let period = 1; period <= latestAllowedPeriod; period += 1) { if (occupied.has(`${row.requirement.gradeId}:${day}:${period}`)) continue; for (const teacherId of teachers) { if (teacherSlotBlocked(teacherBusy, teacherId, day, period) || subjectDays.has(`${row.requirement.gradeId}:${row.requirement.subjectId}:${day}`) || areLanguageSubjectsAdjacent(subjectAtClassSlot, subjectNameById, row.requirement.gradeId, row.requirement.subjectId, day, period) || hasAdjacentTeacherLesson(teacherAtClassSlot, row.requirement.gradeId, teacherId, day, period)) continue; const load = teacherLoad.get(teacherId) ?? 0; if (!best || load < best.load) best = { teacherId, day, period, load }; } }
       if (!best) continue;
       await db.insert(timetableEntries).values({ schoolId, gradeId: row.requirement.gradeId, subjectId: row.requirement.subjectId, teacherUserId: best.teacherId, dayOfWeek: best.day, period: best.period, room: null });
       occupied.add(`${row.requirement.gradeId}:${best.day}:${best.period}`); subjectDays.add(`${row.requirement.gradeId}:${row.requirement.subjectId}:${best.day}`); teacherBusy.add(`${best.teacherId}:${best.day}:${best.period}`); teacherAtClassSlot.set(`${row.requirement.gradeId}:${best.day}:${best.period}`, best.teacherId); subjectAtClassSlot.set(`${row.requirement.gradeId}:${best.day}:${best.period}`, String(row.requirement.subjectId)); teacherLoad.set(best.teacherId, best.load + 1); placed += 1; missing -= 1;
@@ -1239,7 +1242,7 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
           // If every available teacher would be adjacent to another lesson, allow
           // the soft spacing exception, but never reuse a busy teacher slot.
           if (areLanguageSubjectsAdjacent(subjectAtClassSlot, subjectNameById, row.requirement.gradeId, row.requirement.subjectId, day, period)) continue;
-          const availableTeacher = teachers.find(teacherId => !teacherBusy.has(`${teacherId}:${day}:${period}`) && !hasAdjacentTeacherLesson(teacherAtClassSlot, row.requirement.gradeId, teacherId, day, period))
+          const availableTeacher = teachers.find(teacherId => !teacherSlotBlocked(teacherBusy, teacherId, day, period))
             ?? teachers.find(teacherId => !teacherBusy.has(`${teacherId}:${day}:${period}`));
           if (availableTeacher == null) continue;
           fallback = { teacherId: availableTeacher, day, period };
@@ -1263,8 +1266,8 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
           const dayLoad = Array.from(occupied).filter(keyValue => keyValue.startsWith(`${row.requirement.gradeId}:${day}:`)).length;
           for (let period = 1; period <= latestAllowedPeriod; period += 1) {
             if (occupied.has(`${row.requirement.gradeId}:${day}:${period}`) || areLanguageSubjectsAdjacent(subjectAtClassSlot, subjectNameById, row.requirement.gradeId, row.requirement.subjectId, day, period) || !teachers.length) continue;
-            const availableTeachers = teachers.filter(candidate => !teacherBusy.has(`${candidate}:${day}:${period}`) && !areLanguageSubjectsAdjacent(subjectAtClassSlot, subjectNameById, row.requirement.gradeId, row.requirement.subjectId, day, period) && !hasAdjacentTeacherLesson(teacherAtClassSlot, row.requirement.gradeId, candidate, day, period));
-            const nonBusyTeachers = teachers.filter(candidate => !teacherBusy.has(`${candidate}:${day}:${period}`) && !areLanguageSubjectsAdjacent(subjectAtClassSlot, subjectNameById, row.requirement.gradeId, row.requirement.subjectId, day, period));
+            const availableTeachers = teachers.filter(candidate => !teacherSlotBlocked(teacherBusy, candidate, day, period) && !areLanguageSubjectsAdjacent(subjectAtClassSlot, subjectNameById, row.requirement.gradeId, row.requirement.subjectId, day, period));
+            const nonBusyTeachers = teachers.filter(candidate => !teacherSlotBlocked(teacherBusy, candidate, day, period) && !areLanguageSubjectsAdjacent(subjectAtClassSlot, subjectNameById, row.requirement.gradeId, row.requirement.subjectId, day, period));
             const candidateTeachers = availableTeachers.length ? availableTeachers : nonBusyTeachers;
             if (!candidateTeachers.length) continue;
             const teacherId = candidateTeachers.reduce((selected, candidate) => (teacherLoad.get(candidate) ?? 0) < (teacherLoad.get(selected) ?? Number.MAX_SAFE_INTEGER) ? candidate : selected, candidateTeachers[0]);

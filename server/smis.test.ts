@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { areLanguageSubjectsAdjacent, allocationContextConflict, assertScore, buildTimetableAuditRows, buildTimetableValidationReport, hasAdjacentTeacherLesson, selectAvailableTeacher, timetableEntriesAlignedWithAllocations, unallocatedTimetableEntries, canAccessAttendanceGrade, canCaptureAttendance, cbcLevel, isAttendanceAdmin, isPreNoonTimetableSubject, nextSchoolSubjectCode, resolveImportGrade, timetableConflicts } from "./smis";
+import { areLanguageSubjectsAdjacent, allocationContextConflict, assertScore, buildTimetableAuditRows, buildTimetableValidationReport, hasAdjacentTeacherLesson, selectAvailableTeacher, teacherSlotBlocked, timetableEntriesAlignedWithAllocations, unallocatedTimetableEntries, canAccessAttendanceGrade, canCaptureAttendance, cbcLevel, isAttendanceAdmin, isPreNoonTimetableSubject, nextSchoolSubjectCode, resolveImportGrade, timetableConflicts } from "./smis";
 import { swapTimetableDraftEntries, type TimetableDraftEntry } from "../shared/timetable";
 
 describe("NEXUS SMIS backend rules", () => {
@@ -67,6 +67,8 @@ describe("NEXUS SMIS backend rules", () => {
     const busy = new Set(["12:2:3"]);
     expect(selectAvailableTeacher([12, 13], busy, 2, 3)).toBe(13);
     expect(selectAvailableTeacher([12], busy, 2, 3)).toBeUndefined();
+    expect(teacherSlotBlocked(busy, 12, 2, 2)).toBe(true);
+    expect(teacherSlotBlocked(busy, 12, 2, 4)).toBe(true);
   });
 
 
