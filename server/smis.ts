@@ -1090,6 +1090,9 @@ export function isPreNoonTimetableSubject(subjectName: string) {
 export function hasAdjacentTeacherLesson(teacherAtClassSlot: Map<string, number>, gradeId: number, teacherId: number, day: number, period: number) {
   return teacherAtClassSlot.get(`${gradeId}:${day}:${period - 1}`) === teacherId || teacherAtClassSlot.get(`${gradeId}:${day}:${period + 1}`) === teacherId;
 }
+export function selectAvailableTeacher(teacherIds: number[], teacherBusy: Set<string>, day: number, period: number) {
+  return teacherIds.find(teacherId => !teacherBusy.has(`${teacherId}:${day}:${period}`));
+}
 export function areLanguageSubjectsAdjacent(subjectAtClassSlot: Map<string, string>, subjectNameById: Map<number, string>, gradeId: number, subjectId: number, day: number, period: number) {
   const normalize = (value: string) => value.replace(/^CBC[-\s]*/i, "").replace(/[^a-z]/gi, "").toLowerCase();
   const current = normalize(subjectNameById.get(subjectId) ?? "");
@@ -1280,7 +1283,7 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
   // open class slot and record the relaxed constraint as a warning. The
   // once-per-day subject rule remains hard so a subject is never repeated in
   // the same class on the same day.
-  const forceRows = await db.select().from(timetableEntries);
+  const forceRows = await db.select().from(timetableEntries).where(eq(timetableEntries.schoolId, schoolId));
   const forceCounts = new Map<string, number>();
   for (const entry of forceRows) forceCounts.set(`${entry.gradeId}:${entry.subjectId}`, (forceCounts.get(`${entry.gradeId}:${entry.subjectId}`) ?? 0) + 1);
   const fallbackTeachers = allocations.filter(row => row.allocationType !== "class_teacher").map(row => row.teacherUserId);
@@ -1304,9 +1307,11 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
         }
       }
       if (!slot) break;
-      const teacherId = teachersForForcePlacement[lesson % teachersForForcePlacement.length];
+      const teacherId = selectAvailableTeacher(teachersForForcePlacement, teacherBusy, slot.day, slot.period);
+      if (teacherId == null) break;
       await db.insert(timetableEntries).values({ schoolId, gradeId: row.requirement.gradeId, subjectId: row.requirement.subjectId, teacherUserId: teacherId, dayOfWeek: slot.day, period: slot.period, room: null, isForcePlaced: true });
       occupied.add(`${row.requirement.gradeId}:${slot.day}:${slot.period}`);
+      teacherBusy.add(`${teacherId}:${slot.day}:${slot.period}`);
       subjectDays.add(`${row.requirement.gradeId}:${row.requirement.subjectId}:${slot.day}`);
       subjectAtClassSlot.set(`${row.requirement.gradeId}:${slot.day}:${slot.period}`, String(row.requirement.subjectId));
       teacherAtClassSlot.set(`${row.requirement.gradeId}:${slot.day}:${slot.period}`, teacherId);
@@ -1321,7 +1326,7 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
   // lesson unplaced, use any remaining class slot, including a day that already
   // contains that subject. This path is intentionally visible in warnings so
   // the timetable never hides a configured subject behind a blank cell.
-  const lastChanceRows = await db.select().from(timetableEntries);
+  const lastChanceRows = await db.select().from(timetableEntries).where(eq(timetableEntries.schoolId, schoolId));
   const lastChanceCounts = new Map<string, number>();
   for (const entry of lastChanceRows) lastChanceCounts.set(`${entry.gradeId}:${entry.subjectId}`, (lastChanceCounts.get(`${entry.gradeId}:${entry.subjectId}`) ?? 0) + 1);
   for (const row of orderedRequirements) {
@@ -1338,9 +1343,11 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
         if (!occupied.has(`${row.requirement.gradeId}:${day}:${period}`)) { slot = { day, period }; break; }
       }
       if (!slot) break;
-      const teacherId = teachersForLastChance[lesson % teachersForLastChance.length];
+      const teacherId = selectAvailableTeacher(teachersForLastChance, teacherBusy, slot.day, slot.period);
+      if (teacherId == null) break;
       await db.insert(timetableEntries).values({ schoolId, gradeId: row.requirement.gradeId, subjectId: row.requirement.subjectId, teacherUserId: teacherId, dayOfWeek: slot.day, period: slot.period, room: null, isForcePlaced: true });
       occupied.add(`${row.requirement.gradeId}:${slot.day}:${slot.period}`);
+      teacherBusy.add(`${teacherId}:${slot.day}:${slot.period}`);
       subjectAtClassSlot.set(`${row.requirement.gradeId}:${slot.day}:${slot.period}`, String(row.requirement.subjectId));
       teacherAtClassSlot.set(`${row.requirement.gradeId}:${slot.day}:${slot.period}`, teacherId);
       lastChanceCounts.set(key, (lastChanceCounts.get(key) ?? 0) + 1);
@@ -1361,6 +1368,7 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
       .where(eq(grades.schoolId, schoolId));
     const freshOccupied = new Set(freshRows.map(({ entry }) => `${entry.gradeId}:${entry.dayOfWeek}:${entry.period}`));
     const freshSubjectDays = new Set(freshRows.map(({ entry }) => `${entry.gradeId}:${entry.subjectId}:${entry.dayOfWeek}`));
+    const freshTeacherBusy = new Set(freshRows.map(({ entry }) => `${entry.teacherUserId}:${entry.dayOfWeek}:${entry.period}`));
     for (const row of orderedRequirements) {
       const key = `${row.requirement.gradeId}:${row.requirement.subjectId}`;
       let scheduled = freshRows.filter(({ entry }) => entry.gradeId === row.requirement.gradeId && entry.subjectId === row.requirement.subjectId).length;
@@ -1378,10 +1386,12 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
           }
         }
         if (!slot) break;
-        const teacherId = teachersForRecovery[scheduled % teachersForRecovery.length];
+        const teacherId = selectAvailableTeacher(teachersForRecovery, freshTeacherBusy, slot.day, slot.period);
+        if (teacherId == null) break;
         await db.insert(timetableEntries).values({ schoolId, gradeId: row.requirement.gradeId, subjectId: row.requirement.subjectId, teacherUserId: teacherId, dayOfWeek: slot.day, period: slot.period, room: null, isForcePlaced: true });
         freshOccupied.add(`${row.requirement.gradeId}:${slot.day}:${slot.period}`);
         freshSubjectDays.add(`${row.requirement.gradeId}:${row.requirement.subjectId}:${slot.day}`);
+        freshTeacherBusy.add(`${teacherId}:${slot.day}:${slot.period}`);
         scheduled += 1;
         placed += 1;
         validationWarnings.push(`${row.grade.name}: ${row.subject.name} was placed using approved recovery mode on Day ${slot.day}, period ${slot.period}.`);
@@ -1389,7 +1399,7 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
     }
   }
   unplaced.length = 0;
-  const completedRows = await db.select().from(timetableEntries);
+  const completedRows = await db.select().from(timetableEntries).where(eq(timetableEntries.schoolId, schoolId));
   for (const row of orderedRequirements) {
     const key = `${row.requirement.gradeId}:${row.requirement.subjectId}`;
     const remaining = Math.max(0, row.requirement.periodsPerWeek - completedRows.filter(entry => entry.gradeId === row.requirement.gradeId && entry.subjectId === row.requirement.subjectId).length);

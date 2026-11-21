@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { areLanguageSubjectsAdjacent, allocationContextConflict, assertScore, buildTimetableAuditRows, buildTimetableValidationReport, hasAdjacentTeacherLesson, timetableEntriesAlignedWithAllocations, unallocatedTimetableEntries, canAccessAttendanceGrade, canCaptureAttendance, cbcLevel, isAttendanceAdmin, isPreNoonTimetableSubject, nextSchoolSubjectCode, resolveImportGrade, timetableConflicts } from "./smis";
+import { areLanguageSubjectsAdjacent, allocationContextConflict, assertScore, buildTimetableAuditRows, buildTimetableValidationReport, hasAdjacentTeacherLesson, selectAvailableTeacher, timetableEntriesAlignedWithAllocations, unallocatedTimetableEntries, canAccessAttendanceGrade, canCaptureAttendance, cbcLevel, isAttendanceAdmin, isPreNoonTimetableSubject, nextSchoolSubjectCode, resolveImportGrade, timetableConflicts } from "./smis";
 import { swapTimetableDraftEntries, type TimetableDraftEntry } from "../shared/timetable";
 
 describe("NEXUS SMIS backend rules", () => {
@@ -61,6 +61,12 @@ describe("NEXUS SMIS backend rules", () => {
     expect(hasAdjacentTeacherLesson(slots, 7, 3, 1, 3)).toBe(true);
     expect(hasAdjacentTeacherLesson(slots, 7, 4, 1, 3)).toBe(false);
     expect(hasAdjacentTeacherLesson(slots, 7, 5, 1, 3)).toBe(true);
+  });
+
+  it("never selects a teacher already teaching another class in the target slot", () => {
+    const busy = new Set(["12:2:3"]);
+    expect(selectAvailableTeacher([12, 13], busy, 2, 3)).toBe(13);
+    expect(selectAvailableTeacher([12], busy, 2, 3)).toBeUndefined();
   });
 
 
