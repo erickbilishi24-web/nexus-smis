@@ -1399,11 +1399,42 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
     }
   }
   unplaced.length = 0;
-  const completedRows = await db.select().from(timetableEntries).where(eq(timetableEntries.schoolId, schoolId));
+  let completedRows = await db.select().from(timetableEntries).where(eq(timetableEntries.schoolId, schoolId));
   for (const row of orderedRequirements) {
     const key = `${row.requirement.gradeId}:${row.requirement.subjectId}`;
     const remaining = Math.max(0, row.requirement.periodsPerWeek - completedRows.filter(entry => entry.gradeId === row.requirement.gradeId && entry.subjectId === row.requirement.subjectId).length);
     if (remaining > 0) unplaced.push({ grade: row.grade.name, subject: row.subject.name, missing: remaining });
+  }
+  if (unplaced.length && (input.regenerate || input.forcePlace)) {
+    await db.delete(timetableEntries).where(eq(timetableEntries.schoolId, schoolId));
+    const safeOccupied = new Set<string>();
+    const safeTeacherBusy = new Set<string>();
+    let safePlaced = 0;
+    for (const row of orderedRequirements) {
+      const key = `${row.requirement.gradeId}:${row.requirement.subjectId}`;
+      const teachers = Array.from(new Set(eligibleByGradeSubject.get(key) ?? []));
+      for (let lesson = 0; lesson < row.requirement.periodsPerWeek; lesson += 1) {
+        let placement: { teacherId: number; day: number; period: number } | null = null;
+        for (let day = 1; day <= days && !placement; day += 1) for (let period = 1; period <= periodsPerDay && !placement; period += 1) {
+          if (safeOccupied.has(`${row.requirement.gradeId}:${day}:${period}`)) continue;
+          const teacherId = selectAvailableTeacher(teachers, safeTeacherBusy, day, period);
+          if (teacherId != null) placement = { teacherId, day, period };
+        }
+        if (!placement) break;
+        await db.insert(timetableEntries).values({ schoolId, gradeId: row.requirement.gradeId, subjectId: row.requirement.subjectId, teacherUserId: placement.teacherId, dayOfWeek: placement.day, period: placement.period, room: null, isForcePlaced: true });
+        safeOccupied.add(`${row.requirement.gradeId}:${placement.day}:${placement.period}`);
+        safeTeacherBusy.add(`${placement.teacherId}:${placement.day}:${placement.period}`);
+        safePlaced += 1;
+      }
+    }
+    completedRows = await db.select().from(timetableEntries).where(eq(timetableEntries.schoolId, schoolId));
+    unplaced.length = 0;
+    for (const row of orderedRequirements) {
+      const remaining = Math.max(0, row.requirement.periodsPerWeek - completedRows.filter(entry => entry.gradeId === row.requirement.gradeId && entry.subjectId === row.requirement.subjectId).length);
+      if (remaining > 0) unplaced.push({ grade: row.grade.name, subject: row.subject.name, missing: remaining });
+    }
+    placed = safePlaced;
+    validationWarnings.push("Soft timetable preferences were relaxed to maximize safe lesson placement; teacher collisions remained blocked.");
   }
   const generatedRows = completedRows;
   const duplicateSubjectDays = generatedRows.reduce((set, entry) => { const key = `${entry.gradeId}:${entry.subjectId}:${entry.dayOfWeek}`; if (set.has(key)) set.add(`DUPLICATE:${key}`); else set.add(key); return set; }, new Set<string>());
