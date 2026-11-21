@@ -1818,10 +1818,12 @@ export async function updateStaffRole(input: { staffProfileId: number; role: Sta
 export async function listAcademicCatalog(userId: number) {
   const db = await requireDb();
   const schoolId = await actorSchoolId(userId);
-  const [allGradeRows, existingSubjects, settings] = await Promise.all([db.select().from(grades).where(eq(grades.schoolId, schoolId)).orderBy(grades.name, grades.stream), db.select().from(subjects).where(or(eq(subjects.schoolId, schoolId), isNull(subjects.schoolId))).orderBy(subjects.name), db.select({ enabledSchoolLevels: schoolSettings.enabledSchoolLevels }).from(schoolSettings).where(eq(schoolSettings.schoolId, schoolId)).limit(1)]);
+  const [allGradeRows, existingSubjects, allSubjects, settings] = await Promise.all([db.select().from(grades).where(eq(grades.schoolId, schoolId)).orderBy(grades.name, grades.stream), db.select().from(subjects).where(or(eq(subjects.schoolId, schoolId), isNull(subjects.schoolId))).orderBy(subjects.name), db.select({ code: subjects.code }).from(subjects), db.select({ enabledSchoolLevels: schoolSettings.enabledSchoolLevels }).from(schoolSettings).where(eq(schoolSettings.schoolId, schoolId)).limit(1)]);
   const enabledLevels = new Set((settings[0]?.enabledSchoolLevels || "ECDE,Lower Primary,Upper Primary,Junior School,Senior School").split(",").flatMap(level => level === "Primary" ? ["Lower Primary", "Upper Primary"] : level));
   const existingNames = new Set(existingSubjects.map(subject => subject.name.toLowerCase()));
-  const existingCodes = new Set(existingSubjects.map(subject => subject.code.toLowerCase()));
+  // Subject codes are globally unique in the legacy schema. Check every code,
+  // not only this school's visible subjects, before creating school defaults.
+  const existingCodes = new Set(allSubjects.map(subject => subject.code.toLowerCase()));
   const missing = Array.from(new Set(curriculumCatalogue().map(row => row.area))).filter(name => !existingNames.has(name.toLowerCase())).map((name, index) => {
     const stem = `CBC-${name.toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24) || `AREA-${index + 1}`}`;
     let code = stem; let suffix = 2;
@@ -1830,7 +1832,7 @@ export async function listAcademicCatalog(userId: number) {
     return { schoolId, name, code };
   });
   if (missing.length) await db.insert(subjects).values(missing);
-  const subjectRows = missing.length ? await db.select().from(subjects).orderBy(subjects.name) : existingSubjects;
+  const subjectRows = missing.length ? await db.select().from(subjects).where(or(eq(subjects.schoolId, schoolId), isNull(subjects.schoolId))).orderBy(subjects.name) : existingSubjects;
   const catalogue = curriculumCatalogue();
   const relevantAreas = new Set(catalogue.filter(row => enabledLevels.has(row.level)).map(row => row.area.toLowerCase()));
   const subjectsByLevel = Object.fromEntries(Array.from(enabledLevels).map(level => [level, subjectRows.filter(subject => new Set(catalogue.filter(row => row.level === level).map(row => row.area.toLowerCase())).has(subject.name.toLowerCase()))]));
