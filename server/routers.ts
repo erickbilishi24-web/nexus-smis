@@ -428,7 +428,7 @@ export const appRouter = router({
         return { canManageMaster, canViewPersonal, canViewMaster };
       }),
       personal: permissionProcedure("timetable.view").query(({ ctx }) => getPersonalTimetable(currentUserId(ctx.user))),
-      list: masterTimetableProcedure.query(({ ctx }) => listTimetable(currentUserId(ctx.user))),
+      list: masterTimetableProcedure.input(z.object({ academicYear: z.number().int().min(2000).max(2100).optional(), term: z.string().max(40).optional() }).optional()).query(({ input, ctx }) => listTimetable(input, currentUserId(ctx.user))),
       plans: masterTimetableProcedure.query(({ ctx }) => listTimetablePlans(currentUserId(ctx.user))),
       addPlan: masterTimetableProcedure.input(z.object({ name: z.string().min(1).max(120), section: z.string().min(1).max(60), academicYear: z.number().int().min(2000).max(2100), term: z.string().max(40).nullable().optional(), description: z.string().max(500).nullable().optional() })).mutation(({ input, ctx }) => createTimetablePlan(input, currentUserId(ctx.user))),
       archivePlan: masterTimetableProcedure.input(z.object({ planId: z.number().int().positive() })).mutation(({ input, ctx }) => archiveTimetablePlan(input.planId, currentUserId(ctx.user))),
@@ -437,9 +437,9 @@ export const appRouter = router({
       masterList: protectedProcedure.use(async ({ ctx, next }) => {
         if (!await canViewMasterTimetable(ctx.user.id, ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: "MASTER_TIMETABLE_SCOPE_FORBIDDEN" });
         return next();
-      }).query(({ ctx }) => listTimetable(currentUserId(ctx.user))),
-      audit: masterTimetableProcedure.input(z.object({ academicYear: z.number().int().min(2000).max(2100).optional() }).optional()).query(({ input, ctx }) => listTimetableAudit(input?.academicYear, currentUserId(ctx.user))),
-      validationReport: masterTimetableProcedure.input(z.object({ academicYear: z.number().int().min(2000).max(2100).optional() }).optional()).query(({ input, ctx }) => getTimetableValidationReport(input?.academicYear, currentUserId(ctx.user))),
+      }).query(({ ctx }) => listTimetable(undefined, currentUserId(ctx.user))),
+      audit: masterTimetableProcedure.input(z.object({ academicYear: z.number().int().min(2000).max(2100).optional(), term: z.string().max(40).optional() }).optional()).query(({ input, ctx }) => listTimetableAudit(input?.academicYear, input?.term, currentUserId(ctx.user))),
+      validationReport: masterTimetableProcedure.input(z.object({ academicYear: z.number().int().min(2000).max(2100).optional(), term: z.string().max(40).optional() }).optional()).query(({ input, ctx }) => getTimetableValidationReport(input?.academicYear, input?.term, currentUserId(ctx.user))),
       teacherCodes: masterTimetableProcedure.query(({ ctx }) => listTeacherCodes(currentUserId(ctx.user))),
       updateTeacherCode: masterTimetableProcedure.input(z.object({ staffProfileId: z.number().int().positive(), teacherCode: z.number().int().min(1).max(999) })).mutation(({ input, ctx }) => updateTeacherCode(input, currentUserId(ctx.user))),
       generate: masterTimetableProcedure.input(z.object({ entries: z.array(z.object({ gradeId: z.number().int().positive(), subjectId: z.number().int().positive(), teacherUserId: z.number().int().positive(), dayOfWeek: z.number().int().min(1).max(7), period: z.number().int().positive(), room: z.string().max(80).nullable().optional(), isForcePlaced: z.boolean().optional() })) })).mutation(({ input, ctx }) => generateTimetable(input.entries, currentUserId(ctx.user))),
@@ -447,7 +447,7 @@ export const appRouter = router({
       requirements: masterTimetableProcedure.input(z.object({ academicYear: z.number().int().optional() }).optional()).query(({ input, ctx }) => listTimetableRequirements(input?.academicYear, currentUserId(ctx.user))),
       setRequirement: masterTimetableProcedure.input(z.object({ gradeId: z.number().int().positive(), subjectId: z.number().int().positive(), academicYear: z.number().int().min(2000).max(2100), periodsPerWeek: z.number().int().min(0).max(40) })).mutation(({ input, ctx }) => setTimetableRequirement(input, currentUserId(ctx.user))),
       assignClassTeacher: permissionProcedure("allocations.create").input(z.object({ teacherUserId: z.number().int().positive(), gradeId: z.number().int().positive(), academicYear: z.number().int().min(2000).max(2100), term: z.string().min(2).max(40) })).mutation(({ input, ctx }) => assignClassTeacher(input, currentUserId(ctx.user))),
-      generateAutomatic: masterTimetableProcedure.input(z.object({ academicYear: z.number().int().min(2000).max(2100).optional(), regenerate: z.boolean(), forcePlace: z.boolean().optional(), days: z.number().int().min(1).max(7).optional(), periodsPerDay: z.number().int().min(1).max(12).optional(), classLessonTotals: z.array(z.object({ gradeId: z.number().int().positive(), totalLessonsPerWeek: z.number().int().min(0).max(200) })).optional() })).mutation(({ input, ctx }) => generateAutomaticTimetable(input, currentUserId(ctx.user))),
+      generateAutomatic: masterTimetableProcedure.input(z.object({ academicYear: z.number().int().min(2000).max(2100).optional(), term: z.string().max(40).optional(), regenerate: z.boolean(), forcePlace: z.boolean().optional(), days: z.number().int().min(1).max(7).optional(), periodsPerDay: z.number().int().min(1).max(12).optional(), classLessonTotals: z.array(z.object({ gradeId: z.number().int().positive(), totalLessonsPerWeek: z.number().int().min(0).max(200) })).optional() })).mutation(({ input, ctx }) => generateAutomaticTimetable(input, currentUserId(ctx.user))),
     }),
     communication: router({
       list: permissionProcedure("communication.edit").query(() => listCommunications()),

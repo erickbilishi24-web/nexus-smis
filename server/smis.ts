@@ -765,12 +765,12 @@ async function activeTimetableAllocationRows(schoolId: number, academicYear: num
     .where(and(eq(teacherAllocations.schoolId, schoolId), eq(teacherAllocations.academicYear, academicYear), eq(teacherAllocations.term, term), eq(teacherAllocations.status, "active")));
 }
 
-export async function listTimetable(userId: number) {
+export async function listTimetable(scope: { academicYear?: number; term?: string } | undefined, userId: number) {
   const db = await requireDb();
   const schoolId = await actorSchoolId(userId);
   const settings = await getSettings(schoolId);
   const rows = await db.select({ entry: timetableEntries, grade: grades, subject: subjects, teacher: users, staff: staffProfiles }).from(timetableEntries).leftJoin(grades, eq(grades.id, timetableEntries.gradeId)).leftJoin(subjects, eq(subjects.id, timetableEntries.subjectId)).leftJoin(users, eq(users.id, timetableEntries.teacherUserId)).leftJoin(staffProfiles, eq(staffProfiles.userId, timetableEntries.teacherUserId)).where(eq(timetableEntries.schoolId, schoolId)).orderBy(timetableEntries.dayOfWeek, timetableEntries.period);
-  const allocationRows = await activeTimetableAllocationRows(schoolId, Number(settings.academicYear), settings.currentTerm);
+  const allocationRows = await activeTimetableAllocationRows(schoolId, scope?.academicYear ?? Number(settings.academicYear), scope?.term ?? settings.currentTerm);
   const allocations = allocationRows.map(row => ({ ...row.allocation, subjectName: row.subject?.name ?? null, subjectCode: row.subject?.code ?? null }));
   const alignedIds = new Set(timetableEntriesAlignedWithAllocations(rows.map(row => ({ ...row.entry, subjectName: row.subject?.name ?? null, subjectCode: row.subject?.code ?? null, schoolId: row.entry.schoolId ?? row.grade?.schoolId ?? null })), allocations).map(entry => entry.id));
   return rows.filter(row => alignedIds.has(row.entry.id));
@@ -931,14 +931,15 @@ export function buildTimetableValidationReport(
   };
 }
 
-export async function getTimetableValidationReport(academicYear?: number, userId?: number) {
+export async function getTimetableValidationReport(academicYear?: number, term?: string, userId?: number) {
   const db = await requireDb();
   const schoolId = userId == null ? null : await actorSchoolId(userId);
   const settings = await getSettings(schoolId ?? undefined);
   const year = academicYear ?? Number(settings.academicYear);
+  const selectedTerm = term ?? settings.currentTerm;
   const [requirementRows, allocationRows, entries] = await Promise.all([
     db.select({ requirement: timetableRequirements, grade: grades, subject: subjects }).from(timetableRequirements).innerJoin(grades, eq(grades.id, timetableRequirements.gradeId)).innerJoin(subjects, eq(subjects.id, timetableRequirements.subjectId)).where(and(schoolId == null ? undefined : eq(grades.schoolId, schoolId), schoolId == null ? undefined : or(eq(timetableRequirements.schoolId, schoolId), isNull(timetableRequirements.schoolId)), eq(timetableRequirements.academicYear, year), sql`${timetableRequirements.periodsPerWeek} > 0`)),
-    schoolId == null ? Promise.resolve([]) : activeTimetableAllocationRows(schoolId, year, settings.currentTerm),
+    schoolId == null ? Promise.resolve([]) : activeTimetableAllocationRows(schoolId, year, selectedTerm),
     db.select().from(timetableEntries).where(schoolId == null ? undefined : eq(timetableEntries.schoolId, schoolId)),
   ]);
   return buildTimetableValidationReport(
@@ -948,13 +949,14 @@ export async function getTimetableValidationReport(academicYear?: number, userId
   );
 }
 
-export async function listTimetableAudit(academicYear?: number, userId?: number) {
+export async function listTimetableAudit(academicYear?: number, term?: string, userId?: number) {
   const db = await requireDb();
   const schoolId = userId == null ? null : await actorSchoolId(userId);
   const settings = await getSettings(schoolId ?? undefined);
   const year = academicYear ?? Number(settings.academicYear);
+  const selectedTerm = term ?? settings.currentTerm;
   const requirementRows = await db.select({ requirement: timetableRequirements, grade: grades, subject: subjects }).from(timetableRequirements).innerJoin(grades, eq(grades.id, timetableRequirements.gradeId)).innerJoin(subjects, eq(subjects.id, timetableRequirements.subjectId)).where(and(schoolId == null ? undefined : eq(grades.schoolId, schoolId), schoolId == null ? undefined : or(eq(timetableRequirements.schoolId, schoolId), isNull(timetableRequirements.schoolId)), eq(timetableRequirements.academicYear, year), sql`${timetableRequirements.periodsPerWeek} > 0`)).orderBy(grades.name, subjects.name);
-  const allocationRows = schoolId == null ? [] : await activeTimetableAllocationRows(schoolId, year, settings.currentTerm);
+  const allocationRows = schoolId == null ? [] : await activeTimetableAllocationRows(schoolId, year, selectedTerm);
   const entries = await db.select().from(timetableEntries).where(schoolId == null ? undefined : eq(timetableEntries.schoolId, schoolId));
   return buildTimetableAuditRows(
     requirementRows.map(row => ({ gradeId: row.requirement.gradeId, gradeName: row.grade.name, gradeStream: row.grade.stream, subjectId: row.requirement.subjectId, subjectName: row.subject.name, subjectCode: row.subject.code, periodsPerWeek: row.requirement.periodsPerWeek })),
@@ -1129,11 +1131,12 @@ export async function setTimetableRequirement(input: { gradeId: number; subjectI
   await writeAudit(userId, "timetable.requirement.set", "timetable_requirement", `${input.gradeId}:${input.subjectId}:${input.academicYear}`, input);
 }
 
-export async function generateAutomaticTimetable(input: { academicYear?: number; regenerate: boolean; forcePlace?: boolean; days?: number; periodsPerDay?: number; classLessonTotals?: Array<{ gradeId: number; totalLessonsPerWeek: number }> }, userId: number) {
+export async function generateAutomaticTimetable(input: { academicYear?: number; term?: string; regenerate: boolean; forcePlace?: boolean; days?: number; periodsPerDay?: number; classLessonTotals?: Array<{ gradeId: number; totalLessonsPerWeek: number }> }, userId: number) {
   const db = await requireDb();
   const schoolId = await actorSchoolId(userId);
   const settings = await getSettings(schoolId);
   const academicYear = input.academicYear ?? Number(settings.academicYear);
+  const selectedTerm = input.term ?? settings.currentTerm;
   if (input.regenerate) {
     const current = await db.select({ entry: timetableEntries, gradeSchoolId: grades.schoolId }).from(timetableEntries).innerJoin(grades, eq(grades.id, timetableEntries.gradeId)).where(eq(grades.schoolId, schoolId));
     if (current.length) await snapshotTimetableVersion(userId, "Previous timetable", current.map(row => ({ gradeId: row.entry.gradeId, subjectId: row.entry.subjectId, teacherUserId: row.entry.teacherUserId, dayOfWeek: row.entry.dayOfWeek, period: row.entry.period, room: row.entry.room, schoolId, isForcePlaced: Boolean(row.entry.isForcePlaced) })));
@@ -1149,7 +1152,7 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
     if (requested.totalLessonsPerWeek > configured) validationWarnings.push(`Grade ${requested.gradeId}: requested lessons exceed configured subjects`);
     if (classRequirements.some(row => row.requirement.periodsPerWeek > days)) validationWarnings.push(`Grade ${requested.gradeId}: a subject has more weekly lessons than available school days`);
   }
-  const allocationRows = await activeTimetableAllocationRows(schoolId, academicYear, settings.currentTerm);
+  const allocationRows = await activeTimetableAllocationRows(schoolId, academicYear, selectedTerm);
   const allocations = allocationRows.map(row => ({ ...row.allocation, subjectName: row.subject?.name ?? null, subjectCode: row.subject?.code ?? null }));
   const requirementForAllocation = (allocation: typeof allocations[number]) => requirements.find(row => row.requirement.gradeId === allocation.gradeId && timetableSubjectsMatch({ gradeId: row.requirement.gradeId, gradeName: row.grade.name, gradeStream: row.grade.stream, subjectId: row.requirement.subjectId, subjectName: row.subject.name, subjectCode: row.subject.code, periodsPerWeek: row.requirement.periodsPerWeek }, allocation));
   const eligibleByGradeSubject = new Map<string, number[]>();
