@@ -772,7 +772,7 @@ export async function listTimetable(userId: number) {
   const rows = await db.select({ entry: timetableEntries, grade: grades, subject: subjects, teacher: users, staff: staffProfiles }).from(timetableEntries).leftJoin(grades, eq(grades.id, timetableEntries.gradeId)).leftJoin(subjects, eq(subjects.id, timetableEntries.subjectId)).leftJoin(users, eq(users.id, timetableEntries.teacherUserId)).leftJoin(staffProfiles, eq(staffProfiles.userId, timetableEntries.teacherUserId)).where(eq(timetableEntries.schoolId, schoolId)).orderBy(timetableEntries.dayOfWeek, timetableEntries.period);
   const allocationRows = await activeTimetableAllocationRows(schoolId, Number(settings.academicYear), settings.currentTerm);
   const allocations = allocationRows.map(row => ({ ...row.allocation, subjectName: row.subject?.name ?? null, subjectCode: row.subject?.code ?? null }));
-  const alignedIds = new Set(timetableEntriesAlignedWithAllocations(rows.map(row => ({ ...row.entry, schoolId: row.entry.schoolId ?? row.grade?.schoolId ?? null })), allocations).map(entry => entry.id));
+  const alignedIds = new Set(timetableEntriesAlignedWithAllocations(rows.map(row => ({ ...row.entry, subjectName: row.subject?.name ?? null, subjectCode: row.subject?.code ?? null, schoolId: row.entry.schoolId ?? row.grade?.schoolId ?? null })), allocations).map(entry => entry.id));
   return rows.filter(row => alignedIds.has(row.entry.id));
 }
 
@@ -808,13 +808,7 @@ export type TimetableAuditRequirement = { gradeId: number; gradeName: string; gr
 export type TimetableAuditAllocation = { schoolId?: number | null; gradeId: number; subjectId: number; subjectName?: string | null; subjectCode?: string | null; teacherUserId: number; displayName?: string | null; teacherCode?: number | null; status: string; allocationType: string };
 export type TimetableAuditEntry = { id: number; schoolId?: number | null; gradeId: number; subjectId: number; teacherUserId: number };
 function timetableSubjectsMatch(requirement: TimetableAuditRequirement, allocation: TimetableAuditAllocation) {
-  if (requirement.subjectId === allocation.subjectId) return true;
-  const normalize = (value: string | null | undefined) => value?.replace(/^CBC[-\s]*/i, "").replace(/[^a-z0-9]/gi, "").toLowerCase() ?? "";
-  const requirementCode = normalize(requirement.subjectCode);
-  const allocationCode = normalize(allocation.subjectCode);
-  const requirementName = normalize(requirement.subjectName);
-  const allocationName = normalize(allocation.subjectName);
-  return Boolean((requirementCode && allocationCode && requirementCode === allocationCode) || (requirementName && allocationName && requirementName === allocationName));
+  return timetableSubjectValuesMatch(requirement, allocation);
 }
 export function buildTimetableAuditRows(requirements: TimetableAuditRequirement[], allocations: TimetableAuditAllocation[], entries: TimetableAuditEntry[]) {
   const activeAllocations = allocations.filter(allocation => allocation.status === "active" && allocation.allocationType !== "class_teacher");
@@ -822,7 +816,7 @@ export function buildTimetableAuditRows(requirements: TimetableAuditRequirement[
   return requirements.map(requirement => {
     const subjectAllocations = Array.from(new Map(activeAllocations.filter(allocation => allocation.gradeId === requirement.gradeId && timetableSubjectsMatch(requirement, allocation)).map(allocation => [allocation.teacherUserId, allocation])).values());
     const teacherIds = new Set(subjectAllocations.map(allocation => allocation.teacherUserId));
-    const scheduled = alignedEntries.filter(entry => entry.gradeId === requirement.gradeId && entry.subjectId === requirement.subjectId && teacherIds.has(entry.teacherUserId)).length;
+    const scheduled = alignedEntries.filter(entry => entry.gradeId === requirement.gradeId && timetableSubjectValuesMatch(entry, requirement) && teacherIds.has(entry.teacherUserId)).length;
     const missing = Math.max(0, requirement.periodsPerWeek - scheduled);
     return {
       gradeId: requirement.gradeId,
@@ -1001,7 +995,7 @@ export async function getPersonalTimetable(userId: number) {
     .orderBy(timetableEntries.dayOfWeek, timetableEntries.period);
   const allocationRows = await activeTimetableAllocationRows(schoolId, Number(settings?.academicYear ?? new Date().getFullYear()), settings?.currentTerm ?? "Term 1");
   const allocations = allocationRows.filter(row => row.allocation.teacherUserId === userId).map(row => ({ ...row.allocation, subjectName: row.subject?.name ?? null, subjectCode: row.subject?.code ?? null }));
-  const alignedIds = new Set(timetableEntriesAlignedWithAllocations(entries.map(row => ({ ...row.entry, schoolId: row.entry.schoolId ?? row.grade?.schoolId ?? null })), allocations).map(entry => entry.id));
+  const alignedIds = new Set(timetableEntriesAlignedWithAllocations(entries.map(row => ({ ...row.entry, subjectName: row.subject?.name ?? null, subjectCode: row.subject?.code ?? null, schoolId: row.entry.schoolId ?? row.grade?.schoolId ?? null })), allocations).map(entry => entry.id));
   const visibleEntries = entries.filter(row => {
     const grade = row.grade?.name?.toLowerCase() ?? "";
     const levelVisible = (enabledLevels.has("ECDE") && /^(pp|pre-primary)/i.test(grade)) || ((enabledLevels.has("Lower Primary") && /^grade [1-3]$/i.test(grade)) || (enabledLevels.has("Upper Primary") && /^grade [4-6]$/i.test(grade))) || (enabledLevels.has("Junior School") && /^grade [7-9]$/i.test(grade)) || (enabledLevels.has("Senior School") && /^grade (10|11|12)$/i.test(grade));
@@ -1043,13 +1037,19 @@ export function timetableConflicts(entries: Array<{ dayOfWeek: number; period: n
   return conflicts;
 }
 
-export function unallocatedTimetableEntries(entries: Array<{ gradeId: number; subjectId: number; teacherUserId: number }>, allocations: Array<{ gradeId: number; subjectId: number; teacherUserId: number; status: string; allocationType: string }>) {
-  const allowed = new Set(allocations.filter(row => row.status === "active" && row.allocationType !== "class_teacher").map(row => `${row.gradeId}:${row.subjectId}:${row.teacherUserId}`));
-  return entries.filter(entry => !allowed.has(`${entry.gradeId}:${entry.subjectId}:${entry.teacherUserId}`));
+function timetableSubjectValuesMatch(left: { subjectId: number; subjectName?: string | null; subjectCode?: string | null }, right: { subjectId: number; subjectName?: string | null; subjectCode?: string | null }) {
+  if (left.subjectId === right.subjectId) return true;
+  const normalize = (value: string | null | undefined) => value?.replace(/^CBC[-\s]*/i, "").replace(/[^a-z0-9]/gi, "").toLowerCase() ?? "";
+  const leftCode = normalize(left.subjectCode); const rightCode = normalize(right.subjectCode);
+  const leftName = normalize(left.subjectName); const rightName = normalize(right.subjectName);
+  return Boolean((leftCode && rightCode && leftCode === rightCode) || (leftName && rightName && leftName === rightName));
+}
+export function unallocatedTimetableEntries(entries: Array<{ gradeId: number; subjectId: number; subjectName?: string | null; subjectCode?: string | null; teacherUserId: number }>, allocations: Array<{ gradeId: number; subjectId: number; subjectName?: string | null; subjectCode?: string | null; teacherUserId: number; status: string; allocationType: string }>) {
+  return entries.filter(entry => !allocations.some(allocation => allocation.status === "active" && allocation.allocationType !== "class_teacher" && allocation.gradeId === entry.gradeId && timetableSubjectValuesMatch(entry, allocation) && allocation.teacherUserId === entry.teacherUserId));
 }
 
-export function timetableEntriesAlignedWithAllocations<T extends { id: number; schoolId?: number | null; gradeId: number; subjectId: number; teacherUserId: number }>(entries: T[], allocations: Array<{ schoolId?: number | null; gradeId: number; subjectId: number; teacherUserId: number; status: string; allocationType: string }>) {
-  return entries.filter(entry => allocations.some(allocation => allocation.status === "active" && allocation.allocationType !== "class_teacher" && allocation.gradeId === entry.gradeId && allocation.subjectId === entry.subjectId && allocation.teacherUserId === entry.teacherUserId && (entry.schoolId == null || allocation.schoolId == null || allocation.schoolId === entry.schoolId)));
+export function timetableEntriesAlignedWithAllocations<T extends { id: number; schoolId?: number | null; gradeId: number; subjectId: number; subjectName?: string | null; subjectCode?: string | null; teacherUserId: number }>(entries: T[], allocations: Array<{ schoolId?: number | null; gradeId: number; subjectId: number; subjectName?: string | null; subjectCode?: string | null; teacherUserId: number; status: string; allocationType: string }>) {
+  return entries.filter(entry => allocations.some(allocation => allocation.status === "active" && allocation.allocationType !== "class_teacher" && allocation.gradeId === entry.gradeId && timetableSubjectValuesMatch(entry, allocation) && allocation.teacherUserId === entry.teacherUserId && (entry.schoolId == null || allocation.schoolId == null || allocation.schoolId === entry.schoolId)));
 }
 
 export function isPreNoonTimetableSubject(subjectName: string) {
@@ -1082,8 +1082,11 @@ export async function saveEditedTimetable(entries: Array<{ dayOfWeek: number; pe
   const db = await requireDb();
   const schoolId = await actorSchoolId(userId);
   const settings = await getSettings(schoolId);
-  const activeAllocations = (await activeTimetableAllocationRows(schoolId, Number(settings.academicYear), settings.currentTerm)).map(row => row.allocation);
-  const unallocated = unallocatedTimetableEntries(entries, activeAllocations);
+  const activeAllocations = (await activeTimetableAllocationRows(schoolId, Number(settings.academicYear), settings.currentTerm)).map(row => ({ ...row.allocation, subjectName: row.subject?.name ?? null, subjectCode: row.subject?.code ?? null }));
+  const submittedSubjects = await db.select({ id: subjects.id, name: subjects.name, code: subjects.code }).from(subjects).where(inArray(subjects.id, entries.map(entry => entry.subjectId)));
+  const subjectById = new Map(submittedSubjects.map(subject => [subject.id, subject]));
+  const entriesWithSubjectMetadata = entries.map(entry => ({ ...entry, subjectName: subjectById.get(entry.subjectId)?.name ?? null, subjectCode: subjectById.get(entry.subjectId)?.code ?? null }));
+  const unallocated = unallocatedTimetableEntries(entriesWithSubjectMetadata, activeAllocations);
   if (unallocated.length) throw new Error(`UNALLOCATED_SUBJECT:${unallocated[0].gradeId}:${unallocated[0].subjectId}:${unallocated[0].teacherUserId}`);
   await db.transaction(async tx => {
     await tx.delete(timetableEntries).where(eq(timetableEntries.schoolId, schoolId));
@@ -1099,8 +1102,11 @@ export async function generateTimetable(entries: Array<{ dayOfWeek: number; peri
   const db = await requireDb();
   const schoolId = await actorSchoolId(userId);
   const settings = await getSettings(schoolId);
-  const activeAllocations = (await activeTimetableAllocationRows(schoolId, Number(settings.academicYear), settings.currentTerm)).map(row => row.allocation);
-  const unallocated = unallocatedTimetableEntries(entries, activeAllocations);
+  const activeAllocations = (await activeTimetableAllocationRows(schoolId, Number(settings.academicYear), settings.currentTerm)).map(row => ({ ...row.allocation, subjectName: row.subject?.name ?? null, subjectCode: row.subject?.code ?? null }));
+  const submittedSubjects = await db.select({ id: subjects.id, name: subjects.name, code: subjects.code }).from(subjects).where(inArray(subjects.id, entries.map(entry => entry.subjectId)));
+  const subjectById = new Map(submittedSubjects.map(subject => [subject.id, subject]));
+  const entriesWithSubjectMetadata = entries.map(entry => ({ ...entry, subjectName: subjectById.get(entry.subjectId)?.name ?? null, subjectCode: subjectById.get(entry.subjectId)?.code ?? null }));
+  const unallocated = unallocatedTimetableEntries(entriesWithSubjectMetadata, activeAllocations);
   if (unallocated.length) throw new Error(`UNALLOCATED_SUBJECT:${unallocated[0].gradeId}:${unallocated[0].subjectId}:${unallocated[0].teacherUserId}`);
   if (entries.length) await db.insert(timetableEntries).values(entries.map(entry => ({ gradeId: entry.gradeId, subjectId: entry.subjectId, teacherUserId: entry.teacherUserId, dayOfWeek: entry.dayOfWeek, period: entry.period, room: entry.room ?? null, schoolId, isForcePlaced: Boolean(entry.isForcePlaced) })));
   await writeAudit(userId, "timetable.generate", "timetable", null, { count: entries.length });

@@ -79,6 +79,18 @@ describe("NEXUS SMIS backend rules", () => {
     expect(timetableEntriesAlignedWithAllocations(entries, allocations).map(entry => entry.id)).toEqual([2]);
   });
 
+  it("aligns timetable entries with equivalent subject records by code or name", () => {
+    const entries = [{ id: 7, schoolId: 1, gradeId: 9, subjectId: 901, subjectName: "CBC-KISWAHILI", subjectCode: "CBC-KISWAHILI-2", teacherUserId: 44 }];
+    const allocations = [{ schoolId: 1, gradeId: 9, subjectId: 1901, subjectName: "Kiswahili", subjectCode: "KISWAHILI-2", teacherUserId: 44, status: "active", allocationType: "learning_area" }];
+    expect(timetableEntriesAlignedWithAllocations(entries, allocations).map(entry => entry.id)).toEqual([7]);
+  });
+
+  it("does not mark an equivalent-subject timetable entry as unallocated", () => {
+    const entries = [{ gradeId: 9, subjectId: 901, subjectName: "CBC-KISWAHILI", subjectCode: "CBC-KISWAHILI-2", teacherUserId: 44 }];
+    const allocations = [{ gradeId: 9, subjectId: 1901, subjectName: "Kiswahili", subjectCode: "KISWAHILI-2", teacherUserId: 44, status: "active", allocationType: "learning_area" }];
+    expect(unallocatedTimetableEntries(entries, allocations)).toEqual([]);
+  });
+
   it("reports missing teacher allocations separately from under-scheduled lessons", () => {
     const requirements = [
       { gradeId: 7, gradeName: "Grade 7", gradeStream: "Blue", subjectId: 2, subjectName: "English", subjectCode: "ENG", periodsPerWeek: 5 },
