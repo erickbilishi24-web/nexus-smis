@@ -1066,6 +1066,14 @@ export function timetableConflicts(entries: Array<{ dayOfWeek: number; period: n
   }
   return conflicts;
 }
+export function timetableAdjacentTeacherConflicts(entries: Array<{ dayOfWeek: number; period: number; teacherUserId: number }>) {
+  const conflicts: string[] = [];
+  for (let index = 0; index < entries.length; index += 1) for (let other = index + 1; other < entries.length; other += 1) {
+    const left = entries[index]; const right = entries[other];
+    if (left.teacherUserId === right.teacherUserId && left.dayOfWeek === right.dayOfWeek && Math.abs(left.period - right.period) === 1) conflicts.push(`teacher_adjacent:${left.dayOfWeek}:${Math.min(left.period, right.period)}:${left.teacherUserId}`);
+  }
+  return conflicts;
+}
 
 function timetableSubjectValuesMatch(left: { subjectId: number; subjectName?: string | null; subjectCode?: string | null }, right: { subjectId: number; subjectName?: string | null; subjectCode?: string | null }) {
   if (left.subjectId === right.subjectId) return true;
@@ -1113,7 +1121,7 @@ export function areLanguageSubjectsAdjacent(subjectAtClassSlot: Map<string, stri
 
 
 export async function saveEditedTimetable(entries: Array<{ dayOfWeek: number; period: number; gradeId: number; subjectId: number; teacherUserId: number; room?: string | null; isForcePlaced?: boolean }>, userId: number) {
-  const conflicts = timetableConflicts(entries);
+  const conflicts = [...timetableConflicts(entries), ...timetableAdjacentTeacherConflicts(entries)];
   if (conflicts.length) throw new Error(`TIMETABLE_CLASH:${conflicts.join(",")}`);
   const db = await requireDb();
   const schoolId = await actorSchoolId(userId);
@@ -1133,7 +1141,7 @@ export async function saveEditedTimetable(entries: Array<{ dayOfWeek: number; pe
 }
 
 export async function generateTimetable(entries: Array<{ dayOfWeek: number; period: number; gradeId: number; subjectId: number; teacherUserId: number; room?: string | null; isForcePlaced?: boolean }>, userId: number) {
-  const conflicts = timetableConflicts(entries);
+  const conflicts = [...timetableConflicts(entries), ...timetableAdjacentTeacherConflicts(entries)];
   if (conflicts.length) throw new Error(`TIMETABLE_CLASH:${conflicts.join(",")}`);
   const db = await requireDb();
   const schoolId = await actorSchoolId(userId);
@@ -1343,7 +1351,7 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
     for (let lesson = 0; lesson < missing; lesson += 1) {
       let slot: { day: number; period: number } | null = null;
       for (let day = 1; day <= days && !slot; day += 1) for (let period = 1; period <= periodsPerDay; period += 1) {
-        if (!occupied.has(`${row.requirement.gradeId}:${day}:${period}`)) { slot = { day, period }; break; }
+        if (!occupied.has(`${row.requirement.gradeId}:${day}:${period}`) && !subjectDays.has(`${row.requirement.gradeId}:${row.requirement.subjectId}:${day}`)) { slot = { day, period }; break; }
       }
       if (!slot) break;
       const teacherId = selectAvailableTeacher(teachersForLastChance, teacherBusy, slot.day, slot.period);
@@ -1351,6 +1359,7 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
       await db.insert(timetableEntries).values({ schoolId, gradeId: row.requirement.gradeId, subjectId: row.requirement.subjectId, teacherUserId: teacherId, dayOfWeek: slot.day, period: slot.period, room: null, isForcePlaced: true });
       occupied.add(`${row.requirement.gradeId}:${slot.day}:${slot.period}`);
       teacherBusy.add(`${teacherId}:${slot.day}:${slot.period}`);
+      subjectDays.add(`${row.requirement.gradeId}:${row.requirement.subjectId}:${slot.day}`);
       subjectAtClassSlot.set(`${row.requirement.gradeId}:${slot.day}:${slot.period}`, String(row.requirement.subjectId));
       teacherAtClassSlot.set(`${row.requirement.gradeId}:${slot.day}:${slot.period}`, teacherId);
       lastChanceCounts.set(key, (lastChanceCounts.get(key) ?? 0) + 1);
@@ -1411,6 +1420,7 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
   if (unplaced.length && (input.regenerate || input.forcePlace)) {
     await db.delete(timetableEntries).where(eq(timetableEntries.schoolId, schoolId));
     const safeOccupied = new Set<string>();
+    const safeSubjectDays = new Set<string>();
     const safeTeacherBusy = new Set<string>();
     let safePlaced = 0;
     for (const row of orderedRequirements) {
@@ -1419,13 +1429,14 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
       for (let lesson = 0; lesson < row.requirement.periodsPerWeek; lesson += 1) {
         let placement: { teacherId: number; day: number; period: number } | null = null;
         for (let day = 1; day <= days && !placement; day += 1) for (let period = 1; period <= periodsPerDay && !placement; period += 1) {
-          if (safeOccupied.has(`${row.requirement.gradeId}:${day}:${period}`)) continue;
+          if (safeOccupied.has(`${row.requirement.gradeId}:${day}:${period}`) || safeSubjectDays.has(`${row.requirement.gradeId}:${row.requirement.subjectId}:${day}`)) continue;
           const teacherId = selectAvailableTeacher(teachers, safeTeacherBusy, day, period);
           if (teacherId != null) placement = { teacherId, day, period };
         }
         if (!placement) break;
         await db.insert(timetableEntries).values({ schoolId, gradeId: row.requirement.gradeId, subjectId: row.requirement.subjectId, teacherUserId: placement.teacherId, dayOfWeek: placement.day, period: placement.period, room: null, isForcePlaced: true });
         safeOccupied.add(`${row.requirement.gradeId}:${placement.day}:${placement.period}`);
+        safeSubjectDays.add(`${row.requirement.gradeId}:${row.requirement.subjectId}:${placement.day}`);
         safeTeacherBusy.add(`${placement.teacherId}:${placement.day}:${placement.period}`);
         safePlaced += 1;
       }

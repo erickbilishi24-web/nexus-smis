@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { areLanguageSubjectsAdjacent, allocationContextConflict, assertScore, buildTimetableAuditRows, buildTimetableValidationReport, hasAdjacentTeacherLesson, selectAvailableTeacher, teacherSlotBlocked, timetableEntriesAlignedWithAllocations, unallocatedTimetableEntries, canAccessAttendanceGrade, canCaptureAttendance, cbcLevel, isAttendanceAdmin, isPreNoonTimetableSubject, nextSchoolSubjectCode, resolveImportGrade, timetableConflicts } from "./smis";
+import { areLanguageSubjectsAdjacent, allocationContextConflict, assertScore, buildTimetableAuditRows, buildTimetableValidationReport, hasAdjacentTeacherLesson, selectAvailableTeacher, teacherSlotBlocked, timetableAdjacentTeacherConflicts, timetableEntriesAlignedWithAllocations, unallocatedTimetableEntries, canAccessAttendanceGrade, canCaptureAttendance, cbcLevel, isAttendanceAdmin, isPreNoonTimetableSubject, nextSchoolSubjectCode, resolveImportGrade, timetableConflicts } from "./smis";
 import { swapTimetableDraftEntries, type TimetableDraftEntry } from "../shared/timetable";
 
 describe("NEXUS SMIS backend rules", () => {
@@ -69,6 +69,10 @@ describe("NEXUS SMIS backend rules", () => {
     expect(selectAvailableTeacher([12], busy, 2, 3)).toBeUndefined();
     expect(teacherSlotBlocked(busy, 12, 2, 2)).toBe(true);
     expect(teacherSlotBlocked(busy, 12, 2, 4)).toBe(true);
+    expect(timetableAdjacentTeacherConflicts([
+      { dayOfWeek: 2, period: 3, teacherUserId: 12 },
+      { dayOfWeek: 2, period: 4, teacherUserId: 12 },
+    ])).toEqual(["teacher_adjacent:2:3:12"]);
   });
 
 
