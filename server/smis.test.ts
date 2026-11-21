@@ -141,6 +141,18 @@ describe("NEXUS SMIS backend rules", () => {
     expect(report.valid).toBe(false);
   });
 
+  it("resolves teacher clash labels from the uploaded teacher directory", () => {
+    const requirements = [{ gradeId: 7, gradeName: "Grade 7", gradeStream: "Blue", subjectId: 2, subjectName: "English", subjectCode: "ENG", periodsPerWeek: 1 }];
+    const allocations = [{ schoolId: 1, gradeId: 7, subjectId: 2, teacherUserId: 5820003, displayName: null, teacherCode: null, status: "active", allocationType: "learning_area", activeEmployment: true }];
+    const entries = [
+      { id: 1, schoolId: 1, gradeId: 7, subjectId: 2, teacherUserId: 5820003, dayOfWeek: 2, period: 2 },
+      { id: 2, schoolId: 1, gradeId: 8, subjectId: 2, teacherUserId: 5820003, dayOfWeek: 2, period: 2 },
+    ];
+    const report = buildTimetableValidationReport(requirements, allocations, entries, [{ teacherUserId: 5820003, displayName: "Esther Wanjiku", teacherCode: 12 }]);
+    expect(report.hardConflicts).toEqual(expect.arrayContaining([expect.objectContaining({ label: expect.stringContaining("Teacher clash: Esther Wanjiku · Code 12") })]));
+    expect(report.teacherWorkload).toEqual(expect.arrayContaining([expect.objectContaining({ teacherUserId: 5820003, teacherName: "Esther Wanjiku", teacherCode: 12 })]));
+  });
+
   it("resolves legacy combined learner class labels only when unambiguous", () => {
     const classes = [{ id: 2, name: "Grade 7", stream: "Green" }, { id: 1, name: "Grade 8", stream: "Blue" }, { id: 90001, name: "Grade 9", stream: "Red" }];
     expect(resolveImportGrade(classes, "GRADE 7 Blue", "")?.stream).toBe("Green");

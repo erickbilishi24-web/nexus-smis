@@ -807,6 +807,7 @@ export async function archiveTimetablePlan(planId: number, userId: number) {
 export type TimetableAuditRequirement = { gradeId: number; gradeName: string; gradeStream?: string | null; subjectId: number; subjectName: string; subjectCode?: string | null; periodsPerWeek: number };
 export type TimetableAuditAllocation = { schoolId?: number | null; gradeName?: string | null; gradeStream?: string | null; gradeId: number; subjectId: number; subjectName?: string | null; subjectCode?: string | null; teacherUserId: number; displayName?: string | null; teacherCode?: number | null; status: string; allocationType: string };
 export type TimetableAuditEntry = { id: number; schoolId?: number | null; gradeId: number; subjectId: number; teacherUserId: number };
+export type TimetableTeacherDirectoryEntry = { teacherUserId: number; displayName?: string | null; teacherCode?: number | null };
 function timetableSubjectsMatch(requirement: TimetableAuditRequirement, allocation: TimetableAuditAllocation) {
   return timetableSubjectValuesMatch(requirement, allocation);
 }
@@ -864,6 +865,7 @@ export function buildTimetableValidationReport(
   requirements: TimetableAuditRequirement[],
   allocations: TimetableValidationAllocation[],
   entries: TimetableValidationEntry[],
+  teacherDirectory: TimetableTeacherDirectoryEntry[] = [],
 ) {
   const activeAllocations = allocations.filter(row => row.status === "active" && row.allocationType !== "class_teacher");
   const auditRows = buildTimetableAuditRows(requirements, activeAllocations, entries);
@@ -904,10 +906,12 @@ export function buildTimetableValidationReport(
   }).filter(row => row.expected > 0);
   const dayNames = ["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
   const teacherById = new Map(activeAllocations.map(allocation => [allocation.teacherUserId, allocation]));
+  const directoryById = new Map(teacherDirectory.map(teacher => [teacher.teacherUserId, teacher]));
   const teacherWorkloadMap = new Map<number, { teacherUserId: number; teacherName: string; teacherCode: number | null; weeklyLessons: number; dailyLessons: Record<string, number> }>();
   for (const entry of entries) {
     const allocation = teacherById.get(entry.teacherUserId) ?? allocations.find(row => row.teacherUserId === entry.teacherUserId);
-    const current = teacherWorkloadMap.get(entry.teacherUserId) ?? { teacherUserId: entry.teacherUserId, teacherName: allocation?.displayName ?? `Teacher ${entry.teacherUserId}`, teacherCode: allocation?.teacherCode ?? null, weeklyLessons: 0, dailyLessons: {} };
+    const directoryEntry = directoryById.get(entry.teacherUserId);
+    const current = teacherWorkloadMap.get(entry.teacherUserId) ?? { teacherUserId: entry.teacherUserId, teacherName: allocation?.displayName ?? directoryEntry?.displayName ?? `Teacher ${entry.teacherUserId}`, teacherCode: allocation?.teacherCode ?? directoryEntry?.teacherCode ?? null, weeklyLessons: 0, dailyLessons: {} };
     const day = dayNames[entry.dayOfWeek] ?? `Day ${entry.dayOfWeek}`;
     current.weeklyLessons += 1;
     current.dailyLessons[day] = (current.dailyLessons[day] ?? 0) + 1;
@@ -919,7 +923,10 @@ export function buildTimetableValidationReport(
     if (parts[0] === "teacher") {
       const teacherId = Number(parts[3]);
       const teacher = teacherById.get(teacherId) ?? allocations.find(row => row.teacherUserId === teacherId);
-      const teacherLabel = `${teacher?.displayName ?? `Teacher ${teacherId}`}${teacher?.teacherCode ? ` · Code ${teacher.teacherCode}` : ""}`;
+      const directoryEntry = directoryById.get(teacherId);
+      const teacherName = teacher?.displayName ?? directoryEntry?.displayName ?? `Teacher ${teacherId}`;
+      const teacherCode = teacher?.teacherCode ?? directoryEntry?.teacherCode;
+      const teacherLabel = `${teacherName}${teacherCode ? ` · Code ${teacherCode}` : ""}`;
       return { conflict, type: "teacher_clash", label: `Teacher clash: ${teacherLabel} is scheduled in more than one class on ${dayNames[Number(parts[1])] ?? `Day ${parts[1]}`}, period ${parts[2]}.`, day: Number(parts[1]), period: Number(parts[2]), teacherUserId: teacherId, suggestion: "Move one affected class to an unoccupied lesson period for this teacher." };
     }
     if (parts[0] === "grade") {
@@ -954,15 +961,17 @@ export async function getTimetableValidationReport(academicYear?: number, term?:
   const settings = await getSettings(schoolId ?? undefined);
   const year = academicYear ?? Number(settings.academicYear);
   const selectedTerm = term ?? settings.currentTerm;
-  const [requirementRows, allocationRows, entries] = await Promise.all([
+  const [requirementRows, allocationRows, entries, teacherRows] = await Promise.all([
     db.select({ requirement: timetableRequirements, grade: grades, subject: subjects }).from(timetableRequirements).innerJoin(grades, eq(grades.id, timetableRequirements.gradeId)).innerJoin(subjects, eq(subjects.id, timetableRequirements.subjectId)).where(and(schoolId == null ? undefined : eq(grades.schoolId, schoolId), schoolId == null ? undefined : or(eq(timetableRequirements.schoolId, schoolId), isNull(timetableRequirements.schoolId)), eq(timetableRequirements.academicYear, year), sql`${timetableRequirements.periodsPerWeek} > 0`)),
     schoolId == null ? Promise.resolve([]) : activeTimetableAllocationRows(schoolId, year, selectedTerm),
     db.select().from(timetableEntries).where(schoolId == null ? undefined : eq(timetableEntries.schoolId, schoolId)),
+    schoolId == null ? Promise.resolve([]) : db.select({ teacherUserId: staffProfiles.userId, displayName: staffProfiles.displayName, teacherCode: staffProfiles.teacherCode }).from(staffProfiles).where(and(eq(staffProfiles.schoolId, schoolId), isNull(staffProfiles.deletedAt))),
   ]);
   return buildTimetableValidationReport(
     requirementRows.map(row => ({ gradeId: row.requirement.gradeId, gradeName: row.grade.name, gradeStream: row.grade.stream, subjectId: row.requirement.subjectId, subjectName: row.subject.name, subjectCode: row.subject.code, periodsPerWeek: row.requirement.periodsPerWeek })),
     allocationRows.map(row => ({ ...row.allocation, subjectName: row.subject?.name ?? null, subjectCode: row.subject?.code ?? null, displayName: row.staff?.displayName ?? row.user?.name ?? null, teacherCode: row.staff?.teacherCode ?? null, activeEmployment: row.staff?.status === "active" })),
     entries,
+    teacherRows,
   );
 }
 
