@@ -1,22 +1,64 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
+  ChevronRight,
   Download,
   ExternalLink,
   Gamepad2,
+  Lightbulb,
   Loader2,
+  Maximize2,
+  Minimize2,
   Play,
   ShieldCheck,
+  X,
 } from "lucide-react";
 
 const GAME_BUNDLE =
   "/manus-storage/prince-of-persia-nexus-arcade-v4_5161fa17.jsdos";
 const BROWSER_GAME_URL = "https://princejs.com/";
+const GAME_HINTS = [
+  {
+    title: "Start moving",
+    keys: "← / →",
+    instruction: "Press the Left or Right Arrow key.",
+    mission: "Find the safe route forward and move away from the starting platform.",
+  },
+  {
+    title: "Cross a gap",
+    keys: "↑",
+    instruction: "Press Up as you approach a gap; combine it with a direction for a running jump.",
+    mission: "Clear the floor gap or trap and land on the next platform.",
+  },
+  {
+    title: "Reach a higher ledge",
+    keys: "↑ near a ledge",
+    instruction: "Stand close to the ledge and press Up to climb or pull yourself up.",
+    mission: "Gain height so you can continue through the level instead of returning to the lower floor.",
+  },
+  {
+    title: "Prepare for an enemy",
+    keys: "Shift + direction",
+    instruction: "Use Shift with a direction to run into position; use the sword control shown by the game when the guard is close.",
+    mission: "Create space, face the guard, and survive the encounter before continuing toward the exit.",
+  },
+];
 
 export default function NexusArcadeWorkspace() {
   const [loading, setLoading] = useState(false);
   const [started, setStarted] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
+  const [hintsOpen, setHintsOpen] = useState(false);
+  const [selectedHint, setSelectedHint] = useState(0);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const playerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const syncFullscreenState = () =>
+      setIsFullscreen(document.fullscreenElement === playerRef.current);
+    document.addEventListener("fullscreenchange", syncFullscreenState);
+    return () => document.removeEventListener("fullscreenchange", syncFullscreenState);
+  }, []);
 
   const playNow = () => {
     setError("");
@@ -78,6 +120,15 @@ export default function NexusArcadeWorkspace() {
               >
                 <Download size={17} /> Download DOS bundle
               </a>
+              <button
+                type="button"
+                onClick={() => setHintsOpen(open => !open)}
+                aria-expanded={hintsOpen}
+                aria-controls="prince-of-persia-hints"
+                className="inline-flex items-center gap-2 rounded-xl border border-[#f1c96c]/60 bg-[#f1c96c]/15 px-4 py-3 text-sm font-bold text-white transition hover:bg-[#f1c96c]/25"
+              >
+                <Lightbulb size={17} /> Hints
+              </button>
             </div>
           </div>
           <div className="grid max-w-xs gap-3 text-sm text-[#d7eee1] sm:grid-cols-2 lg:grid-cols-1">
@@ -102,14 +153,35 @@ export default function NexusArcadeWorkspace() {
               Prince of Persia
             </h2>
           </div>
-          {started && (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-[#e4f3e8] px-3 py-1.5 text-xs font-bold text-[#1d6a57]">
-              <ShieldCheck size={14} /> {loaded ? "Playable" : "Loading"}
-            </span>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {started && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-[#e4f3e8] px-3 py-1.5 text-xs font-bold text-[#1d6a57]">
+                <ShieldCheck size={14} /> {loaded ? "Playable" : "Loading"}
+              </span>
+            )}
+            {started && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (document.fullscreenElement) {
+                    void document.exitFullscreen();
+                  } else {
+                    void playerRef.current?.requestFullscreen();
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[#cbded1] bg-white px-3 py-1.5 text-xs font-bold text-[#1d6a57] transition hover:bg-[#eef8f0]"
+                aria-label={isFullscreen ? "Minimise game" : "View game fullscreen"}
+                title={isFullscreen ? "Minimise game" : "Fullscreen"}
+              >
+                {isFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                {isFullscreen ? "Minimise game" : "Fullscreen"}
+              </button>
+            )}
+          </div>
         </div>
         <div
-          className="overflow-hidden rounded-xl bg-[#101b20] shadow-inner"
+          ref={playerRef}
+          className={`${isFullscreen ? "h-screen rounded-none" : "rounded-xl"} overflow-hidden bg-[#101b20] shadow-inner`}
           aria-label="Prince of Persia game player"
         >
           {started ? (
@@ -120,7 +192,7 @@ export default function NexusArcadeWorkspace() {
               onLoad={handleGameLoad}
               onError={handleGameError}
               allow="fullscreen; autoplay"
-              className="block h-[min(70vh,560px)] min-h-[420px] w-full border-0 bg-black"
+              className={`block w-full border-0 bg-black ${isFullscreen ? "h-screen" : "h-[min(70vh,560px)] min-h-[420px]"}`}
             />
           ) : (
             <div className="flex min-h-[420px] items-center justify-center p-6 text-center text-sm text-[#cbd8d2]">
@@ -129,6 +201,61 @@ export default function NexusArcadeWorkspace() {
             </div>
           )}
         </div>
+        {hintsOpen && (
+          <div
+            id="prince-of-persia-hints"
+            className="mt-4 rounded-xl border border-[#eadcae] bg-[#fff9e6] p-4 text-[#4d4935]"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="flex items-center gap-2 text-sm font-black text-[#655721]">
+                  <Lightbulb size={16} /> Need a nudge?
+                </p>
+                <p className="mt-1 text-xs leading-5 text-[#746d51]">
+                  Click a situation below, then click inside the game so it receives your keyboard input.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setHintsOpen(false)}
+                aria-label="Close hints"
+                className="rounded-md p-1 text-[#746d51] transition hover:bg-[#f3e9bd] hover:text-[#4d4935]"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              {GAME_HINTS.map((hint, index) => (
+                <button
+                  key={hint.title}
+                  type="button"
+                  onClick={() => setSelectedHint(index)}
+                  aria-pressed={selectedHint === index}
+                  className={`flex items-center justify-between rounded-lg border px-3 py-2 text-left text-xs font-bold transition ${selectedHint === index ? "border-[#b58a25] bg-[#f3e5a9] text-[#51440f]" : "border-[#eadcae] bg-white/70 text-[#6f653e] hover:bg-white"}`}
+                >
+                  {hint.title}
+                  <ChevronRight size={14} />
+                </button>
+              ))}
+            </div>
+            <div className="mt-3 rounded-lg border border-[#eadcae] bg-white/75 p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-md bg-[#263b35] px-2 py-1 font-mono text-xs font-bold text-white">
+                  {GAME_HINTS[selectedHint].keys}
+                </span>
+                <p className="text-sm font-black text-[#4d4935]">
+                  {GAME_HINTS[selectedHint].title}
+                </p>
+              </div>
+              <p className="mt-2 text-sm leading-5 text-[#5e5841]">
+                <strong>What to press:</strong> {GAME_HINTS[selectedHint].instruction}
+              </p>
+              <p className="mt-1 text-sm leading-5 text-[#5e5841]">
+                <strong>Mission:</strong> {GAME_HINTS[selectedHint].mission}
+              </p>
+            </div>
+          </div>
+        )}
         {error && (
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#edc9c3] bg-[#fff4f1] px-3 py-2 text-xs font-semibold text-[#9f4239]">
             <span role="alert">{error}</span>
