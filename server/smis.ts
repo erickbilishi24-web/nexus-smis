@@ -1815,6 +1815,15 @@ export async function updateStaffRole(input: { staffProfileId: number; role: Sta
   return { ok: true, role: input.role };
 }
 
+export function nextSchoolSubjectCode(name: string, existingCodes: Set<string>, fallbackIndex = 0) {
+  const stem = `CBC-${name.toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24) || `AREA-${fallbackIndex + 1}`}`;
+  let code = stem;
+  let suffix = 2;
+  while (existingCodes.has(code.toLowerCase())) code = `${stem.slice(0, 27 - String(suffix).length)}-${suffix++}`;
+  existingCodes.add(code.toLowerCase());
+  return code;
+}
+
 export async function listAcademicCatalog(userId: number) {
   const db = await requireDb();
   const schoolId = await actorSchoolId(userId);
@@ -1825,11 +1834,8 @@ export async function listAcademicCatalog(userId: number) {
   // not only this school's visible subjects, before creating school defaults.
   const existingCodes = new Set(allSubjects.map(subject => subject.code.toLowerCase()));
   const missing = Array.from(new Set(curriculumCatalogue().map(row => row.area))).filter(name => !existingNames.has(name.toLowerCase())).map((name, index) => {
-    const stem = `CBC-${name.toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24) || `AREA-${index + 1}`}`;
-    let code = stem; let suffix = 2;
-    while (existingCodes.has(code.toLowerCase())) code = `${stem.slice(0, 27 - String(suffix).length)}-${suffix++}`;
-    existingCodes.add(code.toLowerCase()); existingNames.add(name.toLowerCase());
-    return { schoolId, name, code };
+    existingNames.add(name.toLowerCase());
+    return { schoolId, name, code: nextSchoolSubjectCode(name, existingCodes, index) };
   });
   if (missing.length) await db.insert(subjects).values(missing);
   const subjectRows = missing.length ? await db.select().from(subjects).where(or(eq(subjects.schoolId, schoolId), isNull(subjects.schoolId))).orderBy(subjects.name) : existingSubjects;
@@ -1896,11 +1902,12 @@ export async function deleteGradeClass(id: number, userId: number) {
 }
 export async function createLearningArea(input: { name: string; code: string }, userId: number) {
   const db = await requireDb();
+  const schoolId = await actorSchoolId(userId);
   const name = input.name.trim();
   const code = input.code.trim().toUpperCase();
   const duplicate = (await db.select({ id: subjects.id }).from(subjects).where(eq(subjects.code, code)).limit(1))[0];
   if (duplicate) throw new Error("LEARNING_AREA_CODE_ALREADY_EXISTS");
-  await db.insert(subjects).values({ name, code });
+  await db.insert(subjects).values({ schoolId, name, code });
   await writeAudit(userId, "learning_area.create", "subject", code, { name, code });
   return { ok: true };
 }
@@ -1941,6 +1948,10 @@ export async function saveTeacherAllocation(input: { teacherUserId: number; grad
   const teacher = (await db.select({ id: users.id }).from(users).innerJoin(staffProfiles, eq(staffProfiles.userId, users.id)).where(and(eq(users.id, input.teacherUserId), eq(users.schoolId, schoolId), eq(staffProfiles.schoolId, schoolId), eq(staffProfiles.status, "active"))).limit(1))[0];
   const grade = (await db.select().from(grades).where(and(eq(grades.id, input.gradeId), eq(grades.schoolId, schoolId))).limit(1))[0];
   if (!teacher || !grade) throw new Error("ALLOCATION_CONTEXT_NOT_FOUND");
+  if (input.allocationType !== "class_teacher") {
+    const subject = (await db.select({ id: subjects.id }).from(subjects).where(and(eq(subjects.id, input.subjectId), or(eq(subjects.schoolId, schoolId), isNull(subjects.schoolId)))).limit(1))[0];
+    if (!subject) throw new Error("ALLOCATION_CONTEXT_NOT_FOUND");
+  }
   const active = await db.select().from(teacherAllocations).where(and(eq(teacherAllocations.schoolId, schoolId), eq(teacherAllocations.gradeId, input.gradeId), eq(teacherAllocations.academicYear, input.academicYear), eq(teacherAllocations.term, input.term), eq(teacherAllocations.status, "active")));
   const conflict = active.find(row => allocationContextConflict(input, row));
   if (conflict && conflict.teacherUserId !== input.teacherUserId) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { areLanguageSubjectsAdjacent, allocationContextConflict, assertScore, buildTimetableAuditRows, buildTimetableValidationReport, hasAdjacentTeacherLesson, timetableEntriesAlignedWithAllocations, unallocatedTimetableEntries, canAccessAttendanceGrade, canCaptureAttendance, cbcLevel, isAttendanceAdmin, isPreNoonTimetableSubject, resolveImportGrade, timetableConflicts } from "./smis";
+import { areLanguageSubjectsAdjacent, allocationContextConflict, assertScore, buildTimetableAuditRows, buildTimetableValidationReport, hasAdjacentTeacherLesson, timetableEntriesAlignedWithAllocations, unallocatedTimetableEntries, canAccessAttendanceGrade, canCaptureAttendance, cbcLevel, isAttendanceAdmin, isPreNoonTimetableSubject, nextSchoolSubjectCode, resolveImportGrade, timetableConflicts } from "./smis";
 import { swapTimetableDraftEntries, type TimetableDraftEntry } from "../shared/timetable";
 
 describe("NEXUS SMIS backend rules", () => {
@@ -131,6 +131,12 @@ describe("NEXUS SMIS backend rules", () => {
     expect(allocationContextConflict({ gradeId: 2, subjectId: 2, allocationType: "learning_area", startsOn: "2027-01-01", endsOn: "2027-01-31" }, { ...activeEnglish, startsOn: "2026-01-01", endsOn: "2026-12-31" })).toBe(true);
     expect(allocationContextConflict({ gradeId: 2, subjectId: 0, allocationType: "class_teacher" }, { ...activeEnglish, allocationType: "class_teacher" })).toBe(true);
     expect(allocationContextConflict({ gradeId: 2, subjectId: 2, allocationType: "learning_area" }, { ...activeEnglish, status: "inactive" })).toBe(false);
+  });
+
+  it("generates school catalog subject codes without cross-school collisions", () => {
+    const usedCodes = new Set(["cbc-mathematics", "cbc-mathematics-2"]);
+    expect(nextSchoolSubjectCode("Mathematics", usedCodes)).toBe("CBC-MATHEMATICS-3");
+    expect(usedCodes.has("cbc-mathematics-3")).toBe(true);
   });
 });
 
