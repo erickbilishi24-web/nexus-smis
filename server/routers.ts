@@ -86,7 +86,7 @@ import {
   listTimetablePlans,
   createTimetablePlan,
   archiveTimetablePlan,
-  listTimetableVersions, restoreTimetableVersion, deleteTimetableVersion,
+  listTimetableVersions, listDeletedTimetableVersions, restoreTimetableVersion, deleteTimetableVersion, recoverTimetableVersion,
   listTimetableAudit, getTimetableValidationReport,
   listTeacherCodes,
   listTimetableRequirements,
@@ -433,8 +433,10 @@ export const appRouter = router({
       addPlan: masterTimetableProcedure.input(z.object({ name: z.string().min(1).max(120), section: z.string().min(1).max(60), academicYear: z.number().int().min(2000).max(2100), term: z.string().max(40).nullable().optional(), description: z.string().max(500).nullable().optional() })).mutation(({ input, ctx }) => createTimetablePlan(input, currentUserId(ctx.user))),
       archivePlan: masterTimetableProcedure.input(z.object({ planId: z.number().int().positive() })).mutation(({ input, ctx }) => archiveTimetablePlan(input.planId, currentUserId(ctx.user))),
       versions: masterTimetableProcedure.query(({ ctx }) => listTimetableVersions(currentUserId(ctx.user))),
+      recycleBin: masterTimetableProcedure.query(({ ctx }) => listDeletedTimetableVersions(currentUserId(ctx.user))),
       restoreVersion: masterTimetableProcedure.input(z.object({ versionId: z.number().int().positive() })).mutation(({ input, ctx }) => restoreTimetableVersion(input.versionId, currentUserId(ctx.user))),
       deleteVersion: masterTimetableProcedure.input(z.object({ versionId: z.number().int().positive() })).mutation(({ input, ctx }) => deleteTimetableVersion(input.versionId, currentUserId(ctx.user))),
+      recoverVersion: masterTimetableProcedure.input(z.object({ versionId: z.number().int().positive() })).mutation(({ input, ctx }) => recoverTimetableVersion(input.versionId, currentUserId(ctx.user))),
       masterList: protectedProcedure.use(async ({ ctx, next }) => {
         if (!await canViewMasterTimetable(ctx.user.id, ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: "MASTER_TIMETABLE_SCOPE_FORBIDDEN" });
         return next();

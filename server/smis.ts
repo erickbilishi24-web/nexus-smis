@@ -717,7 +717,16 @@ export async function recordStoreMovement(input: { itemId: number; movementType:
 
 type TimetableVersionEntry = { gradeId: number; subjectId: number; teacherUserId: number; dayOfWeek: number; period: number; room?: string | null; schoolId?: number | null; isForcePlaced?: boolean };
 
-type TimetableVersionMetadata = { label?: string; placed?: number; unplaced?: Array<{ grade: string; subject: string; missing: number }>; entries: TimetableVersionEntry[] };
+type TimetableVersionMetadata = { label?: string; placed?: number; unplaced?: Array<{ grade: string; subject: string; missing: number }>; entries: TimetableVersionEntry[]; deletedAt?: string; deletedBy?: number };
+
+function parseTimetableVersionMetadata(value: string | null | undefined): TimetableVersionMetadata {
+  try {
+    const parsed = JSON.parse(value ?? "{}") as Partial<TimetableVersionMetadata>;
+    return { ...parsed, entries: Array.isArray(parsed.entries) ? parsed.entries : [] };
+  } catch {
+    return { entries: [] };
+  }
+}
 
 async function snapshotTimetableVersion(userId: number, label: string, entries: TimetableVersionEntry[], result: Pick<TimetableVersionMetadata, "placed" | "unplaced"> = {}) {
   await writeAudit(userId, "timetable.version", "timetable", null, {
@@ -733,9 +742,19 @@ export async function listTimetableVersions(userId: number) {
   const schoolId = await actorSchoolId(userId);
   const rows = await db.select().from(auditLogs).where(and(eq(auditLogs.schoolId, schoolId), eq(auditLogs.action, "timetable.version"))).orderBy(desc(auditLogs.createdAt), desc(auditLogs.id)).limit(30);
   return rows.map(row => {
-    let metadata: TimetableVersionMetadata = { entries: [] };
-    try { const parsed = JSON.parse(row.metadata ?? "{}") as Partial<TimetableVersionMetadata>; metadata = { ...parsed, entries: Array.isArray(parsed.entries) ? parsed.entries : [] }; } catch { /* keep a safe empty version */ }
+    const metadata = parseTimetableVersionMetadata(row.metadata);
+    if (metadata.deletedAt) return null;
     return { id: Number(row.id), createdAt: row.createdAt, label: metadata.label ?? "Generated timetable", placed: metadata.placed ?? metadata.entries.length, unplaced: metadata.unplaced ?? [], entryCount: metadata.entries.length };
+  }).filter((version): version is NonNullable<typeof version> => Boolean(version));
+}
+
+export async function listDeletedTimetableVersions(userId: number) {
+  const db = await requireDb();
+  const schoolId = await actorSchoolId(userId);
+  const rows = await db.select().from(auditLogs).where(and(eq(auditLogs.schoolId, schoolId), eq(auditLogs.action, "timetable.version"))).orderBy(desc(auditLogs.createdAt), desc(auditLogs.id)).limit(30);
+  return rows.flatMap(row => {
+    const metadata = parseTimetableVersionMetadata(row.metadata);
+    return metadata.deletedAt ? [{ id: Number(row.id), deletedAt: metadata.deletedAt, label: metadata.label ?? "Generated timetable", placed: metadata.placed ?? metadata.entries.length, entryCount: metadata.entries.length }] : [];
   });
 }
 
@@ -744,8 +763,8 @@ export async function restoreTimetableVersion(versionId: number, userId: number)
   const schoolId = await actorSchoolId(userId);
   const version = (await db.select().from(auditLogs).where(and(eq(auditLogs.id, versionId), eq(auditLogs.schoolId, schoolId), eq(auditLogs.action, "timetable.version"))).limit(1))[0];
   if (!version) throw new Error("TIMETABLE_VERSION_NOT_FOUND");
-  let metadata: TimetableVersionMetadata;
-  try { const parsed = JSON.parse(version.metadata ?? "{}") as Partial<TimetableVersionMetadata>; metadata = { ...parsed, entries: Array.isArray(parsed.entries) ? parsed.entries : [] }; } catch { throw new Error("TIMETABLE_VERSION_INVALID"); }
+  const metadata = parseTimetableVersionMetadata(version.metadata);
+  if (metadata.deletedAt) throw new Error("TIMETABLE_VERSION_IN_TRASH");
   const entries = metadata.entries ?? [];
   const schoolGrades = await db.select({ id: grades.id }).from(grades).where(eq(grades.schoolId, schoolId));
   const gradeIds = schoolGrades.map(row => row.id);
@@ -763,9 +782,27 @@ export async function deleteTimetableVersion(versionId: number, userId: number) 
     .limit(1);
   const version = versionRows[0];
   if (!version) throw new Error("TIMETABLE_VERSION_NOT_FOUND");
-  await db.delete(auditLogs).where(and(eq(auditLogs.id, versionId), eq(auditLogs.schoolId, schoolId), eq(auditLogs.action, "timetable.version")));
-  await writeAudit(userId, "timetable.version.delete", "timetable", versionId, { deletedVersionId: versionId });
+  const versionRow = (await db.select({ metadata: auditLogs.metadata }).from(auditLogs).where(and(eq(auditLogs.id, versionId), eq(auditLogs.schoolId, schoolId), eq(auditLogs.action, "timetable.version"))).limit(1))[0];
+  const metadata = parseTimetableVersionMetadata(versionRow?.metadata);
+  metadata.deletedAt = new Date().toISOString();
+  metadata.deletedBy = userId;
+  await db.update(auditLogs).set({ metadata: JSON.stringify(metadata) }).where(and(eq(auditLogs.id, versionId), eq(auditLogs.schoolId, schoolId), eq(auditLogs.action, "timetable.version")));
+  await writeAudit(userId, "timetable.version.delete", "timetable", versionId, { deletedVersionId: versionId, recoverable: true });
   return { deletedVersionId: versionId };
+}
+
+export async function recoverTimetableVersion(versionId: number, userId: number) {
+  const db = await requireDb();
+  const schoolId = await actorSchoolId(userId);
+  const version = (await db.select().from(auditLogs).where(and(eq(auditLogs.id, versionId), eq(auditLogs.schoolId, schoolId), eq(auditLogs.action, "timetable.version"))).limit(1))[0];
+  if (!version) throw new Error("TIMETABLE_VERSION_NOT_FOUND");
+  const metadata = parseTimetableVersionMetadata(version.metadata);
+  if (!metadata.deletedAt) throw new Error("TIMETABLE_VERSION_NOT_IN_TRASH");
+  delete metadata.deletedAt;
+  delete metadata.deletedBy;
+  await db.update(auditLogs).set({ metadata: JSON.stringify(metadata) }).where(and(eq(auditLogs.id, versionId), eq(auditLogs.schoolId, schoolId), eq(auditLogs.action, "timetable.version")));
+  await writeAudit(userId, "timetable.version.recover", "timetable", versionId, { recoveredVersionId: versionId });
+  return { recoveredVersionId: versionId };
 }
 
 async function activeTimetableAllocationRows(schoolId: number, academicYear: number, term: string) {
