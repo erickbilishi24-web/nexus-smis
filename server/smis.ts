@@ -729,12 +729,17 @@ function parseTimetableVersionMetadata(value: string | null | undefined): Timeta
 }
 
 async function snapshotTimetableVersion(userId: number, label: string, entries: TimetableVersionEntry[], result: Pick<TimetableVersionMetadata, "placed" | "unplaced"> = {}) {
+  const db = await requireDb();
   await writeAudit(userId, "timetable.version", "timetable", null, {
     label,
     placed: result.placed ?? entries.length,
     unplaced: result.unplaced ?? [],
     entries,
   });
+  const schoolId = await actorSchoolId(userId);
+  const rows = await db.select().from(auditLogs).where(and(eq(auditLogs.schoolId, schoolId), eq(auditLogs.action, "timetable.version"))).orderBy(desc(auditLogs.createdAt), desc(auditLogs.id));
+  const activeIds = rows.filter(row => !parseTimetableVersionMetadata(row.metadata).deletedAt).map(row => Number(row.id));
+  if (activeIds.length > 4) await db.delete(auditLogs).where(and(eq(auditLogs.schoolId, schoolId), eq(auditLogs.action, "timetable.version"), inArray(auditLogs.id, activeIds.slice(4))));
 }
 
 export async function listTimetableVersions(userId: number) {
@@ -745,7 +750,7 @@ export async function listTimetableVersions(userId: number) {
     const metadata = parseTimetableVersionMetadata(row.metadata);
     if (metadata.deletedAt) return null;
     return { id: Number(row.id), createdAt: row.createdAt, label: metadata.label ?? "Generated timetable", placed: metadata.placed ?? metadata.entries.length, unplaced: metadata.unplaced ?? [], entryCount: metadata.entries.length };
-  }).filter((version): version is NonNullable<typeof version> => Boolean(version));
+  }).filter((version): version is NonNullable<typeof version> => Boolean(version)).slice(0, 4);
 }
 
 export async function listDeletedTimetableVersions(userId: number) {
@@ -755,7 +760,7 @@ export async function listDeletedTimetableVersions(userId: number) {
   return rows.flatMap(row => {
     const metadata = parseTimetableVersionMetadata(row.metadata);
     return metadata.deletedAt ? [{ id: Number(row.id), deletedAt: metadata.deletedAt, label: metadata.label ?? "Generated timetable", placed: metadata.placed ?? metadata.entries.length, entryCount: metadata.entries.length }] : [];
-  });
+  }).slice(0, 4);
 }
 
 export async function restoreTimetableVersion(versionId: number, userId: number) {
@@ -787,6 +792,9 @@ export async function deleteTimetableVersion(versionId: number, userId: number) 
   metadata.deletedAt = new Date().toISOString();
   metadata.deletedBy = userId;
   await db.update(auditLogs).set({ metadata: JSON.stringify(metadata) }).where(and(eq(auditLogs.id, versionId), eq(auditLogs.schoolId, schoolId), eq(auditLogs.action, "timetable.version")));
+  const deletedRows = await db.select().from(auditLogs).where(and(eq(auditLogs.schoolId, schoolId), eq(auditLogs.action, "timetable.version"))).orderBy(desc(auditLogs.createdAt), desc(auditLogs.id));
+  const deletedIds = deletedRows.filter(row => Boolean(parseTimetableVersionMetadata(row.metadata).deletedAt)).map(row => Number(row.id));
+  if (deletedIds.length > 4) await db.delete(auditLogs).where(and(eq(auditLogs.schoolId, schoolId), eq(auditLogs.action, "timetable.version"), inArray(auditLogs.id, deletedIds.slice(4))));
   await writeAudit(userId, "timetable.version.delete", "timetable", versionId, { deletedVersionId: versionId, recoverable: true });
   return { deletedVersionId: versionId };
 }
