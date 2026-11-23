@@ -1121,8 +1121,9 @@ export function areLanguageSubjectsAdjacent(subjectAtClassSlot: Map<string, stri
 
 
 export async function saveEditedTimetable(entries: Array<{ dayOfWeek: number; period: number; gradeId: number; subjectId: number; teacherUserId: number; room?: string | null; isForcePlaced?: boolean }>, userId: number) {
-  const conflicts = [...timetableConflicts(entries), ...timetableAdjacentTeacherConflicts(entries)];
-  if (conflicts.length) throw new Error(`TIMETABLE_CLASH:${conflicts.join(",")}`);
+  // Edit Mode is an administrator's draft workspace: preserve the exact manual
+  // arrangement so the user can save, reopen, and correct conflicts later.
+  // Automatic generation and validation continue to enforce hard rules.
   const db = await requireDb();
   const schoolId = await actorSchoolId(userId);
   const settings = await getSettings(schoolId);

@@ -52,6 +52,7 @@ export default function NexusArcadeWorkspace() {
   const [selectedHint, setSelectedHint] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const playerRef = useRef<HTMLDivElement>(null);
+  const gameFrameRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
     const syncFullscreenState = () =>
@@ -77,6 +78,11 @@ export default function NexusArcadeWorkspace() {
     setError(
       "The browser player could not be loaded. Use Open in new tab or download the DOS bundle below."
     );
+  };
+
+  const sendTouchCommand = (key: string) => {
+    gameFrameRef.current?.contentWindow?.postMessage({ type: "nexus-arcade-key", key }, "*");
+    gameFrameRef.current?.focus();
   };
 
   return (
@@ -187,6 +193,7 @@ export default function NexusArcadeWorkspace() {
           {started ? (
             <iframe
               key={BROWSER_GAME_URL}
+              ref={gameFrameRef}
               title="Prince of Persia HTML5 game"
               src={BROWSER_GAME_URL}
               onLoad={handleGameLoad}
@@ -201,6 +208,21 @@ export default function NexusArcadeWorkspace() {
             </div>
           )}
         </div>
+        {started && (
+          <div className="mt-3 rounded-xl border border-[#cbded1] bg-[#eef8f0] p-3 md:hidden" aria-label="Touch controls">
+            <p className="mb-2 text-center text-xs font-black uppercase tracking-[.12em] text-[#1d6a57]">Touch controls</p>
+            <div className="grid grid-cols-3 gap-2">
+              <span />
+              <button type="button" onTouchStart={() => sendTouchCommand("ArrowUp")} onClick={() => sendTouchCommand("ArrowUp")} className="rounded-lg bg-[#1d6a57] px-3 py-3 text-lg font-black text-white active:scale-95" aria-label="Jump or climb">↑</button>
+              <span />
+              <button type="button" onTouchStart={() => sendTouchCommand("ArrowLeft")} onClick={() => sendTouchCommand("ArrowLeft")} className="rounded-lg bg-[#28483f] px-3 py-3 text-lg font-black text-white active:scale-95" aria-label="Move left">←</button>
+              <button type="button" onTouchStart={() => sendTouchCommand("ArrowDown")} onClick={() => sendTouchCommand("ArrowDown")} className="rounded-lg bg-[#28483f] px-3 py-3 text-lg font-black text-white active:scale-95" aria-label="Duck">↓</button>
+              <button type="button" onTouchStart={() => sendTouchCommand("ArrowRight")} onClick={() => sendTouchCommand("ArrowRight")} className="rounded-lg bg-[#28483f] px-3 py-3 text-lg font-black text-white active:scale-95" aria-label="Move right">→</button>
+              <button type="button" onTouchStart={() => sendTouchCommand("Shift")} onClick={() => sendTouchCommand("Shift")} className="col-span-3 rounded-lg bg-[#b58a25] px-3 py-2 text-xs font-black text-white active:scale-95" aria-label="Combat or run">SWORD / RUN</button>
+            </div>
+            <p className="mt-2 text-center text-[.65rem] text-[#53675d]">Tap a control after focusing the game. Arrow buttons move, jump, climb, and duck; SWORD / RUN handles combat.</p>
+          </div>
+        )}
         {hintsOpen && (
           <div
             id="prince-of-persia-hints"
@@ -270,8 +292,8 @@ export default function NexusArcadeWorkspace() {
           </div>
         )}
         <p className="mt-3 text-xs leading-5 text-[#718077]">
-          Click inside the game to focus it, then use the keyboard controls. Use
-          the player’s own full-screen control when available.
+          On phones and tablets, use the touch controls below the game. On desktop,
+          click inside the game to focus it and use the keyboard controls.
         </p>
       </div>
     </section>
