@@ -755,6 +755,19 @@ export async function restoreTimetableVersion(versionId: number, userId: number)
   return { restoredVersionId: versionId, placed: entries.length };
 }
 
+export async function deleteTimetableVersion(versionId: number, userId: number) {
+  const db = await requireDb();
+  const schoolId = await actorSchoolId(userId);
+  const versionRows = await db.select({ id: auditLogs.id }).from(auditLogs)
+    .where(and(eq(auditLogs.id, versionId), eq(auditLogs.schoolId, schoolId), eq(auditLogs.action, "timetable.version")))
+    .limit(1);
+  const version = versionRows[0];
+  if (!version) throw new Error("TIMETABLE_VERSION_NOT_FOUND");
+  await db.delete(auditLogs).where(and(eq(auditLogs.id, versionId), eq(auditLogs.schoolId, schoolId), eq(auditLogs.action, "timetable.version")));
+  await writeAudit(userId, "timetable.version.delete", "timetable", versionId, { deletedVersionId: versionId });
+  return { deletedVersionId: versionId };
+}
+
 async function activeTimetableAllocationRows(schoolId: number, academicYear: number, term: string) {
   const db = await requireDb();
   return db.select({ allocation: teacherAllocations, subject: subjects, staff: staffProfiles, user: users })
