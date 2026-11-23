@@ -1170,14 +1170,14 @@ export function areLanguageSubjectsAdjacent(subjectAtClassSlot: Map<string, stri
 }
 
 
-export async function saveEditedTimetable(entries: Array<{ dayOfWeek: number; period: number; gradeId: number; subjectId: number; teacherUserId: number; room?: string | null; isForcePlaced?: boolean }>, userId: number) {
+export async function saveEditedTimetable(entries: Array<{ dayOfWeek: number; period: number; gradeId: number; subjectId: number; teacherUserId: number; room?: string | null; isForcePlaced?: boolean }>, userId: number, scope?: { academicYear?: number; term?: string }) {
   // Edit Mode is an administrator's draft workspace: preserve the exact manual
   // arrangement so the user can save, reopen, and correct conflicts later.
   // Automatic generation and validation continue to enforce hard rules.
   const db = await requireDb();
   const schoolId = await actorSchoolId(userId);
   const settings = await getSettings(schoolId);
-  const activeAllocations = (await activeTimetableAllocationRows(schoolId, Number(settings.academicYear), settings.currentTerm)).map(row => ({ ...row.allocation, subjectName: row.subject?.name ?? null, subjectCode: row.subject?.code ?? null }));
+  const activeAllocations = (await activeTimetableAllocationRows(schoolId, scope?.academicYear ?? Number(settings.academicYear), scope?.term ?? settings.currentTerm)).map(row => ({ ...row.allocation, subjectName: row.subject?.name ?? null, subjectCode: row.subject?.code ?? null }));
   const submittedSubjects = await db.select({ id: subjects.id, name: subjects.name, code: subjects.code }).from(subjects).where(inArray(subjects.id, entries.map(entry => entry.subjectId)));
   const subjectById = new Map(submittedSubjects.map(subject => [subject.id, subject]));
   const entriesWithSubjectMetadata = entries.map(entry => ({ ...entry, subjectName: subjectById.get(entry.subjectId)?.name ?? null, subjectCode: subjectById.get(entry.subjectId)?.code ?? null }));
