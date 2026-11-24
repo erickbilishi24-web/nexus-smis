@@ -228,12 +228,12 @@ function TimetableWorkspace() {
       void utils.smis.timetable.versions.invalidate();
       setSelectedVersionId(null);
       const count = r.unplaced?.reduce((sum, item) => sum + item.missing, 0) ?? 0;
-      if (count > 0 && !forcePlacementInFlight.current) {
+      if (count > 0 && !forcePlacementInFlight.current && !r.regenerated) {
         setPlacementPrompt({ count, forcePlace: false });
         toast.warning(`${count} lesson${count === 1 ? "" : "s"} could not fit on the timetable`);
       } else if (count > 0) {
-        setPlacementPrompt({ count, forcePlace: true });
-        toast.warning(`${count} lesson${count === 1 ? "" : "s"} still need placement`);
+        setPlacementPrompt(null);
+        toast.warning(`${count} lesson${count === 1 ? "" : "s"} remain for manual review after best-effort regeneration`);
       } else {
         setPlacementPrompt(null);
         if (r.validationWarnings?.length) toast.warning(`Timetable generated with ${r.validationWarnings.length} non-blocking warning${r.validationWarnings.length === 1 ? "" : "s"}`);
@@ -330,7 +330,7 @@ function TimetableWorkspace() {
     generate.mutate({ ...timetableScope, forcePlace: true, regenerate: false, days: 5, periodsPerDay: 8, classLessonTotals: derivedLessonTotals });
   };
   const versionRows = timetableVersions.data ?? [];
-  const calculatedUnplacedLessonCards = editMode ? lessonSummary.flatMap(row => row.unplacedSubjects.flatMap(item => { const allocation = (allocations.data ?? []).find(candidate => candidate.allocation.status === "active" && candidate.allocation.gradeId === row.grade.id && candidate.allocation.subjectId === item.subject.id); const draftPlacedCount = Object.entries(editDraft).filter(([key, entry]) => !removedDraftKeys.has(key) && entry.sourceId == null && entry.gradeId === row.grade.id && entry.subjectId === item.subject.id).length; const remainingMissing = Math.max(0, item.missing - draftPlacedCount); return allocation && remainingMissing > 0 ? [{ gradeId: row.grade.id, gradeLabel: `${row.grade.name}${row.grade.stream ? ` ${row.grade.stream}` : ""}`, subjectId: item.subject.id, subjectLabel: compactSubject(item.subject.code, item.subject.name), subjectCode: item.subject.code, teacherUserId: allocation.allocation.teacherUserId, teacherLabel: allocation.staff?.displayName ?? "Teacher", teacherCode: allocation.staff?.teacherCode ?? null, missing: remainingMissing }] : []; })) : []; const returnedLessonCards = editMode ? Array.from(removedDraftKeys).map(key => { const draft = editDraft[key]; const allocation = draft ? (allocations.data ?? []).find(candidate => candidate.allocation.status === "active" && candidate.allocation.gradeId === draft.gradeId && candidate.allocation.subjectId === draft.subjectId && candidate.allocation.teacherUserId === draft.teacherUserId) : undefined; const grade = draft ? gradeOptions.find(item => item.id === draft.gradeId) : undefined; return draft && allocation ? { gradeId: draft.gradeId, gradeLabel: grade ? `${grade.name}${grade.stream ? ` ${grade.stream}` : ""}` : "Class", subjectId: draft.subjectId, subjectLabel: compactSubject(allocation.subject?.code ?? "", allocation.subject?.name ?? "Lesson"), subjectCode: allocation.subject?.code ?? "", teacherUserId: draft.teacherUserId, teacherLabel: allocation.staff?.displayName ?? "Teacher", teacherCode: allocation.staff?.teacherCode ?? null, missing: 1 } : null; }).filter((card): card is NonNullable<typeof card> => Boolean(card)) : []; const unplacedLessonCards = [...returnedLessonCards, ...calculatedUnplacedLessonCards];
+  const unplacedLessonCards = editMode ? Array.from(removedDraftKeys).map(key => { const draft = editDraft[key]; const allocation = draft ? (allocations.data ?? []).find(candidate => candidate.allocation.status === "active" && candidate.allocation.gradeId === draft.gradeId && candidate.allocation.subjectId === draft.subjectId && candidate.allocation.teacherUserId === draft.teacherUserId) : undefined; const grade = draft ? gradeOptions.find(item => item.id === draft.gradeId) : undefined; return draft && allocation ? { gradeId: draft.gradeId, gradeLabel: grade ? `${grade.name}${grade.stream ? ` ${grade.stream}` : ""}` : "Class", subjectId: draft.subjectId, subjectLabel: compactSubject(allocation.subject?.code ?? "", allocation.subject?.name ?? "Lesson"), subjectCode: allocation.subject?.code ?? "", teacherUserId: draft.teacherUserId, teacherLabel: allocation.staff?.displayName ?? "Teacher", teacherCode: allocation.staff?.teacherCode ?? null, missing: 1 } : null; }).filter((card): card is NonNullable<typeof card> => Boolean(card)) : [];
   const activeVersionIndex = selectedVersionId == null ? 0 : Math.max(0, versionRows.findIndex(version => version.id === selectedVersionId));
   const restoreVersionByIndex = (index: number) => {
     const version = versionRows[index];

@@ -1413,7 +1413,7 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
         if (!occupied.has(`${row.requirement.gradeId}:${day}:${period}`) && !subjectDays.has(`${row.requirement.gradeId}:${row.requirement.subjectId}:${day}`)) { slot = { day, period }; break; }
       }
       if (!slot) break;
-      const teacherId = selectAvailableTeacher(teachersForLastChance, teacherBusy, slot.day, slot.period);
+      const teacherId = selectAvailableTeacher(teachersForLastChance, teacherBusy, slot.day, slot.period) ?? [...teachersForLastChance].sort((left, right) => (teacherLoad.get(left) ?? 0) - (teacherLoad.get(right) ?? 0))[0];
       if (teacherId == null) break;
       await db.insert(timetableEntries).values({ schoolId, gradeId: row.requirement.gradeId, subjectId: row.requirement.subjectId, teacherUserId: teacherId, dayOfWeek: slot.day, period: slot.period, room: null, isForcePlaced: true });
       occupied.add(`${row.requirement.gradeId}:${slot.day}:${slot.period}`);
@@ -1477,6 +1477,7 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
     if (remaining > 0) unplaced.push({ grade: row.grade.name, subject: row.subject.name, missing: remaining });
   }
   if (unplaced.length && (input.regenerate || input.forcePlace)) {
+    validationWarnings.push("Best-effort regeneration could not place every lesson because the class timetable capacity or teacher allocation data was exhausted.");
     await db.delete(timetableEntries).where(eq(timetableEntries.schoolId, schoolId));
     const safeOccupied = new Set<string>();
     const safeSubjectDays = new Set<string>();
