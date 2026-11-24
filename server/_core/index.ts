@@ -36,6 +36,49 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app);
   registerOAuthRoutes(app);
+  // Proxy the public PrinceJS build into the app's origin so the arcade touch
+  // controls can send keyboard events into the game iframe. Cross-origin
+  // postMessage calls alone are ignored by PrinceJS because it has no listener.
+  app.get("/arcade-prince/*", async (req, res) => {
+    try {
+      const requestedPath = String((req.params as Record<string, string>)["0"] || "");
+      const upstreamUrl = `https://princejs.com/${requestedPath}`;
+      const upstream = await fetch(upstreamUrl);
+      if (!upstream.ok) {
+        res.status(upstream.status).send("Arcade asset unavailable");
+        return;
+      }
+      const contentType = upstream.headers.get("content-type") || "application/octet-stream";
+      res.setHeader("Content-Type", contentType);
+      res.setHeader("Cache-Control", "public, max-age=3600");
+      if (contentType.includes("text/html")) {
+        let html = await upstream.text();
+        const bridge = `<script>
+          (() => {
+            const codes = { ArrowUp: 38, ArrowDown: 40, ArrowLeft: 37, ArrowRight: 39, Shift: 16, Enter: 13, Space: 32, Escape: 27 };
+            window.addEventListener('message', event => {
+              if (!event.data || event.data.type !== 'nexus-arcade-key') return;
+              const key = String(event.data.key || '');
+              const code = codes[key] || 0;
+              if (!code) return;
+              const type = event.data.action === 'up' ? 'keyup' : 'keydown';
+              const init = { key, code: key, keyCode: code, which: code, bubbles: true, cancelable: true };
+              document.dispatchEvent(new KeyboardEvent(type, init));
+              window.dispatchEvent(new KeyboardEvent(type, init));
+              const canvas = document.querySelector('canvas');
+              if (canvas) canvas.dispatchEvent(new KeyboardEvent(type, init));
+            });
+          })();
+        </script>`;
+        html = html.replace("</head>", `${bridge}</head>`);
+        res.send(html);
+      } else {
+        res.send(Buffer.from(await upstream.arrayBuffer()));
+      }
+    } catch {
+      res.status(502).send("Arcade relay unavailable");
+    }
+  });
   // tRPC API
   app.use(
     "/api/trpc",

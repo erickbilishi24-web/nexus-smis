@@ -15,7 +15,7 @@ import {
 
 const GAME_BUNDLE =
   "/manus-storage/prince-of-persia-nexus-arcade-v4_5161fa17.jsdos";
-const BROWSER_GAME_URL = "https://princejs.com/";
+const BROWSER_GAME_URL = "/arcade-prince/";
 const GAME_HINTS = [
   {
     title: "Start moving",
@@ -54,6 +54,7 @@ export default function NexusArcadeWorkspace() {
   const playerRef = useRef<HTMLDivElement>(null);
   const gameFrameRef = useRef<HTMLIFrameElement>(null);
   const touchRepeatRef = useRef<number | null>(null);
+  const activeTouchKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     const syncFullscreenState = () =>
@@ -82,19 +83,33 @@ export default function NexusArcadeWorkspace() {
   };
 
   const sendTouchCommand = (key: string) => {
-    gameFrameRef.current?.contentWindow?.postMessage({ type: "nexus-arcade-key", key }, "*");
+    gameFrameRef.current?.contentWindow?.postMessage({ type: "nexus-arcade-key", key, action: "down" }, window.location.origin);
     gameFrameRef.current?.focus();
+  };
+  const releaseTouchCommand = (key = activeTouchKeyRef.current) => {
+    if (key) {
+      gameFrameRef.current?.contentWindow?.postMessage({ type: "nexus-arcade-key", key, action: "up" }, window.location.origin);
+    }
+    activeTouchKeyRef.current = null;
   };
   const stopTouchCommand = () => {
     if (touchRepeatRef.current !== null) {
       window.clearInterval(touchRepeatRef.current);
       touchRepeatRef.current = null;
     }
+    releaseTouchCommand();
   };
   const startTouchCommand = (key: string) => {
     stopTouchCommand();
+    activeTouchKeyRef.current = key;
     sendTouchCommand(key);
     touchRepeatRef.current = window.setInterval(() => sendTouchCommand(key), 110);
+  };
+  const tapTouchCommand = (key: string) => {
+    stopTouchCommand();
+    activeTouchKeyRef.current = key;
+    sendTouchCommand(key);
+    window.setTimeout(() => releaseTouchCommand(key), 140);
   };
   useEffect(() => () => stopTouchCommand(), []);
 
@@ -222,18 +237,21 @@ export default function NexusArcadeWorkspace() {
           )}
         </div>
         {started && (
-          <div className="mt-3 rounded-xl border border-[#cbded1] bg-[#eef8f0] p-3 md:hidden" aria-label="Touch controls">
+          <div className="mt-3 rounded-xl border border-[#cbded1] bg-[#eef8f0] p-3" aria-label="Touch controls">
             <p className="mb-2 text-center text-xs font-black uppercase tracking-[.12em] text-[#1d6a57]">Touch controls</p>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-4 gap-2 sm:max-w-xl sm:mx-auto">
               <span />
               <button type="button" onPointerDown={e => { e.preventDefault(); startTouchCommand("ArrowUp"); }} onPointerUp={stopTouchCommand} onPointerCancel={stopTouchCommand} onPointerLeave={stopTouchCommand} className="touch-none rounded-lg bg-[#1d6a57] px-3 py-3 text-lg font-black text-white active:scale-95" aria-label="Jump or climb">↑</button>
               <span />
+              <button type="button" onPointerDown={e => { e.preventDefault(); tapTouchCommand("Enter"); }} className="touch-none rounded-lg bg-[#53675d] px-3 py-3 text-xs font-black text-white active:scale-95" aria-label="Start or confirm">START</button>
               <button type="button" onPointerDown={e => { e.preventDefault(); startTouchCommand("ArrowLeft"); }} onPointerUp={stopTouchCommand} onPointerCancel={stopTouchCommand} onPointerLeave={stopTouchCommand} className="touch-none rounded-lg bg-[#28483f] px-3 py-3 text-lg font-black text-white active:scale-95" aria-label="Move left">←</button>
               <button type="button" onPointerDown={e => { e.preventDefault(); startTouchCommand("ArrowDown"); }} onPointerUp={stopTouchCommand} onPointerCancel={stopTouchCommand} onPointerLeave={stopTouchCommand} className="touch-none rounded-lg bg-[#28483f] px-3 py-3 text-lg font-black text-white active:scale-95" aria-label="Duck">↓</button>
               <button type="button" onPointerDown={e => { e.preventDefault(); startTouchCommand("ArrowRight"); }} onPointerUp={stopTouchCommand} onPointerCancel={stopTouchCommand} onPointerLeave={stopTouchCommand} className="touch-none rounded-lg bg-[#28483f] px-3 py-3 text-lg font-black text-white active:scale-95" aria-label="Move right">→</button>
-              <button type="button" onPointerDown={e => { e.preventDefault(); startTouchCommand("Shift"); }} onPointerUp={stopTouchCommand} onPointerCancel={stopTouchCommand} onPointerLeave={stopTouchCommand} className="col-span-3 touch-none rounded-lg bg-[#b58a25] px-3 py-2 text-xs font-black text-white active:scale-95" aria-label="Combat or run">SWORD / RUN</button>
+              <button type="button" onPointerDown={e => { e.preventDefault(); startTouchCommand("Shift"); }} onPointerUp={stopTouchCommand} onPointerCancel={stopTouchCommand} onPointerLeave={stopTouchCommand} className="col-span-2 touch-none rounded-lg bg-[#b58a25] px-3 py-2 text-xs font-black text-white active:scale-95" aria-label="Sword or run">SWORD / RUN</button>
+              <button type="button" onPointerDown={e => { e.preventDefault(); tapTouchCommand("Space"); }} className="touch-none rounded-lg bg-[#53675d] px-3 py-2 text-xs font-black text-white active:scale-95" aria-label="Show timer">INFO</button>
+              <button type="button" onPointerDown={e => { e.preventDefault(); tapTouchCommand("Escape"); }} className="touch-none rounded-lg bg-[#53675d] px-3 py-2 text-xs font-black text-white active:scale-95" aria-label="Pause or menu">PAUSE</button>
             </div>
-            <p className="mt-2 text-center text-[.65rem] text-[#53675d]">Tap a control after focusing the game. Arrow buttons move, jump, climb, and duck; SWORD / RUN handles combat.</p>
+            <p className="mt-2 text-center text-[.65rem] text-[#53675d]">Hold arrows to move, climb, jump, or duck. Hold SWORD / RUN for combat; START begins the game.</p>
           </div>
         )}
         {hintsOpen && (
