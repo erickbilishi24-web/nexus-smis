@@ -1469,6 +1469,39 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
       }
     }
   }
+  // Force regeneration has one absolute completion pass. It may relax teacher
+  // occupancy, once-per-day subject distribution, and spacing, but it never
+  // leaves an otherwise placeable configured lesson as OPEN. Every such entry
+  // is marked for review in the timetable UI.
+  if (input.forcePlace) {
+    let absoluteRows = await db.select().from(timetableEntries).where(eq(timetableEntries.schoolId, schoolId));
+    const absoluteOccupied = new Set(absoluteRows.map(entry => `${entry.gradeId}:${entry.dayOfWeek}:${entry.period}`));
+    for (const row of orderedRequirements) {
+      const key = `${row.requirement.gradeId}:${row.requirement.subjectId}`;
+      let scheduled = absoluteRows.filter(entry => entry.gradeId === row.requirement.gradeId && entry.subjectId === row.requirement.subjectId).length;
+      const subjectTeachers = Array.from(new Set(eligibleByGradeSubject.get(key) ?? []));
+      const gradeTeachers = Array.from(new Set(allocations.filter(item => item.allocationType !== "class_teacher" && item.gradeId === row.requirement.gradeId).map(item => item.teacherUserId)));
+      const anyTeachers = Array.from(new Set([...subjectTeachers, ...gradeTeachers, ...fallbackTeachers]));
+      if (!anyTeachers.length) {
+        validationWarnings.push(`${row.grade.name}: ${row.subject.name} could not be force-placed because no teacher is allocated.`);
+        continue;
+      }
+      while (scheduled < row.requirement.periodsPerWeek) {
+        let slot: { day: number; period: number } | null = null;
+        for (let day = 1; day <= days && !slot; day += 1) for (let period = 1; period <= periodsPerDay; period += 1) {
+          if (!absoluteOccupied.has(`${row.requirement.gradeId}:${day}:${period}`)) slot = { day, period };
+        }
+        if (!slot) break;
+        const teacherId = anyTeachers[scheduled % anyTeachers.length];
+        await db.insert(timetableEntries).values({ schoolId, gradeId: row.requirement.gradeId, subjectId: row.requirement.subjectId, teacherUserId: teacherId, dayOfWeek: slot.day, period: slot.period, room: null, isForcePlaced: true });
+        absoluteOccupied.add(`${row.requirement.gradeId}:${slot.day}:${slot.period}`);
+        scheduled += 1;
+        placed += 1;
+        validationWarnings.push(`${row.grade.name}: ${row.subject.name} was force-placed for complete regeneration on Day ${slot.day}, period ${slot.period}; review this cell.`);
+      }
+    }
+  }
+
   unplaced.length = 0;
   let completedRows = await db.select().from(timetableEntries).where(eq(timetableEntries.schoolId, schoolId));
   for (const row of orderedRequirements) {
@@ -1476,7 +1509,7 @@ export async function generateAutomaticTimetable(input: { academicYear?: number;
     const remaining = Math.max(0, row.requirement.periodsPerWeek - completedRows.filter(entry => entry.gradeId === row.requirement.gradeId && entry.subjectId === row.requirement.subjectId).length);
     if (remaining > 0) unplaced.push({ grade: row.grade.name, subject: row.subject.name, missing: remaining });
   }
-  if (unplaced.length && (input.regenerate || input.forcePlace)) {
+  if (unplaced.length && input.regenerate && !input.forcePlace) {
     validationWarnings.push("Best-effort regeneration could not place every lesson because the class timetable capacity or teacher allocation data was exhausted.");
     await db.delete(timetableEntries).where(eq(timetableEntries.schoolId, schoolId));
     const safeOccupied = new Set<string>();
