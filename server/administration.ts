@@ -197,18 +197,21 @@ export async function listAdminUsers(filter: { search?: string; role?: string; s
   const db = await requireDb();
   const actorProfile = actorUserId ? await getAccessProfile(actorUserId) : null;
   const actor = actorUserId ? (await db.select({ schoolId: users.schoolId }).from(users).where(eq(users.id, actorUserId)).limit(1))[0] : null;
+  // A switched school is the authoritative tenant scope, including for Super Admins.
+  // Only a platform-level session with no active school keeps the intentional global view.
+  const activeSchoolId = actor?.schoolId ?? null;
   const rows = await db.select({
     id: users.id, schoolId: users.schoolId, username: users.username, name: users.name, email: users.email, accountStatus: users.accountStatus, accountLocked: users.accountLocked,
     passwordChangedAt: users.passwordChangedAt, createdAt: users.createdAt, accountRole: users.role,
     profileId: staffProfiles.id, displayName: staffProfiles.displayName, staffId: staffProfiles.staffId, department: staffProfiles.department, role: staffProfiles.role, phone: staffProfiles.phone,
-  }).from(users).leftJoin(staffProfiles, eq(staffProfiles.userId, users.id)).orderBy(users.id);
+  }).from(users).leftJoin(staffProfiles, eq(staffProfiles.userId, users.id)).where(activeSchoolId ? eq(users.schoolId, activeSchoolId) : undefined).orderBy(users.id);
   const logins = new Map((await db.select({ userId: iamSessions.userId, last: sql<Date>`max(${iamSessions.loginAt})` }).from(iamSessions).groupBy(iamSessions.userId)).map(r => [r.userId, r.last]));
   const assignments = await assignmentsByUser();
   const roleRows = await db.select({ userId: userRoles.userId, role: userRoles.role }).from(userRoles);
   const rolesByUser = new Map<number, string[]>();
   for (const row of roleRows) rolesByUser.set(row.userId, [...(rolesByUser.get(row.userId) ?? []), row.role]);
   const term = filter.search?.trim().toLowerCase();
-  return rows.filter(r => !actorProfile || actorProfile.level === "system" || r.schoolId === actor?.schoolId).map(r => {
+  return rows.filter(r => !activeSchoolId || r.schoolId === activeSchoolId || (actorProfile?.level === "system" && !actor?.schoolId)).map(r => {
     const role = (r.role ?? "other") as StaffRole;
     const roles = Array.from(new Set([role, ...(rolesByUser.get(r.id) ?? [])]));
     const a = assignments.get(r.id);
