@@ -53,6 +53,7 @@ export default function NexusArcadeWorkspace() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const playerRef = useRef<HTMLDivElement>(null);
   const gameFrameRef = useRef<HTMLIFrameElement>(null);
+  const touchRepeatRef = useRef<number | null>(null);
 
   useEffect(() => {
     const syncFullscreenState = () =>
@@ -84,6 +85,18 @@ export default function NexusArcadeWorkspace() {
     gameFrameRef.current?.contentWindow?.postMessage({ type: "nexus-arcade-key", key }, "*");
     gameFrameRef.current?.focus();
   };
+  const stopTouchCommand = () => {
+    if (touchRepeatRef.current !== null) {
+      window.clearInterval(touchRepeatRef.current);
+      touchRepeatRef.current = null;
+    }
+  };
+  const startTouchCommand = (key: string) => {
+    stopTouchCommand();
+    sendTouchCommand(key);
+    touchRepeatRef.current = window.setInterval(() => sendTouchCommand(key), 110);
+  };
+  useEffect(() => () => stopTouchCommand(), []);
 
   return (
     <section className="space-y-6">
@@ -213,12 +226,12 @@ export default function NexusArcadeWorkspace() {
             <p className="mb-2 text-center text-xs font-black uppercase tracking-[.12em] text-[#1d6a57]">Touch controls</p>
             <div className="grid grid-cols-3 gap-2">
               <span />
-              <button type="button" onTouchStart={() => sendTouchCommand("ArrowUp")} onClick={() => sendTouchCommand("ArrowUp")} className="rounded-lg bg-[#1d6a57] px-3 py-3 text-lg font-black text-white active:scale-95" aria-label="Jump or climb">↑</button>
+              <button type="button" onPointerDown={e => { e.preventDefault(); startTouchCommand("ArrowUp"); }} onPointerUp={stopTouchCommand} onPointerCancel={stopTouchCommand} onPointerLeave={stopTouchCommand} className="touch-none rounded-lg bg-[#1d6a57] px-3 py-3 text-lg font-black text-white active:scale-95" aria-label="Jump or climb">↑</button>
               <span />
-              <button type="button" onTouchStart={() => sendTouchCommand("ArrowLeft")} onClick={() => sendTouchCommand("ArrowLeft")} className="rounded-lg bg-[#28483f] px-3 py-3 text-lg font-black text-white active:scale-95" aria-label="Move left">←</button>
-              <button type="button" onTouchStart={() => sendTouchCommand("ArrowDown")} onClick={() => sendTouchCommand("ArrowDown")} className="rounded-lg bg-[#28483f] px-3 py-3 text-lg font-black text-white active:scale-95" aria-label="Duck">↓</button>
-              <button type="button" onTouchStart={() => sendTouchCommand("ArrowRight")} onClick={() => sendTouchCommand("ArrowRight")} className="rounded-lg bg-[#28483f] px-3 py-3 text-lg font-black text-white active:scale-95" aria-label="Move right">→</button>
-              <button type="button" onTouchStart={() => sendTouchCommand("Shift")} onClick={() => sendTouchCommand("Shift")} className="col-span-3 rounded-lg bg-[#b58a25] px-3 py-2 text-xs font-black text-white active:scale-95" aria-label="Combat or run">SWORD / RUN</button>
+              <button type="button" onPointerDown={e => { e.preventDefault(); startTouchCommand("ArrowLeft"); }} onPointerUp={stopTouchCommand} onPointerCancel={stopTouchCommand} onPointerLeave={stopTouchCommand} className="touch-none rounded-lg bg-[#28483f] px-3 py-3 text-lg font-black text-white active:scale-95" aria-label="Move left">←</button>
+              <button type="button" onPointerDown={e => { e.preventDefault(); startTouchCommand("ArrowDown"); }} onPointerUp={stopTouchCommand} onPointerCancel={stopTouchCommand} onPointerLeave={stopTouchCommand} className="touch-none rounded-lg bg-[#28483f] px-3 py-3 text-lg font-black text-white active:scale-95" aria-label="Duck">↓</button>
+              <button type="button" onPointerDown={e => { e.preventDefault(); startTouchCommand("ArrowRight"); }} onPointerUp={stopTouchCommand} onPointerCancel={stopTouchCommand} onPointerLeave={stopTouchCommand} className="touch-none rounded-lg bg-[#28483f] px-3 py-3 text-lg font-black text-white active:scale-95" aria-label="Move right">→</button>
+              <button type="button" onPointerDown={e => { e.preventDefault(); startTouchCommand("Shift"); }} onPointerUp={stopTouchCommand} onPointerCancel={stopTouchCommand} onPointerLeave={stopTouchCommand} className="col-span-3 touch-none rounded-lg bg-[#b58a25] px-3 py-2 text-xs font-black text-white active:scale-95" aria-label="Combat or run">SWORD / RUN</button>
             </div>
             <p className="mt-2 text-center text-[.65rem] text-[#53675d]">Tap a control after focusing the game. Arrow buttons move, jump, climb, and duck; SWORD / RUN handles combat.</p>
           </div>

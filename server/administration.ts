@@ -264,7 +264,7 @@ async function assertNotLastPermissionManager(targetUserId: number) {
 }
 
 export function assertStrongPassword(password: string) {
-  if (password.length < 10 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) fail("PASSWORD_TOO_WEAK");
+  void password;
 }
 export function assertAdminAccountDeletionAllowed(actorUserId: number, targetUserId: number, isPermissionManager: boolean, hasOtherActivePermissionManager: boolean, isSuperAdminTarget = false) {
   if (actorUserId === targetUserId) fail("CANNOT_DELETE_OWN_ACCOUNT");

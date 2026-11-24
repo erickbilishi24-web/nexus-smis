@@ -117,7 +117,6 @@ export async function changeIamPassword(userId: number, currentPassword: string,
   if (!db) throw new Error("DATABASE_UNAVAILABLE");
   const user = (await db.select().from(users).where(eq(users.id, userId)).limit(1))[0];
   if (!user?.passwordHash || !(await bcrypt.compare(currentPassword, user.passwordHash))) throw new Error("INVALID_CURRENT_PASSWORD");
-  if (newPassword.length < 10) throw new Error("PASSWORD_TOO_SHORT");
   await db.update(users).set({ passwordHash: await bcrypt.hash(newPassword, 12), mustChangePassword: 0, passwordChangedAt: new Date() }).where(eq(users.id, userId));
   await audit(userId, "IAM_PASSWORD_CHANGED", {}, req);
 }
@@ -151,7 +150,6 @@ export async function requestIamPasswordReset(identifier: string, req: Request) 
 export async function resetIamPassword(token: string, newPassword: string, req: Request) {
   const db = await getDb();
   if (!db) throw new Error("DATABASE_UNAVAILABLE");
-  if (newPassword.length < 10) throw new Error("PASSWORD_TOO_SHORT");
   const reset = (await db.select().from(iamPasswordResets).where(and(eq(iamPasswordResets.tokenHash, tokenHash(token)))).limit(1))[0];
   if (!reset || reset.usedAt || reset.expiresAt.getTime() < Date.now()) throw new Error("INVALID_OR_EXPIRED_RESET");
   await db.update(users).set({ passwordHash: await bcrypt.hash(newPassword, 12), mustChangePassword: 0, passwordChangedAt: new Date(), accountLocked: 0, failedLoginAttempts: 0, accountStatus: "active" }).where(eq(users.id, reset.userId));

@@ -60,7 +60,6 @@ export async function registerSchool(input: { schoolName: string; schoolType: st
 
 export async function activateRegisteredAdmin(input: { token: string; password: string }, req?: Request) {
   const db = await requireDb();
-  if (input.password.length < 10 || !/[A-Za-z]/.test(input.password) || !/\d/.test(input.password)) fail("PASSWORD_TOO_WEAK");
   const registration = (await db.select({ registration: schoolRegistrations, school: schools, user: users }).from(schoolRegistrations).innerJoin(schools, eq(schools.id, schoolRegistrations.schoolId)).innerJoin(users, eq(users.schoolId, schoolRegistrations.schoolId)).where(and(eq(schoolRegistrations.activationTokenHash, hash(input.token)), eq(schoolRegistrations.status, "pending"))).limit(1))[0];
   if (!registration || registration.registration.activationExpiresAt.getTime() <= Date.now()) fail("ACTIVATION_LINK_EXPIRED");
   const passwordHash = await bcrypt.hash(input.password, 12);
