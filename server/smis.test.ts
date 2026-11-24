@@ -67,11 +67,11 @@ describe("NEXUS SMIS backend rules", () => {
     const busy = new Set(["12:2:3"]);
     expect(selectAvailableTeacher([12, 13], busy, 2, 3)).toBe(13);
     expect(selectAvailableTeacher([12], busy, 2, 3)).toBeUndefined();
-    expect(teacherSlotBlocked(busy, 12, 2, 2)).toBe(true);
-    expect(teacherSlotBlocked(busy, 12, 2, 4)).toBe(true);
+    expect(teacherSlotBlocked(busy, 12, 2, 2)).toBe(false);
+    expect(teacherSlotBlocked(busy, 12, 2, 4)).toBe(false);
     expect(timetableAdjacentTeacherConflicts([
-      { dayOfWeek: 2, period: 3, teacherUserId: 12 },
-      { dayOfWeek: 2, period: 4, teacherUserId: 12 },
+      { dayOfWeek: 2, period: 3, gradeId: 7, teacherUserId: 12 },
+      { dayOfWeek: 2, period: 4, gradeId: 7, teacherUserId: 12 },
     ])).toEqual(["teacher_adjacent:2:3:12"]);
   });
 

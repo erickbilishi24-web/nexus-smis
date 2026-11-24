@@ -1124,11 +1124,11 @@ export function timetableConflicts(entries: Array<{ dayOfWeek: number; period: n
   }
   return conflicts;
 }
-export function timetableAdjacentTeacherConflicts(entries: Array<{ dayOfWeek: number; period: number; teacherUserId: number }>) {
+export function timetableAdjacentTeacherConflicts(entries: Array<{ dayOfWeek: number; period: number; gradeId: number; teacherUserId: number }>) {
   const conflicts: string[] = [];
   for (let index = 0; index < entries.length; index += 1) for (let other = index + 1; other < entries.length; other += 1) {
     const left = entries[index]; const right = entries[other];
-    if (left.teacherUserId === right.teacherUserId && left.dayOfWeek === right.dayOfWeek && Math.abs(left.period - right.period) === 1) conflicts.push(`teacher_adjacent:${left.dayOfWeek}:${Math.min(left.period, right.period)}:${left.teacherUserId}`);
+    if (left.gradeId === right.gradeId && left.teacherUserId === right.teacherUserId && left.dayOfWeek === right.dayOfWeek && Math.abs(left.period - right.period) === 1) conflicts.push(`teacher_adjacent:${left.dayOfWeek}:${Math.min(left.period, right.period)}:${left.teacherUserId}`);
   }
   return conflicts;
 }
@@ -1160,7 +1160,10 @@ export function selectAvailableTeacher(teacherIds: number[], teacherBusy: Set<st
   return teacherIds.find(teacherId => !teacherSlotBlocked(teacherBusy, teacherId, day, period));
 }
 export function teacherSlotBlocked(teacherBusy: Set<string>, teacherId: number, day: number, period: number) {
-  return teacherBusy.has(`${teacherId}:${day}:${period}`) || teacherBusy.has(`${teacherId}:${day}:${period - 1}`) || teacherBusy.has(`${teacherId}:${day}:${period + 1}`);
+  // A teacher may teach consecutive periods in different classes. Only the
+  // exact same time slot is a hard collision; same-class adjacency is checked
+  // separately by hasAdjacentTeacherLesson during automatic placement.
+  return teacherBusy.has(`${teacherId}:${day}:${period}`);
 }
 export function areLanguageSubjectsAdjacent(subjectAtClassSlot: Map<string, string>, subjectNameById: Map<number, string>, gradeId: number, subjectId: number, day: number, period: number) {
   const normalize = (value: string) => value.replace(/^CBC[-\s]*/i, "").replace(/[^a-z]/gi, "").toLowerCase();
