@@ -488,6 +488,6 @@ body { background-color: var(--nexus-surface); }
   body * { visibility: hidden !important; }
   .timetable-print-target, .timetable-print-target * { visibility: visible !important; }
   .timetable-print-target { position: absolute !important; inset: 0 !important; width: 100% !important; }
-  .timetable-print-target .timetable-grid-scroll { overflow: visible !important; }
+  .timetable-print-target .timetable-grid-scroll { overflow: visible !important; height: auto !important; max-height: none !important; min-height: 0 !important; }
   .timetable-print-target .timetable-landscape-grid { min-width: 0 !important; width: 100% !important; }
 }
