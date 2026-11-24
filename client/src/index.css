@@ -484,3 +484,10 @@ body { background-color: var(--nexus-surface); }
 .action-button { box-shadow: 0 8px 20px color-mix(in srgb, var(--nexus-primary) 18%, transparent); }
 .nav-item.active { background: color-mix(in srgb, var(--nexus-primary) 82%, white); }
 .eyebrow .tab-dot { background: var(--nexus-accent); }
+@media print {
+  body * { visibility: hidden !important; }
+  .timetable-print-target, .timetable-print-target * { visibility: visible !important; }
+  .timetable-print-target { position: absolute !important; inset: 0 !important; width: 100% !important; }
+  .timetable-print-target .timetable-grid-scroll { overflow: visible !important; }
+  .timetable-print-target .timetable-landscape-grid { min-width: 0 !important; width: 100% !important; }
+}
