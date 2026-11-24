@@ -221,6 +221,11 @@ function TimetableWorkspace() {
   const setRequirement = trpc.smis.timetable.setRequirement.useMutation({ onError: e => toast.error(e.message.replaceAll("_", " ")) });
   const generate = trpc.smis.timetable.generateAutomatic.useMutation({
     onSuccess: r => {
+      // Generation replaces the saved timetable. Exit edit mode and discard the
+      // old draft immediately so stale OPEN draft cells cannot mask new results.
+      setEditMode(false);
+      setEditDraft({});
+      setRemovedDraftKeys(new Set());
       setValidationRequested(true);
       void utils.smis.timetable.list.invalidate();
       void utils.smis.timetable.audit.invalidate();
