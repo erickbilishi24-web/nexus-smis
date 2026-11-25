@@ -62,6 +62,15 @@ async function actorAccess(userId: number): Promise<ActorAccess> {
 }
 
 async function currentActiveTerm(db: Awaited<ReturnType<typeof requireDb>>, schoolId: number) {
+  // Use the same operational scope as the school settings boundary. This
+  // prevents the assessment entry card from falling back to an older settings
+  // row while active teacher allocations are already on the new term.
+  const allocationScope = (await db.select({ academicYear: teacherAllocations.academicYear, term: teacherAllocations.term })
+    .from(teacherAllocations)
+    .where(and(eq(teacherAllocations.schoolId, schoolId), eq(teacherAllocations.status, "active")))
+    .orderBy(desc(teacherAllocations.academicYear), desc(teacherAllocations.id))
+    .limit(1))[0];
+  if (allocationScope) return allocationScope;
   const settings = (await db.select({ academicYear: schoolSettings.academicYear, term: schoolSettings.currentTerm })
     .from(schoolSettings).where(eq(schoolSettings.schoolId, schoolId)).limit(1))[0];
   if (settings) return settings;
