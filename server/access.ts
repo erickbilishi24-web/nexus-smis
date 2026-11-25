@@ -109,7 +109,16 @@ export async function assignedRoles(userId: number): Promise<string[]> {
 
 export async function canCreateAssessments(userId: number): Promise<boolean> {
   const roles = await assignedRoles(userId);
-  return rolesCanCreateAssessments(roles);
+  if (rolesCanCreateAssessments(roles)) return true;
+  // Subject teachers may open and enter their own assessment rosters. The
+  // assessment service still verifies the exact school, year, term, class,
+  // subject, and teacher allocation before creating or returning any record.
+  const db = await requireDb();
+  const allocation = (await db.select({ id: teacherAllocations.id })
+    .from(teacherAllocations)
+    .where(and(eq(teacherAllocations.teacherUserId, userId), eq(teacherAllocations.status, "active")))
+    .limit(1))[0];
+  return Boolean(allocation);
 }
 
 export async function canViewWholeClassMarklist(userId: number, accountRole: string): Promise<boolean> {
