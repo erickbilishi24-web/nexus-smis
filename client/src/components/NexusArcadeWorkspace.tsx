@@ -41,6 +41,15 @@ const GAME_HINTS = [
     instruction: "Use Shift with a direction to run into position; use the sword control shown by the game when the guard is close.",
     mission: "Create space, face the guard, and survive the encounter before continuing toward the exit.",
   },
+  { title: "Draw your sword", keys: "Shift", instruction: "Press Shift when a guard is near to draw your sword, then use Left and Right to face and engage.", mission: "Defend yourself instead of walking into the guard unarmed." },
+  { title: "Duck under danger", keys: "↓", instruction: "Hold Down to crouch and avoid low traps, projectiles, or a guard's high swing.", mission: "Pass beneath an obstacle without losing health." },
+  { title: "Use a potion", keys: "↑ near potion", instruction: "Walk close to a potion and press Up to pick it up; pause briefly to let its effect apply.", mission: "Restore health or gain the temporary ability needed for the next room." },
+  { title: "Check loose floors", keys: "Walk carefully", instruction: "Approach suspicious floor tiles slowly. Stop, retreat, or jump if a tile begins to drop.", mission: "Avoid falling into a pit and preserve time for the level." },
+  { title: "Open doors", keys: "↑ at door", instruction: "Stand directly in front of a door or pressure plate and press Up; some doors require a nearby switch first.", mission: "Unlock the route to the next section." },
+  { title: "Climb safely", keys: "↑ + direction", instruction: "At a ledge, hold Up and tap the direction of the platform. Release once the Prince is standing securely.", mission: "Reach upper platforms while avoiding an accidental fall." },
+  { title: "Keep moving", keys: "← / → + Shift", instruction: "Use a running start before a long jump. Do not stop at the edge unless you are lining up a climb.", mission: "Build momentum to cross wide gaps and keep the countdown moving." },
+  { title: "Pause or restart", keys: "Esc / Enter", instruction: "Press Pause to stop and inspect the room. Use the game's restart option after a fall or failed attempt.", mission: "Recover quickly and try the room again without losing control." },
+  { title: "Reach the exit", keys: "Explore + ↑", instruction: "Search each room for the exit door, keys, switches, and safe ledges; press Up at the exit when you reach it.", mission: "Escape the level before the timer expires." },
 ];
 
 export default function NexusArcadeWorkspace() {
@@ -51,6 +60,7 @@ export default function NexusArcadeWorkspace() {
   const [hintsOpen, setHintsOpen] = useState(false);
   const [selectedHint, setSelectedHint] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [touchCapable, setTouchCapable] = useState(false);
   const playerRef = useRef<HTMLDivElement>(null);
   const gameFrameRef = useRef<HTMLIFrameElement>(null);
   const touchRepeatRef = useRef<number | null>(null);
@@ -62,6 +72,34 @@ export default function NexusArcadeWorkspace() {
     document.addEventListener("fullscreenchange", syncFullscreenState);
     return () => document.removeEventListener("fullscreenchange", syncFullscreenState);
   }, []);
+
+  useEffect(() => {
+    const coarse = window.matchMedia("(pointer: coarse)");
+    const updateTouchCapability = () => setTouchCapable(navigator.maxTouchPoints > 0 || coarse.matches);
+    updateTouchCapability();
+    coarse.addEventListener?.("change", updateTouchCapability);
+    return () => coarse.removeEventListener?.("change", updateTouchCapability);
+  }, []);
+
+  useEffect(() => {
+    if (!started) return;
+    const blockedKeys = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " ", "Spacebar", "Enter", "Shift", "Escape"]);
+    const relay = (event: KeyboardEvent, action: "down" | "up") => {
+      if (!blockedKeys.has(event.key)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const key = event.key === " " || event.key === "Spacebar" ? "Space" : event.key;
+      gameFrameRef.current?.contentWindow?.postMessage({ type: "nexus-arcade-key", key, action }, window.location.origin);
+    };
+    const down = (event: KeyboardEvent) => relay(event, "down");
+    const up = (event: KeyboardEvent) => relay(event, "up");
+    window.addEventListener("keydown", down, { capture: true });
+    window.addEventListener("keyup", up, { capture: true });
+    return () => {
+      window.removeEventListener("keydown", down, { capture: true });
+      window.removeEventListener("keyup", up, { capture: true });
+    };
+  }, [started]);
 
   const playNow = () => {
     setError("");
@@ -236,7 +274,7 @@ export default function NexusArcadeWorkspace() {
             </div>
           )}
         </div>
-        {started && (
+        {started && touchCapable && (
           <div className="mt-3 rounded-xl border border-[#cbded1] bg-[#eef8f0] p-3" aria-label="Touch controls">
             <p className="mb-2 text-center text-xs font-black uppercase tracking-[.12em] text-[#1d6a57]">Touch controls</p>
             <div className="grid grid-cols-4 gap-2 sm:max-w-xl sm:mx-auto">
@@ -324,7 +362,7 @@ export default function NexusArcadeWorkspace() {
         )}
         <p className="mt-3 text-xs leading-5 text-[#718077]">
           On phones and tablets, use the touch controls below the game. On desktop,
-          click inside the game to focus it and use the keyboard controls.
+          click inside the game and use the keyboard controls; arrow keys are captured by the player so the NEXUS page will not scroll.
         </p>
       </div>
     </section>

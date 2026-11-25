@@ -1081,7 +1081,15 @@ export async function getPersonalTimetable(userId: number) {
     .leftJoin(subjects, eq(subjects.id, timetableEntries.subjectId))
     .where(and(eq(timetableEntries.teacherUserId, userId), eq(timetableEntries.schoolId, schoolId)))
     .orderBy(timetableEntries.dayOfWeek, timetableEntries.period);
-  const allocationRows = await activeTimetableAllocationRows(schoolId, Number(settings?.academicYear ?? new Date().getFullYear()), settings?.currentTerm ?? "Term 1");
+  // Teacher portals follow the teacher's newest active allocation scope. This
+  // keeps a newly assigned 2027 Term 1 timetable visible immediately even if
+  // an older school-settings row is still cached or has not been promoted yet.
+  const teacherScope = (await db.select({ academicYear: teacherAllocations.academicYear, term: teacherAllocations.term })
+    .from(teacherAllocations)
+    .where(and(eq(teacherAllocations.schoolId, schoolId), eq(teacherAllocations.teacherUserId, userId), eq(teacherAllocations.status, "active")))
+    .orderBy(desc(teacherAllocations.academicYear), desc(teacherAllocations.id))
+    .limit(1))[0];
+  const allocationRows = await activeTimetableAllocationRows(schoolId, Number(teacherScope?.academicYear ?? settings?.academicYear ?? new Date().getFullYear()), teacherScope?.term ?? settings?.currentTerm ?? "Term 1");
   const allocations = allocationRows.filter(row => row.allocation.teacherUserId === userId).map(row => ({ ...row.allocation, subjectName: row.subject?.name ?? null, subjectCode: row.subject?.code ?? null }));
   const alignedIds = new Set(timetableEntriesAlignedWithAllocations(entries.map(row => ({ ...row.entry, subjectName: row.subject?.name ?? null, subjectCode: row.subject?.code ?? null, schoolId: row.entry.schoolId ?? row.grade?.schoolId ?? null })), allocations).map(entry => entry.id));
   const visibleEntries = entries.filter(row => {
